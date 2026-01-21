@@ -48,6 +48,24 @@ Check Logics conventions:
 python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
 ```
 
+## Connectors
+
+### Linear connector (issues → Logics backlog)
+
+Prereqs: `LINEAR_API_KEY` (and optionally `LINEAR_API_URL`, `LINEAR_API_TEAM_ID`). For Linear API keys, use `Authorization: $LINEAR_API_KEY` (no `Bearer` prefix).
+
+List issues:
+
+```bash
+python3 logics/skills/logics-connector-linear/scripts/linear_list_issues.py --team-id "$LINEAR_API_TEAM_ID"
+```
+
+Import an issue as a backlog item:
+
+```bash
+python3 logics/skills/logics-connector-linear/scripts/linear_to_backlog.py --issue "CIR-42"
+```
+
 ## Update the kit (inside an existing project)
 
 Update the submodule to the latest `main`:
