@@ -23,6 +23,10 @@ class Action:
     path: Path
 
 
+def _template_instructions_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / "instructions.md"
+
+
 def _find_git_root(start: Path) -> Path | None:
     current = start.resolve()
     for candidate in [current, *current.parents]:
@@ -54,6 +58,10 @@ def _plan_actions(repo_root: Path) -> list[Action]:
         if not path.exists():
             actions.append(Action("mkdir", path))
 
+    instructions_path = repo_root / "logics" / "instructions.md"
+    if not instructions_path.exists():
+        actions.append(Action("instructions", instructions_path))
+
     # Only add .gitkeep to empty dirs (and never to logics/skills which may be a submodule).
     for rel in DEFAULT_DIRS:
         if rel == "logics":
@@ -79,6 +87,13 @@ def _apply(actions: list[Action], dry_run: bool) -> None:
             else:
                 action.path.parent.mkdir(parents=True, exist_ok=True)
                 action.path.write_text("", encoding="utf-8")
+        elif action.kind == "instructions":
+            template_path = _template_instructions_path()
+            if dry_run:
+                print(f"[dry-run] write {action.path} (from {template_path})")
+            else:
+                action.path.parent.mkdir(parents=True, exist_ok=True)
+                action.path.write_text(template_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
         else:
             raise SystemExit(f"Unknown action: {action.kind}")
 
@@ -93,6 +108,10 @@ def main(argv: list[str]) -> int:
         help="Exit non-zero if actions are needed (implies dry-run; does not write).",
     )
     args = parser.parse_args(argv)
+
+    template_path = _template_instructions_path()
+    if not template_path.is_file():
+        raise SystemExit(f"Missing template: {template_path}")
 
     repo_root = _resolve_root(args.root)
     actions = _plan_actions(repo_root)
