@@ -18,6 +18,14 @@ description: Product UI/UX design assistant for this repo. Use when Codex should
 - One backlog item with clear acceptance criteria.
 - One or more tasks with a concrete plan + validation commands.
 
+## Create a UI/UX proposal doc
+
+Use the generator script (creates a `spec_XXX_*.md` in `logics/specs/` using the UI/UX proposal template):
+
+```bash
+python3 logics/skills/logics-uiux-designer/scripts/logics_uiux.py new --title "Redesign offline recap modal"
+```
+
 ## Procedure
 
 1. Audit current UX
