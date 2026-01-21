@@ -66,6 +66,65 @@ Import an issue as a backlog item:
 python3 logics/skills/logics-connector-linear/scripts/linear_to_backlog.py --issue "CIR-42"
 ```
 
+### Figma connector (nodes → export / Logics backlog)
+
+Prereqs: `FIGMA_TOKEN_PAT` (header `X-Figma-Token`) and a `FIGMA_FILE_KEY`.
+
+List pages:
+
+```bash
+python3 logics/skills/logics-connector-figma/scripts/figma_list_pages.py --file-key "$FIGMA_FILE_KEY"
+```
+
+Export a node as PNG:
+
+```bash
+python3 logics/skills/logics-connector-figma/scripts/figma_export_node.py \
+  --file-key "$FIGMA_FILE_KEY" --node-id "1744:4185" --format png --scale 2 \
+  --out "output/figma/weekly.png"
+```
+
+Import a node reference as a backlog item:
+
+```bash
+python3 logics/skills/logics-connector-figma/scripts/figma_to_backlog.py \
+  --file-key "$FIGMA_FILE_KEY" --node-id "1744:4185" --export
+```
+
+### Confluence connector (pages → Logics requests)
+
+Prereqs: `CONFLUENCE_DOMAINE`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`.
+
+Search pages (CQL):
+
+```bash
+python3 logics/skills/logics-connector-confluence/scripts/confluence_search_pages.py \
+  --cql "space=dt AND text~\\\"flotauto\\\"" --limit 10
+```
+
+Import a page as a request (stores Confluence HTML as context):
+
+```bash
+python3 logics/skills/logics-connector-confluence/scripts/confluence_to_request.py --page-id 234913873
+```
+
+### Jira connector (issues → Logics backlog)
+
+Prereqs: `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`.
+
+Search issues (JQL):
+
+```bash
+python3 logics/skills/logics-connector-jira/scripts/jira_search_issues.py \
+  --jql "project = CIR ORDER BY created DESC" --limit 20
+```
+
+Import an issue as a backlog item:
+
+```bash
+python3 logics/skills/logics-connector-jira/scripts/jira_to_backlog.py --issue "CIR-123"
+```
+
 ## Update the kit (inside an existing project)
 
 Update the submodule to the latest `main`:
