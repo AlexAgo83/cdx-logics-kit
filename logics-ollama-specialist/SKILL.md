@@ -18,7 +18,7 @@ description: Install, configure, and integrate Ollama in local apps (macOS/Homeb
 - Use the script for safe/consistent setup:
 
 ```bash
-DRY_RUN=1 logics/skills/ollama-specialist/scripts/ollama_install_macos.sh qwen3
+DRY_RUN=1 logics/skills/logics-ollama-specialist/scripts/ollama_install_macos.sh qwen3
 ```
 
 If approved, run again without `DRY_RUN=1`.
@@ -28,7 +28,7 @@ If approved, run again without `DRY_RUN=1`.
 Run the check script to validate prerequisites and reachability:
 
 ```bash
-logics/skills/ollama-specialist/scripts/ollama_check.sh qwen3
+logics/skills/logics-ollama-specialist/scripts/ollama_check.sh qwen3
 ```
 
 ## Integrate with a frontend (Vite/React)
