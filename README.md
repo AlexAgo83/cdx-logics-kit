@@ -125,6 +125,17 @@ Import an issue as a backlog item:
 python3 logics/skills/logics-connector-jira/scripts/jira_to_backlog.py --issue "CIR-123"
 ```
 
+## MCP
+
+### Chrome DevTools MCP (browser control)
+
+Use when you want Codex/agents to open local apps and validate UI directly in Chrome via MCP.
+
+Skill docs:
+```
+logics/skills/logics-mcp-chrome-devtools/SKILL.md
+```
+
 ## Update the kit (inside an existing project)
 
 Update the submodule to the latest `main`:
