@@ -136,6 +136,15 @@ Skill docs:
 logics/skills/logics-mcp-chrome-devtools/SKILL.md
 ```
 
+### Terminal MCP (shell control)
+
+Use when you want Codex/agents to run shell commands via MCP.
+
+Skill docs:
+```
+logics/skills/logics-mcp-terminal/SKILL.md
+```
+
 ## Update the kit (inside an existing project)
 
 Update the submodule to the latest `main`:
