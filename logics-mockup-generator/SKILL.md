@@ -7,7 +7,8 @@ description: Generate quick PNG UI mockups (dashboards/panels) and store them un
 
 Use this skill to create fast, disposable UI mockups (PNG) directly in the repo. Output goes to `logics/external/mockup/` by default. Defaults are neutral (non-domain-specific); pass your own labels when you want domain-specific content.
 
-Always generate **both** mobile and desktop variants unless the user explicitly asks for only one.
+Always generate **both** mobile and desktop variants unless the user explicitly asks for only one.  
+For VS Code extensions, use the `vscode` preset and generate **desktop only**.
 
 ## Quick start (dashboard preset)
 
@@ -19,6 +20,18 @@ python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
 python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
   --layout mobile \
   --out logics/external/mockup/dashboard-mobile.png
+```
+
+## VS Code extension preset (desktop only)
+
+```bash
+python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+  --preset vscode \
+  --out logics/external/mockup/logics-orchestrator-desktop.png \
+  --title "LOGICS ORCHESTRATOR" \
+  --columns "Requests|Backlog|Tasks|Specs" \
+  --detail-title "Details" \
+  --detail-lines "ID: req_000_kickoff|Stage: request|Status: draft|Owner: you|Updated: today"
 ```
 
 ## Breakdown tab (base + modifiers)

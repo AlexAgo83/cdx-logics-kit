@@ -53,9 +53,102 @@ def round_rect(draw: ImageDraw.ImageDraw, xy, radius, fill, outline=None, width=
     draw.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill, outline=outline, width=width)
 
 
+def render_vscode(args) -> int:
+    w, h = 1280, 800
+    img = Image.new("RGB", (w, h), "#1e1e1e")
+    draw = ImageDraw.Draw(img)
+
+    title_font = safe_font("/System/Library/Fonts/Supplemental/GillSans.ttc", 16)
+    label_font = safe_font("/System/Library/Fonts/Supplemental/GillSans.ttc", 13)
+    small_font = safe_font("/System/Library/Fonts/Supplemental/GillSans.ttc", 11)
+
+    title = args.title if args.title != "OVERVIEW" else "LOGICS ORCHESTRATOR"
+    columns = [c.strip() for c in args.columns.split("|") if c.strip()]
+    detail_lines = [l.strip() for l in args.detail_lines.split("|") if l.strip()]
+
+    def default_items(name: str) -> List[str]:
+        lowered = name.lower()
+        if "request" in lowered:
+            return ["req_000_kickoff", "req_001_new_flow", "req_002_import"]
+        if "backlog" in lowered:
+            return ["item_001_scope", "item_002_ui", "item_003_parser"]
+        if "task" in lowered:
+            return ["task_001_index", "task_002_views", "task_003_actions"]
+        if "spec" in lowered:
+            return ["spec_001_kickoff", "spec_002_mvp", "spec_003_ux"]
+        return ["item_001", "item_002", "item_003"]
+
+    # Title bar
+    draw.rectangle([0, 0, w, 28], fill="#3c3c3c")
+    draw.text((12, 6), title, fill="#d4d4d4", font=label_font)
+
+    # Activity bar + side bar
+    draw.rectangle([0, 28, 52, h], fill="#333333")
+    draw.rectangle([52, 28, 302, h], fill="#252526")
+    draw.text((70, 40), "LOGICS", fill="#c8c8c8", font=label_font)
+
+    sidebar_y = 70
+    for col in columns[:6]:
+        draw.text((70, sidebar_y), f"- {col}", fill="#9aa0a6", font=small_font)
+        sidebar_y += 18
+
+    # Editor area + tab bar
+    editor_x = 302
+    draw.rectangle([editor_x, 28, w, h], fill="#1e1e1e")
+    draw.rectangle([editor_x, 28, w, 64], fill="#2d2d2d")
+    draw.text((editor_x + 12, 38), "Logics Board", fill="#e5e5e5", font=label_font)
+
+    # Detail panel
+    detail_w = 320
+    detail_x0 = w - detail_w - 16
+    detail_y0 = 80
+    detail_x1 = w - 16
+    detail_y1 = h - 16
+    round_rect(draw, (detail_x0, detail_y0, detail_x1, detail_y1), 10, fill="#1f1f1f", outline="#3a3a3a", width=1)
+    draw.text((detail_x0 + 12, detail_y0 + 12), args.detail_title, fill="#e5e5e5", font=label_font)
+
+    line_y = detail_y0 + 36
+    for line in detail_lines[:8]:
+        draw.text((detail_x0 + 12, line_y), line, fill="#b9bbbe", font=small_font)
+        line_y += 16
+
+    # Board area
+    board_x0 = editor_x + 12
+    board_y0 = 80
+    board_x1 = detail_x0 - 12
+    board_y1 = h - 16
+
+    col_gap = 12
+    col_count = max(1, len(columns))
+    col_w = int((board_x1 - board_x0 - col_gap * (col_count - 1)) / col_count)
+
+    for idx, col in enumerate(columns):
+        col_x0 = board_x0 + idx * (col_w + col_gap)
+        col_x1 = col_x0 + col_w
+        round_rect(draw, (col_x0, board_y0, col_x1, board_y1), 10, fill="#202020", outline="#333333", width=1)
+        draw.text((col_x0 + 10, board_y0 + 10), col, fill="#e5e5e5", font=label_font)
+
+        card_y = board_y0 + 38
+        for item in default_items(col)[:4]:
+            round_rect(draw, (col_x0 + 8, card_y, col_x1 - 8, card_y + 44), 8, fill="#252526", outline="#3a3a3a", width=1)
+            draw.text((col_x0 + 16, card_y + 14), item, fill="#cfd2d6", font=small_font)
+            card_y += 54
+
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    img.save(args.out)
+    print(args.out)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate a quick PNG UI mockup.")
     parser.add_argument("--out", required=True, help="Output PNG path (default: logics/external/...).")
+    parser.add_argument(
+        "--preset",
+        choices=["default", "vscode"],
+        default="default",
+        help="Preset style to generate.",
+    )
     parser.add_argument(
         "--mode",
         choices=["overview", "breakdown"],
@@ -69,6 +162,21 @@ def main() -> int:
         help="Viewport layout.",
     )
     parser.add_argument("--title", default="OVERVIEW", help="Main title text.")
+    parser.add_argument(
+        "--columns",
+        default="Requests|Backlog|Tasks|Specs",
+        help="Column labels for vscode preset, separated by '|'.",
+    )
+    parser.add_argument(
+        "--detail-title",
+        default="Details",
+        help="Detail panel title for vscode preset.",
+    )
+    parser.add_argument(
+        "--detail-lines",
+        default="ID: req_000_kickoff|Stage: request|Status: draft|Owner: you|Updated: today",
+        help="Detail panel lines for vscode preset, separated by '|'.",
+    )
     parser.add_argument(
         "--tabs",
         default="Overview|Breakdown",
@@ -106,6 +214,9 @@ def main() -> int:
     )
 
     args = parser.parse_args()
+
+    if args.preset == "vscode":
+        return render_vscode(args)
 
     cards = parse_triplets(args.cards, "card")
     action_card = parse_triplets(args.action_time, "action-time")
