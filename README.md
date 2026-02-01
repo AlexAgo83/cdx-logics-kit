@@ -170,3 +170,12 @@ git commit -m "Pin Logics kit to v0.1.1"
 
 - This repo is meant to be executed from the **project repo** (where `logics/skills` points to this kit).
 - `req_*`, `item_*`, `task_*`, `spec_*` docs stay in the project repo, so there’s no cross-project “pollution”.
+
+## Mockup generator
+
+Generate quick PNG UI mockups under `logics/external/`:
+
+```bash
+python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+  --out logics/external/stats-dashboard-mock.png
+```

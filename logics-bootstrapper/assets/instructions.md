@@ -15,6 +15,7 @@ The `logics` folder defines a lightweight product flow:
 * `logics/backlog`: Scoped items with acceptance criteria + priority.
 * `logics/tasks`: Execution plans derived from backlog items (plan + progress + validation).
 * `logics/specs`: Lightweight functional specs derived from backlog/tasks.
+* `logics/external`: Generated artifacts (images, exports) that don't fit other logics folders.
 
 ## Indicators
 
@@ -37,4 +38,3 @@ This repository uses a reusable Logics skills kit (usually imported as a submodu
 
 Project validation commands are project-specific.
 Add the relevant ones to task docs under `# Validation` (tests/lint/build/typecheck).
-

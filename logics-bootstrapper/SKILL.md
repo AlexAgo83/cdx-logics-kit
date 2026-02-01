@@ -1,6 +1,6 @@
 ---
 name: logics-bootstrapper
-description: Bootstrap the Logics directory structure in a new repository (create `logics/architecture`, `logics/request`, `logics/backlog`, `logics/tasks`, `logics/specs`) and add `.gitkeep` files for empty folders so the structure stays versioned. Use when setting up Logics in a fresh project or validating that required directories exist.
+description: Bootstrap the Logics directory structure in a new repository (create `logics/architecture`, `logics/request`, `logics/backlog`, `logics/tasks`, `logics/specs`, `logics/external`) and add `.gitkeep` files for empty folders so the structure stays versioned. Use when setting up Logics in a fresh project or validating that required directories exist.
 ---
 
 # Bootstrap Logics folders

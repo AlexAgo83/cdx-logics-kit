@@ -14,6 +14,7 @@ DEFAULT_DIRS = (
     "logics/backlog",
     "logics/tasks",
     "logics/specs",
+    "logics/external",
 )
 
 
