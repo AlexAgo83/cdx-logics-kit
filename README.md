@@ -42,6 +42,8 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_my_first_need.md
 ```
 
+Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
+
 Check Logics conventions:
 
 ```bash
@@ -186,4 +188,13 @@ Raise Understanding/Confidence by asking clarifying questions and updating indic
 
 ```bash
 python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
+```
+
+## Doc fixer
+
+Validate + repair structure, indicators, and request/backlog/task references:
+
+```bash
+python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py
+python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py --write
 ```
