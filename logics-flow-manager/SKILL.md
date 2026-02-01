@@ -48,3 +48,6 @@ After promotion:
 - Ensure the backlog item has clear acceptance criteria + priority.
 - Ensure the task has a step-by-step plan and at least 1–2 validation commands relevant to the work.
 
+Before promotion:
+
+- If `Understanding` or `Confidence` is below 90% in the source doc, run the **logics-confidence-booster** skill first to clarify and update indicators.
