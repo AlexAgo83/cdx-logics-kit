@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -217,6 +218,9 @@ def _ensure_notes_reference(
     lines: list[str],
     reference_line: str,
 ) -> tuple[list[str], bool]:
+    def normalize(value: str) -> str:
+        return re.sub(r"[\\s.]+$", "", value.strip())
+
     updated = False
     start, end = _find_section_bounds(lines, "# Notes")
     if start is None:
@@ -225,15 +229,34 @@ def _ensure_notes_reference(
         lines.extend(["# Notes", reference_line])
         return lines, True
 
-    if any(reference_line in line for line in lines[start:end]):
-        return lines, False
+    canonical = normalize(reference_line)
+    section_lines = lines[start:end]
+    found = False
+    new_section: list[str] = []
+    for line in section_lines:
+        if normalize(line) == canonical:
+            if not found:
+                new_section.append(reference_line)
+                found = True
+            else:
+                updated = True
+            continue
+        new_section.append(line)
 
-    lines.insert(end, reference_line)
-    updated = True
+    if not found:
+        new_section.append(reference_line)
+        updated = True
+
+    if new_section != section_lines:
+        updated = True
+    lines = lines[:start] + new_section + lines[end:]
     return lines, updated
 
 
 def _ensure_task_context_reference(lines: list[str], reference_line: str) -> tuple[list[str], bool]:
+    def normalize(value: str) -> str:
+        return re.sub(r"[\\s.]+$", "", value.strip())
+
     updated = False
     start, end = _find_section_bounds(lines, "# Context")
     if start is None:
@@ -242,19 +265,35 @@ def _ensure_task_context_reference(lines: list[str], reference_line: str) -> tup
         lines.extend(["# Context", reference_line])
         return lines, True
 
-    if any(reference_line in line for line in lines[start:end]):
-        return lines, False
+    canonical = normalize(reference_line)
+    section_lines = lines[start:end]
+    found = False
+    new_section: list[str] = []
+    for line in section_lines:
+        if normalize(line) == canonical:
+            if not found:
+                new_section.append(reference_line)
+                found = True
+            else:
+                updated = True
+            continue
+        new_section.append(line)
 
-    lines.insert(start, reference_line)
-    updated = True
+    if not found:
+        new_section.insert(0, reference_line)
+        updated = True
+
+    if new_section != section_lines:
+        updated = True
+    lines = lines[:start] + new_section + lines[end:]
     return lines, updated
 
 
 def _collect_docs(repo_root: Path) -> list[DocRef]:
     docs: list[DocRef] = []
-    for kind, subdir in ("request", "backlog", "tasks"):
+    for subdir in ("request", "backlog", "tasks"):
         for path in (repo_root / "logics" / subdir).glob("*.md"):
-            doc_kind = "task" if kind == "tasks" else kind
+            doc_kind = "task" if subdir == "tasks" else subdir
             docs.append(DocRef(path=path, kind=doc_kind, slug=_slug_from_path(path)))
     return docs
 
@@ -329,14 +368,16 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve() if args.repo_root else _find_repo_root(Path.cwd())
-    docs = _collect_docs(repo_root)
+    all_docs = _collect_docs(repo_root)
 
     if args.paths:
         requested = {Path(path).resolve() for path in args.paths}
-        docs = [doc for doc in docs if doc.path.resolve() in requested]
+        docs = [doc for doc in all_docs if doc.path.resolve() in requested]
+    else:
+        docs = all_docs
 
     docs_by_slug: dict[str, dict[str, list[Path]]] = {}
-    for doc in docs:
+    for doc in all_docs:
         docs_by_slug.setdefault(doc.slug, {}).setdefault(doc.kind, []).append(
             doc.path.relative_to(repo_root)
         )
