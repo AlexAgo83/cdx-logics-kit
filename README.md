@@ -179,3 +179,11 @@ Generate quick PNG UI mockups under `logics/external/mockup/`:
 python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
   --out logics/external/mockup/dashboard-mock.png
 ```
+
+## Confidence booster
+
+Raise Understanding/Confidence by asking clarifying questions and updating indicators:
+
+```bash
+python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
+```
