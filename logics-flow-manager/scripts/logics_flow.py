@@ -83,6 +83,48 @@ def _write(path: Path, content: str, dry_run: bool) -> None:
     print(f"Wrote {path}")
 
 
+def _update_request_backlog_links(
+    request_path: Path,
+    backlog_ref: str,
+    dry_run: bool,
+) -> None:
+    lines = request_path.read_text(encoding="utf-8").splitlines()
+    backlog_line = f"- `{backlog_ref}`"
+
+    section_start = None
+    for idx, line in enumerate(lines):
+        if line.strip() == "# Backlog":
+            section_start = idx
+            break
+
+    if section_start is None:
+        updated_lines = lines + ["", "# Backlog", backlog_line]
+    else:
+        section_end = len(lines)
+        for idx in range(section_start + 1, len(lines)):
+            if lines[idx].startswith("# "):
+                section_end = idx
+                break
+
+        if any(backlog_ref in line for line in lines[section_start + 1 : section_end]):
+            return
+
+        section_body = [
+            line
+            for line in lines[section_start + 1 : section_end]
+            if "(none yet)" not in line
+        ]
+        updated_lines = (
+            lines[: section_start + 1]
+            + section_body
+            + [backlog_line]
+            + lines[section_end:]
+        )
+
+    updated = "\n".join(updated_lines).rstrip() + "\n"
+    _write(request_path, updated, dry_run)
+
+
 def cmd_new(args: argparse.Namespace) -> None:
     doc_kind = DOC_KINDS[args.kind]
     repo_root = _find_repo_root(Path.cwd())
@@ -104,6 +146,7 @@ def cmd_new(args: argparse.Namespace) -> None:
         "PROGRESS": args.progress,
         "NEEDS_PLACEHOLDER": "Describe the need",
         "CONTEXT_PLACEHOLDER": "Add context and constraints",
+        "BACKLOG_PLACEHOLDER": "- (none yet)",
         "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
         "ACCEPTANCE_PLACEHOLDER": "Define an objective acceptance check",
         "NOTES_PLACEHOLDER": "",
@@ -145,13 +188,18 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
         "UNDERSTANDING": args.understanding,
         "CONFIDENCE": args.confidence,
         "PROGRESS": args.progress,
-        "PROBLEM_PLACEHOLDER": f"Promoted from `{source_path.relative_to(repo_root)}`",
+        "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
         "ACCEPTANCE_PLACEHOLDER": "Define acceptance criteria",
-        "NOTES_PLACEHOLDER": "",
+        "NOTES_PLACEHOLDER": f"- Derived from `{source_path.relative_to(repo_root)}`.",
     }
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
+    _update_request_backlog_links(
+        source_path,
+        str(output_path.relative_to(repo_root)),
+        args.dry_run,
+    )
 
 
 def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
