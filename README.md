@@ -4,6 +4,10 @@ A reusable “Logics skills” kit (guides + scripts) to import into your projec
 
 Goal: standardize a lightweight Markdown-based workflow (`logics/request` → `logics/backlog` → `logics/tasks` → `logics/specs`) and provide commands to create/promote/lint/index/review.
 
+## VS Code extension
+
+Related project (VS Code extension for Logics): `https://github.com/AlexAgo83/cdx-logics-vscode`.
+
 ## Prerequisites
 
 - `python3` (scripts have no external dependencies)
