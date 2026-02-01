@@ -173,9 +173,9 @@ git commit -m "Pin Logics kit to v0.1.1"
 
 ## Mockup generator
 
-Generate quick PNG UI mockups under `logics/external/`:
+Generate quick PNG UI mockups under `logics/external/mockup/`:
 
 ```bash
 python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
-  --out logics/external/stats-dashboard-mock.png
+  --out logics/external/mockup/dashboard-mock.png
 ```
