@@ -23,6 +23,80 @@ DRY_RUN=1 logics/skills/logics-ollama-specialist/scripts/ollama_install_macos.sh
 
 If approved, run again without `DRY_RUN=1`.
 
+## Install and manage CodeLlama
+
+Use any CodeLlama tag (`codellama`, `codellama:7b`, `codellama:13b`, `codellama:34b`).
+
+- Pull/install a model:
+
+```bash
+ollama pull codellama:7b
+```
+
+- Or with the install script:
+
+```bash
+DRY_RUN=1 logics/skills/logics-ollama-specialist/scripts/ollama_install_macos.sh codellama:7b
+```
+
+- List installed CodeLlama models:
+
+```bash
+ollama list | grep -E '^codellama'
+```
+
+- Run and test quickly:
+
+```bash
+ollama run codellama:7b
+```
+
+- Remove a local model:
+
+```bash
+ollama rm codellama:7b
+```
+
+## Start and stop Ollama server
+
+- Start in foreground:
+
+```bash
+ollama serve
+```
+
+- Start as Homebrew service:
+
+```bash
+brew services start ollama
+```
+
+- Stop foreground server: `Ctrl + C`
+- Stop Homebrew service:
+
+```bash
+brew services stop ollama
+```
+
+- If Ollama.app auto-restarts the server, quit the app:
+
+```bash
+osascript -e 'quit app "Ollama"'
+```
+
+- Last-resort force stop:
+
+```bash
+pkill -f 'ollama serve'
+pkill -x Ollama
+```
+
+- Verify server status:
+
+```bash
+lsof -iTCP:11434 -sTCP:LISTEN -n -P
+```
+
 ## Verify Ollama
 
 Run the check script to validate prerequisites and reachability:

@@ -6,10 +6,40 @@
 - `GET /api/version` → server version (health check)
 - `POST /api/chat` → chat completion (supports `stream: true/false`)
 
+## CodeLlama model management
+
+- Install/pull CodeLlama:
+  - `ollama pull codellama`
+  - `ollama pull codellama:7b`
+  - `ollama pull codellama:13b`
+- List installed variants:
+  - `ollama list | grep -E '^codellama'`
+- Run interactive test:
+  - `ollama run codellama:7b`
+- Remove local variant:
+  - `ollama rm codellama:7b`
+
 ## Common env vars
 
 - `OLLAMA_HOST`: bind address for the Ollama server (e.g., `127.0.0.1:11434` or `0.0.0.0:11434`)
 - `OLLAMA_ORIGINS`: comma‑separated list of allowed Origins for browser calls
+
+## Server lifecycle (start/stop)
+
+- Start server in foreground:
+  - `ollama serve`
+- Start as service (macOS + Homebrew):
+  - `brew services start ollama`
+- Stop service:
+  - `brew services stop ollama`
+- If launched by Ollama.app and it restarts, quit the app too:
+  - `osascript -e 'quit app "Ollama"'`
+- Force stop as fallback:
+  - `pkill -f 'ollama serve'`
+  - `pkill -x Ollama`
+- Check if server is running:
+  - `lsof -iTCP:11434 -sTCP:LISTEN -n -P`
+  - `ps aux | grep -i '[o]llama'`
 
 ## CORS / 403 on LAN
 
