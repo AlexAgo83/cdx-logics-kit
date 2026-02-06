@@ -3,6 +3,7 @@
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
 > Progress: {{PROGRESS}}
+> Reminder: Update Understanding/Confidence/Progress when you edit this doc.
 
 # Context
 {{CONTEXT_PLACEHOLDER}}
@@ -19,4 +20,3 @@
 
 # Report
 {{REPORT_PLACEHOLDER}}
-

@@ -3,6 +3,7 @@
 A reusable “Logics skills” kit (guides + scripts) to import into your projects under `logics/skills/`.
 
 Goal: standardize a lightweight Markdown-based workflow (`logics/request` → `logics/backlog` → `logics/tasks` → `logics/specs`) and provide commands to create/promote/lint/index/review.
+Project purpose: build an extended context memory and optimize token usage by improving need analysis before design.
 
 ## VS Code extension
 
