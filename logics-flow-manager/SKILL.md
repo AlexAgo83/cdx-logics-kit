@@ -29,6 +29,14 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --t
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement offline recap UI"
 ```
 
+After creation, run **logics-confidence-booster** to raise Understanding/Confidence above 90%:
+
+```bash
+python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
+python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/backlog/item_002_example.md
+python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/tasks/task_003_example.md
+```
+
 Optional flags:
 
 - `--from-version 0.14.3`
