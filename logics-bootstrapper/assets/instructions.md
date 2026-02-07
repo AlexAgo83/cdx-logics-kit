@@ -36,6 +36,16 @@ This repository uses a reusable Logics skills kit (usually imported as a submodu
 - Lint Logics docs: `python3 logics/skills/logics-doc-linter/scripts/logics_lint.py`
 - Bootstrap folders (this script): `python3 logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py`
 
+## MCP
+
+Available MCP skills include:
+
+- Chrome DevTools: `logics/skills/logics-mcp-chrome-devtools/SKILL.md`
+- Terminal: `logics/skills/logics-mcp-terminal/SKILL.md`
+- Figma: `logics/skills/logics-mcp-figma/SKILL.md`
+- Linear: `logics/skills/logics-mcp-linear/SKILL.md`
+- Notion: `logics/skills/logics-mcp-notion/SKILL.md`
+
 ## Validation
 
 Project validation commands are project-specific.

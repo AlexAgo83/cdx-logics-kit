@@ -161,6 +161,33 @@ Skill docs:
 logics/skills/logics-mcp-terminal/SKILL.md
 ```
 
+### Figma MCP (Figma connector)
+
+Use when you want Codex/agents to connect to Figma via MCP.
+
+Skill docs:
+```
+logics/skills/logics-mcp-figma/SKILL.md
+```
+
+### Linear MCP (Linear connector)
+
+Use when you want Codex/agents to connect to Linear via MCP.
+
+Skill docs:
+```
+logics/skills/logics-mcp-linear/SKILL.md
+```
+
+### Notion MCP (Notion connector)
+
+Use when you want Codex/agents to connect to Notion via MCP.
+
+Skill docs:
+```
+logics/skills/logics-mcp-notion/SKILL.md
+```
+
 ## Update the kit (inside an existing project)
 
 Update the submodule to the latest `main`:
