@@ -3,7 +3,7 @@
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
 > Progress: {{PROGRESS}}
-> Reminder: Update Understanding/Confidence/Progress when you edit this doc.
+> Reminder: Update Understanding/Confidence/Progress and dependencies/references when you edit this doc.
 
 # Problem
 {{PROBLEM_PLACEHOLDER}}

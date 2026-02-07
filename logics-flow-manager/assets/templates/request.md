@@ -2,7 +2,7 @@
 > From version: {{FROM_VERSION}}
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
-> Reminder: Update Understanding/Confidence when you edit this doc.
+> Reminder: Update Understanding/Confidence and dependencies/references when you edit this doc.
 
 # Needs
 - {{NEEDS_PLACEHOLDER}}
