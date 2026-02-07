@@ -55,6 +55,15 @@ Check Logics conventions:
 python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
 ```
 
+## Indicators
+
+Requests, backlog items, and tasks now include two additional top-level indicators:
+
+- `Complexity:` (e.g., `Low | Medium | High`)
+- `Theme:` (e.g., `Combat | Items | Economy | UI`)
+
+These fields are intended to keep the flow scannable and make it easier to group work by theme later.
+
 ## Connectors
 
 ### Linear connector (issues → Logics backlog)

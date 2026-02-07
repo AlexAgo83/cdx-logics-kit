@@ -25,6 +25,8 @@ Use the following indicators in request/backlog/task items:
 * `Understanding: ??%` : Your estimated understanding of the need.
 * `Confidence: ??%` : Your confidence in solving the need.
 * `Progress: ??%` : Your progress toward completing the backlog item or task.
+* `Complexity: Low | Medium | High` : Effort/complexity classification.
+* `Theme: Combat | Items | Economy | UI | ...` : High-level theme/epic tag.
 
 ## Automation
 

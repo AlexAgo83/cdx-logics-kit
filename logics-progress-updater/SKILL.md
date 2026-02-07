@@ -1,6 +1,6 @@
 ---
 name: logics-progress-updater
-description: Update Logics indicators consistently. Use when Codex should update `From version`, `Understanding`, `Confidence`, and `Progress` in `logics/request|backlog|tasks/*.md`, or when it should bump progress during implementation.
+description: Update Logics indicators consistently. Use when Codex should update `From version`, `Understanding`, `Confidence`, `Progress`, `Complexity`, and `Theme` in `logics/request|backlog|tasks/*.md`, or when it should bump progress during implementation.
 ---
 
 # Update indicators
@@ -16,4 +16,5 @@ python3 logics/skills/logics-progress-updater/scripts/update_indicators.py logic
 - Update `Understanding` when requirements change or become clearer.
 - Update `Confidence` when unknowns are resolved or risks appear.
 - Update `Progress` as checkpoints are completed, not as time passes.
-
+- Set `Complexity` when scope changes (Low/Medium/High).
+- Set `Theme` when the epic/theme classification changes.

@@ -2,6 +2,8 @@
 > From version: {{FROM_VERSION}}
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
+> Complexity: {{COMPLEXITY}}
+> Theme: {{THEME}}
 > Reminder: Update Understanding/Confidence and dependencies/references when you edit this doc.
 
 # Needs

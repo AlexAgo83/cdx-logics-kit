@@ -23,7 +23,7 @@ python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py logics/request
 ## What it fixes
 
 - Ensures required **indicators** exist:
-  - Requests: `From version`, `Understanding`, `Confidence`
+  - Requests: `From version`, `Understanding`, `Confidence`, `Complexity`, `Theme`
   - Backlog/tasks: plus `Progress`
 - Auto‑updates **Progress** from checkbox completion in `# Plan` (or `# Acceptance criteria` for backlog if checkboxes exist).
 - Ensures required **sections** exist and adds placeholders when missing.

@@ -3,7 +3,9 @@
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
 > Progress: {{PROGRESS}}
-> Reminder: Update Understanding/Confidence/Progress and dependencies/references when you edit this doc.
+> Complexity: {{COMPLEXITY}}
+> Theme: {{THEME}}
+> Reminder: Update Understanding/Confidence/Progress and dependencies/references when you edit this doc. When you update backlog indicators, review and update any linked tasks as well.
 
 # Problem
 {{PROBLEM_PLACEHOLDER}}

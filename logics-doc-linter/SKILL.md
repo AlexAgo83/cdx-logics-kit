@@ -16,6 +16,5 @@ python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
 - Filename patterns (`req_###_*.md`, `item_###_*.md`, `task_###_*.md`).
 - First heading format: `## <doc_ref> - <Title>`.
 - Required indicators:
-  - requests: `From version`, `Understanding`, `Confidence`
+  - requests: `From version`, `Understanding`, `Confidence`, `Complexity`, `Theme`
   - backlog/tasks: plus `Progress`
-

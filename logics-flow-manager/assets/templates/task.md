@@ -3,6 +3,8 @@
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
 > Progress: {{PROGRESS}}
+> Complexity: {{COMPLEXITY}}
+> Theme: {{THEME}}
 > Reminder: Update Understanding/Confidence/Progress and dependencies/references when you edit this doc.
 
 # Context

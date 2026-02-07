@@ -14,6 +14,8 @@ description: Manage this repository's Logics workflow (logics/request → logics
   - `Understanding: ??%`
   - `Confidence: ??%`
   - `Progress: ??%` (mainly tasks; optionally backlog)
+  - `Complexity: Low | Medium | High`
+  - `Theme: Combat | Items | Economy | UI | ...`
 
 If unsure, open `logics/instructions.md` and follow the workflow described there.
 
