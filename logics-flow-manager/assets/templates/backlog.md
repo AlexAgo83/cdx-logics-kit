@@ -1,11 +1,12 @@
 ## {{DOC_REF}} - {{TITLE}}
 > From version: {{FROM_VERSION}}
+> Status: {{STATUS}}
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
 > Progress: {{PROGRESS}}
 > Complexity: {{COMPLEXITY}}
 > Theme: {{THEME}}
-> Reminder: Update Understanding/Confidence/Progress and dependencies/references when you edit this doc. When you update backlog indicators, review and update any linked tasks as well.
+> Reminder: Update status/understanding/confidence/progress and linked task references when you edit this doc.
 
 # Problem
 {{PROBLEM_PLACEHOLDER}}
@@ -16,6 +17,9 @@
 
 # Acceptance criteria
 - {{ACCEPTANCE_PLACEHOLDER}}
+
+# AC Traceability
+- AC1 -> Item scope and delivery path are defined. Proof: add test/commit/file links.
 
 # Priority
 - Impact:

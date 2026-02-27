@@ -1,11 +1,12 @@
 ## {{DOC_REF}} - {{TITLE}}
 > From version: {{FROM_VERSION}}
+> Status: {{STATUS}}
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}
 > Progress: {{PROGRESS}}
 > Complexity: {{COMPLEXITY}}
 > Theme: {{THEME}}
-> Reminder: Update Understanding/Confidence/Progress and dependencies/references when you edit this doc.
+> Reminder: Update status/understanding/confidence/progress and dependencies/references when you edit this doc.
 
 # Context
 {{CONTEXT_PLACEHOLDER}}
@@ -16,9 +17,18 @@
 - [ ] 3. {{STEP_3}}
 - [ ] FINAL: Update related Logics docs
 
+# AC Traceability
+- AC1 -> Implemented in the steps above. Proof: add test/commit/file links.
+
 # Validation
 - {{VALIDATION_1}}
 - {{VALIDATION_2}}
+
+# Definition of Done (DoD)
+- [ ] Scope implemented and acceptance criteria covered.
+- [ ] Validation commands executed and results captured.
+- [ ] Linked request/backlog/task docs updated.
+- [ ] Status is `Done` and progress is `100%`.
 
 # Report
 {{REPORT_PLACEHOLDER}}

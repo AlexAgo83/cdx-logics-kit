@@ -11,6 +11,7 @@ description: Manage this repository's Logics workflow (logics/request → logics
 - Use numeric IDs and slugs in filenames: `req_001_my_title.md`, `item_002_some_scope.md`, `task_003_do_the_work.md`.
 - Keep indicators at the top:
   - `From version: X.X.X`
+  - `Status: Draft | Ready | In progress | Blocked | Done | Archived`
   - `Understanding: ??%`
   - `Confidence: ??%`
   - `Progress: ??%` (mainly tasks; optionally backlog)
@@ -41,6 +42,8 @@ Optional flags:
 
 - `--from-version 0.14.3`
 - `--understanding 60% --confidence 40%`
+- `--status Draft|Ready|In progress|Blocked|Done|Archived`
+- `--complexity Low|Medium|High --theme UI`
 - `--progress 0%` (task/backlog)
 - `--dry-run` (show path + content preview, no writes)
 
@@ -51,6 +54,21 @@ Create the next-stage doc and link back to the source:
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_offline_recap_ui.md
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_offline_recap_ui.md
+```
+
+Close docs with automatic transition propagation:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_example.md
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_example.md
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_example.md
+```
+
+Run workflow coherence audit:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --stale-days 30
 ```
 
 After promotion:

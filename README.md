@@ -11,7 +11,7 @@ Related project (VS Code extension for Logics): `https://github.com/AlexAgo83/cd
 
 ## Prerequisites
 
-- `python3` (scripts have no external dependencies)
+- `python3` (scripts are stdlib-based except explicit optional tools such as mockup generation)
 - `git`
 
 ## Install (recommended: submodule)
@@ -40,11 +40,32 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --t
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement my first need"
 ```
 
+Status model used by generated docs:
+
+- `Draft`
+- `Ready`
+- `In progress`
+- `Blocked`
+- `Done`
+- `Archived`
+
 Promote between stages:
 
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_my_first_need.md
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_my_first_need.md
+```
+
+Close docs with automatic workflow propagation:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_implement_my_first_need.md
+```
+
+Run workflow coherence audit (closure consistency, orphan items, stale pending docs, AC traceability, DoR/DoD gates):
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
 ```
 
 Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
@@ -203,10 +224,10 @@ Pin to a tag (recommended if you want controlled upgrades):
 ```bash
 cd logics/skills
 git fetch --tags
-git checkout v0.1.1
+git checkout v0.1.5
 cd -
 git add logics/skills
-git commit -m "Pin Logics kit to v0.1.1"
+git commit -m "Pin Logics kit to v0.1.5"
 ```
 
 ## Notes

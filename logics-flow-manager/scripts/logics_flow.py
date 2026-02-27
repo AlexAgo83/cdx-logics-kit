@@ -23,6 +23,23 @@ DOC_KINDS: dict[str, DocKind] = {
     "task": DocKind("task", "logics/tasks", "task", "task.md", True),
 }
 
+ALLOWED_STATUSES = (
+    "Draft",
+    "Ready",
+    "In progress",
+    "Blocked",
+    "Done",
+    "Archived",
+)
+
+STATUS_BY_KIND_DEFAULT = {
+    "request": "Draft",
+    "backlog": "Ready",
+    "task": "Ready",
+}
+
+ALLOWED_COMPLEXITIES = ("Low", "Medium", "High")
+
 
 def _slugify(value: str) -> str:
     value = value.strip().lower()
@@ -83,6 +100,103 @@ def _write(path: Path, content: str, dry_run: bool) -> None:
     print(f"Wrote {path}")
 
 
+def _read_lines(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _parse_indicator(lines: list[str], key: str) -> tuple[int | None, str | None]:
+    pattern = re.compile(rf"^\s*>\s*{re.escape(key)}\s*:\s*(.+)\s*$")
+    for idx, line in enumerate(lines):
+        match = pattern.match(line)
+        if match:
+            return idx, match.group(1).strip()
+    return None, None
+
+
+def _upsert_indicators(path: Path, updates: dict[str, str], dry_run: bool) -> None:
+    lines = _read_lines(path)
+    heading_idx = next((idx for idx, line in enumerate(lines) if line.startswith("## ")), None)
+    if heading_idx is None:
+        raise SystemExit(f"Cannot update indicators (missing heading): {path}")
+
+    insert_at = heading_idx + 1
+    while insert_at < len(lines) and lines[insert_at].lstrip().startswith(">"):
+        insert_at += 1
+
+    for key, value in updates.items():
+        indicator_idx, _ = _parse_indicator(lines, key)
+        rendered = f"> {key}: {value}"
+        if indicator_idx is None:
+            lines.insert(insert_at, rendered)
+            insert_at += 1
+        else:
+            lines[indicator_idx] = rendered
+
+    _write(path, "\n".join(lines).rstrip() + "\n", dry_run)
+
+
+def _normalize_status(value: str) -> str:
+    normalized = " ".join(value.strip().split()).lower()
+    for allowed in ALLOWED_STATUSES:
+        if normalized == allowed.lower():
+            return allowed
+    allowed_display = ", ".join(ALLOWED_STATUSES)
+    raise SystemExit(f"Invalid status '{value}'. Allowed values: {allowed_display}")
+
+
+def _resolve_doc_path(repo_root: Path, kind: DocKind, doc_ref: str) -> Path | None:
+    candidate = repo_root / kind.directory / f"{doc_ref}.md"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _extract_refs(text: str, kind: DocKind) -> set[str]:
+    pattern = re.compile(rf"\b{re.escape(kind.prefix)}_\d{{3}}_[a-z0-9_]+\b")
+    return {match.group(0) for match in pattern.finditer(text)}
+
+
+def _progress_value_to_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    match = re.search(r"(\d{1,3})", value)
+    if match is None:
+        return None
+    try:
+        parsed = int(match.group(1))
+    except ValueError:
+        return None
+    return max(0, min(100, parsed))
+
+
+def _is_doc_done(path: Path, kind: DocKind) -> bool:
+    lines = _read_lines(path)
+    _, status_value = _parse_indicator(lines, "Status")
+    if status_value is not None and _normalize_status(status_value) in {"Done", "Archived"}:
+        return True
+    if kind.include_progress:
+        _, progress_value = _parse_indicator(lines, "Progress")
+        return _progress_value_to_int(progress_value) == 100
+    return False
+
+
+def _collect_docs_linking_ref(repo_root: Path, kind: DocKind, ref: str) -> list[Path]:
+    directory = repo_root / kind.directory
+    linked: list[Path] = []
+    for path in sorted(directory.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if ref in text:
+            linked.append(path)
+    return linked
+
+
+def _close_doc(path: Path, kind: DocKind, dry_run: bool) -> None:
+    updates = {"Status": "Done"}
+    if kind.include_progress:
+        updates["Progress"] = "100%"
+    _upsert_indicators(path, updates, dry_run)
+
+
 def _update_request_backlog_links(
     request_path: Path,
     backlog_ref: str,
@@ -125,6 +239,37 @@ def _update_request_backlog_links(
     _write(request_path, updated, dry_run)
 
 
+def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, include_progress: bool) -> dict[str, str]:
+    values: dict[str, str] = {
+        "DOC_REF": doc_ref,
+        "TITLE": title,
+        "FROM_VERSION": args.from_version,
+        "STATUS": _normalize_status(args.status),
+        "UNDERSTANDING": args.understanding,
+        "CONFIDENCE": args.confidence,
+        "PROGRESS": args.progress,
+        "COMPLEXITY": args.complexity,
+        "THEME": args.theme,
+        "NEEDS_PLACEHOLDER": "Describe the need",
+        "CONTEXT_PLACEHOLDER": "Add context and constraints",
+        "BACKLOG_PLACEHOLDER": "- (none yet)",
+        "ACCEPTANCE_PLACEHOLDER": "AC1: Define an objective acceptance check",
+        "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
+        "NOTES_PLACEHOLDER": "",
+        "STEP_1": "First implementation step",
+        "STEP_2": "Second implementation step",
+        "STEP_3": "Third implementation step",
+        "VALIDATION_1": "npm run tests",
+        "VALIDATION_2": "npm run lint",
+        "REPORT_PLACEHOLDER": "",
+    }
+
+    if not include_progress:
+        values["PROGRESS"] = ""
+
+    return values
+
+
 def cmd_new(args: argparse.Namespace) -> None:
     doc_kind = DOC_KINDS[args.kind]
     repo_root = _find_repo_root(Path.cwd())
@@ -137,29 +282,7 @@ def cmd_new(args: argparse.Namespace) -> None:
     output_path = directory / filename
 
     template_text = _template_path(Path(__file__), doc_kind.template_name).read_text(encoding="utf-8")
-    values: dict[str, str] = {
-        "DOC_REF": doc_ref,
-        "TITLE": args.title,
-        "FROM_VERSION": args.from_version,
-        "UNDERSTANDING": args.understanding,
-        "CONFIDENCE": args.confidence,
-        "PROGRESS": args.progress,
-        "NEEDS_PLACEHOLDER": "Describe the need",
-        "CONTEXT_PLACEHOLDER": "Add context and constraints",
-        "BACKLOG_PLACEHOLDER": "- (none yet)",
-        "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
-        "ACCEPTANCE_PLACEHOLDER": "Define an objective acceptance check",
-        "NOTES_PLACEHOLDER": "",
-        "STEP_1": "First implementation step",
-        "STEP_2": "Second implementation step",
-        "STEP_3": "Third implementation step",
-        "VALIDATION_1": "npm run tests",
-        "VALIDATION_2": "npm run lint",
-        "REPORT_PLACEHOLDER": "",
-    }
-
-    if not doc_kind.include_progress:
-        values["PROGRESS"] = ""
+    values = _build_template_values(args, doc_ref, args.title, doc_kind.include_progress)
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
@@ -181,17 +304,8 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
     output_path = directory / filename
 
     template_text = _template_path(Path(__file__), DOC_KINDS["backlog"].template_name).read_text(encoding="utf-8")
-    values: dict[str, str] = {
-        "DOC_REF": doc_ref,
-        "TITLE": title,
-        "FROM_VERSION": args.from_version,
-        "UNDERSTANDING": args.understanding,
-        "CONFIDENCE": args.confidence,
-        "PROGRESS": args.progress,
-        "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
-        "ACCEPTANCE_PLACEHOLDER": "Define acceptance criteria",
-        "NOTES_PLACEHOLDER": f"- Derived from `{source_path.relative_to(repo_root)}`.",
-    }
+    values = _build_template_values(args, doc_ref, title, include_progress=True)
+    values["NOTES_PLACEHOLDER"] = f"- Derived from `{source_path.relative_to(repo_root)}`."
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
@@ -218,30 +332,91 @@ def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
     output_path = directory / filename
 
     template_text = _template_path(Path(__file__), DOC_KINDS["task"].template_name).read_text(encoding="utf-8")
-    values: dict[str, str] = {
-        "DOC_REF": doc_ref,
-        "TITLE": title,
-        "FROM_VERSION": args.from_version,
-        "UNDERSTANDING": args.understanding,
-        "CONFIDENCE": args.confidence,
-        "PROGRESS": args.progress,
-        "CONTEXT_PLACEHOLDER": f"Derived from `{source_path.relative_to(repo_root)}`",
-        "STEP_1": "Clarify scope and acceptance criteria",
-        "STEP_2": "Implement changes",
-        "STEP_3": "Add/adjust tests and polish UX",
-        "VALIDATION_1": "npm run tests",
-        "VALIDATION_2": "npm run lint",
-        "REPORT_PLACEHOLDER": "",
-    }
+    values = _build_template_values(args, doc_ref, title, include_progress=True)
+    values["CONTEXT_PLACEHOLDER"] = f"Derived from `{source_path.relative_to(repo_root)}`"
+    values["STEP_1"] = "Clarify scope and acceptance criteria"
+    values["STEP_2"] = "Implement changes"
+    values["STEP_3"] = "Add/adjust tests and polish UX"
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
 
 
+def _maybe_close_request_chain(repo_root: Path, request_ref: str, dry_run: bool) -> None:
+    request_path = _resolve_doc_path(repo_root, DOC_KINDS["request"], request_ref)
+    if request_path is None:
+        return
+
+    linked_items = _collect_docs_linking_ref(repo_root, DOC_KINDS["backlog"], request_ref)
+    if not linked_items:
+        return
+
+    if all(_is_doc_done(item_path, DOC_KINDS["backlog"]) for item_path in linked_items):
+        if not _is_doc_done(request_path, DOC_KINDS["request"]):
+            _close_doc(request_path, DOC_KINDS["request"], dry_run)
+            print(f"Auto-closed request {request_ref} (all linked backlog items are done).")
+
+
+def cmd_close(args: argparse.Namespace) -> None:
+    repo_root = _find_repo_root(Path.cwd())
+    kind = DOC_KINDS[args.kind]
+    source_path = Path(args.source).resolve()
+    if not source_path.is_file():
+        raise SystemExit(f"Source not found: {source_path}")
+    if not source_path.stem.startswith(f"{kind.prefix}_"):
+        raise SystemExit(f"Expected a `{kind.prefix}_...` file for kind `{kind.kind}`. Got: {source_path.name}")
+
+    _close_doc(source_path, kind, args.dry_run)
+    print(f"Closed {kind.kind}: {source_path.relative_to(repo_root)}")
+
+    text = source_path.read_text(encoding="utf-8")
+    processed_request_refs: set[str] = set()
+
+    if kind.kind == "task":
+        linked_item_refs = sorted(_extract_refs(text, DOC_KINDS["backlog"]))
+        for item_ref in linked_item_refs:
+            item_path = _resolve_doc_path(repo_root, DOC_KINDS["backlog"], item_ref)
+            if item_path is None:
+                continue
+            linked_tasks = _collect_docs_linking_ref(repo_root, DOC_KINDS["task"], item_ref)
+            if linked_tasks and all(_is_doc_done(task_path, DOC_KINDS["task"]) for task_path in linked_tasks):
+                if not _is_doc_done(item_path, DOC_KINDS["backlog"]):
+                    _close_doc(item_path, DOC_KINDS["backlog"], args.dry_run)
+                    print(f"Auto-closed backlog item {item_ref} (all linked tasks are done).")
+
+            item_text = item_path.read_text(encoding="utf-8")
+            for request_ref in sorted(_extract_refs(item_text, DOC_KINDS["request"])):
+                if request_ref in processed_request_refs:
+                    continue
+                processed_request_refs.add(request_ref)
+                _maybe_close_request_chain(repo_root, request_ref, args.dry_run)
+
+    if kind.kind == "backlog":
+        for request_ref in sorted(_extract_refs(text, DOC_KINDS["request"])):
+            if request_ref in processed_request_refs:
+                continue
+            processed_request_refs.add(request_ref)
+            _maybe_close_request_chain(repo_root, request_ref, args.dry_run)
+
+
+def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
+    parser.add_argument("--from-version", default="X.X.X")
+    parser.add_argument("--understanding", default="??%")
+    parser.add_argument("--confidence", default="??%")
+    parser.add_argument("--status", default=STATUS_BY_KIND_DEFAULT[kind])
+    parser.add_argument("--complexity", default="Medium", choices=ALLOWED_COMPLEXITIES)
+    parser.add_argument("--theme", default="General")
+    if DOC_KINDS[kind].include_progress:
+        parser.add_argument("--progress", default="0%")
+    else:
+        parser.add_argument("--progress", default="")
+    parser.add_argument("--dry-run", action="store_true")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logics_flow.py",
-        description="Create/promote Logics docs (request/backlog/task) with consistent IDs and templates.",
+        description="Create/promote/close Logics docs with consistent IDs, templates, and workflow transitions.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -251,11 +426,7 @@ def build_parser() -> argparse.ArgumentParser:
         kind_parser = new_sub.add_parser(kind, help=f"Create a new {kind} doc.")
         kind_parser.add_argument("--title", required=True)
         kind_parser.add_argument("--slug", help="Override slug derived from the title.")
-        kind_parser.add_argument("--from-version", default="X.X.X")
-        kind_parser.add_argument("--understanding", default="??%")
-        kind_parser.add_argument("--confidence", default="??%")
-        kind_parser.add_argument("--progress", default="0%")
-        kind_parser.add_argument("--dry-run", action="store_true")
+        _add_common_doc_args(kind_parser, kind)
         kind_parser.set_defaults(func=cmd_new)
 
     promote_parser = sub.add_parser("promote", help="Promote between Logics stages.")
@@ -263,21 +434,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     r2b = promote_sub.add_parser("request-to-backlog", help="Create a backlog item from a request.")
     r2b.add_argument("source")
-    r2b.add_argument("--from-version", default="X.X.X")
-    r2b.add_argument("--understanding", default="??%")
-    r2b.add_argument("--confidence", default="??%")
-    r2b.add_argument("--progress", default="0%")
-    r2b.add_argument("--dry-run", action="store_true")
+    _add_common_doc_args(r2b, "backlog")
     r2b.set_defaults(func=cmd_promote_request_to_backlog)
 
     b2t = promote_sub.add_parser("backlog-to-task", help="Create a task from a backlog item.")
     b2t.add_argument("source")
-    b2t.add_argument("--from-version", default="X.X.X")
-    b2t.add_argument("--understanding", default="??%")
-    b2t.add_argument("--confidence", default="??%")
-    b2t.add_argument("--progress", default="0%")
-    b2t.add_argument("--dry-run", action="store_true")
+    _add_common_doc_args(b2t, "task")
     b2t.set_defaults(func=cmd_promote_backlog_to_task)
+
+    close_parser = sub.add_parser("close", help="Close a request/backlog/task and propagate transitions.")
+    close_sub = close_parser.add_subparsers(dest="kind", required=True)
+    for kind in DOC_KINDS:
+        close_kind = close_sub.add_parser(kind, help=f"Close a {kind} doc.")
+        close_kind.add_argument("source")
+        close_kind.add_argument("--dry-run", action="store_true")
+        close_kind.set_defaults(func=cmd_close)
 
     return parser
 

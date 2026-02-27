@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-import subprocess
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,15 @@ KINDS = {
     "request": Kind("logics/request", "req", False),
     "backlog": Kind("logics/backlog", "item", True),
     "task": Kind("logics/tasks", "task", True),
+}
+
+ALLOWED_STATUSES = {
+    "draft",
+    "ready",
+    "in progress",
+    "blocked",
+    "done",
+    "archived",
 }
 
 
@@ -41,9 +51,17 @@ def _extract_first_heading(lines: list[str]) -> str | None:
     return None
 
 
+def _indicator_value(lines: list[str], key: str) -> str | None:
+    pattern = re.compile(rf"^\s*>\s*{re.escape(key)}\s*:\s*(.+)\s*$")
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
 def _has_indicator(lines: list[str], key: str) -> bool:
-    pattern = re.compile(rf"^\s*>\s*{re.escape(key)}\s*:\s*.+\s*$")
-    return any(pattern.match(line) for line in lines)
+    return _indicator_value(lines, key) is not None
 
 
 def _run_git(repo_root: Path, args: list[str]) -> str:
@@ -65,8 +83,10 @@ def _run_git(repo_root: Path, args: list[str]) -> str:
 
 def _git_modified_paths(repo_root: Path) -> set[Path]:
     paths: set[Path] = set()
-    for args in (["diff", "--name-only", "--diff-filter=ACMRT"],
-                 ["diff", "--cached", "--name-only", "--diff-filter=ACMRT"]):
+    for args in (
+        ["diff", "--name-only", "--diff-filter=ACMRT"],
+        ["diff", "--cached", "--name-only", "--diff-filter=ACMRT"],
+    ):
         output = _run_git(repo_root, args)
         for line in output.splitlines():
             line = line.strip()
@@ -94,7 +114,7 @@ def _diff_has_indicator_changes(repo_root: Path, rel_path: Path, indicators: set
     return False
 
 
-def _lint_file(path: Path, kind: Kind) -> list[str]:
+def _lint_file(path: Path, kind: Kind, require_status: bool) -> list[str]:
     issues: list[str] = []
     name = path.name
     if not re.match(rf"^{re.escape(kind.prefix)}_\d{{3}}_[a-z0-9_]+\.md$", name):
@@ -113,13 +133,40 @@ def _lint_file(path: Path, kind: Kind) -> list[str]:
     for key in ("From version", "Understanding", "Confidence"):
         if not _has_indicator(lines, key):
             issues.append(f"missing indicator: {key}")
+
     if kind.requires_progress and not _has_indicator(lines, "Progress"):
         issues.append("missing indicator: Progress")
+
+    status_value = _indicator_value(lines, "Status")
+    if status_value is None:
+        if require_status:
+            issues.append("missing indicator: Status")
+    elif " ".join(status_value.split()).lower() not in ALLOWED_STATUSES:
+        issues.append(
+            "invalid Status value: "
+            + status_value
+            + " (allowed: Draft | Ready | In progress | Blocked | Done | Archived)"
+        )
 
     return issues
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="logics_lint.py",
+        description="Lint Logics docs (filenames, headings, indicators).",
+    )
+    parser.add_argument(
+        "--require-status",
+        action="store_true",
+        help="Require `Status` indicator in all request/backlog/task docs.",
+    )
+    return parser
+
+
 def main(argv: list[str]) -> int:
+    args = build_parser().parse_args(argv)
+
     repo_root = _find_repo_root(Path.cwd())
     all_issues: list[tuple[Path, list[str]]] = []
     modified_paths = _git_modified_paths(repo_root)
@@ -129,7 +176,7 @@ def main(argv: list[str]) -> int:
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.md")):
-            issues = _lint_file(path, kind)
+            issues = _lint_file(path, kind, require_status=args.require_status)
             rel_path = path.relative_to(repo_root)
             if rel_path in modified_paths:
                 required = {"Understanding", "Confidence"}
