@@ -162,6 +162,38 @@ Import an issue as a backlog item:
 python3 logics/skills/logics-connector-jira/scripts/jira_to_backlog.py --issue "CIR-123"
 ```
 
+### Render connector (services/deploys/plans → Logics backlog)
+
+Prereqs: `RENDER_API_KEY` (Bearer API key). Optional: `RENDER_API_BASE_URL`, `RENDER_OPENAPI_URL`.
+
+List services:
+
+```bash
+python3 logics/skills/logics-connector-render/scripts/render_list_services.py --limit 100
+```
+
+List deploys for a service:
+
+```bash
+python3 logics/skills/logics-connector-render/scripts/render_list_deploys.py --service-id srv-xxxxxxxx --limit 20
+```
+
+Manage deployment plans:
+
+```bash
+python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py show-plans
+python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py snapshot \
+  --out logics/external/render/render_deployment_plan.snapshot.json
+python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py apply \
+  --plan-file logics/external/render/render_deployment_plan.snapshot.json --validate-only
+```
+
+Import a Render service context as a backlog item:
+
+```bash
+python3 logics/skills/logics-connector-render/scripts/render_to_backlog.py --service-id srv-xxxxxxxx
+```
+
 ## MCP
 
 ### Chrome DevTools MCP (browser control)
