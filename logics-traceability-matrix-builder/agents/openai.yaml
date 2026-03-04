@@ -1,4 +1,4 @@
 interface:
   display_name: "Traceability Matrix Builder"
   short_description: "Map ACs to tests and validation commands"
-  default_prompt: "Use $logics-traceability-matrix-builder to build a traceability matrix from this task's acceptance criteria and update the document."
+  default_prompt: "Use $logics-traceability-matrix-builder to build or refresh a traceability matrix from a backlog/task/spec acceptance-criteria section."

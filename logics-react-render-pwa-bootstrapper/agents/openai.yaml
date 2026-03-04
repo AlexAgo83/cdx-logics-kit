@@ -1,4 +1,4 @@
 interface:
   display_name: "React Render PWA Bootstrapper"
   short_description: "Bootstrap React projects for Render with PWA and CI defaults"
-  default_prompt: "Bootstrap a new React web app with Render blueprint, PWA, tests, and CI."
+  default_prompt: "Use $logics-react-render-pwa-bootstrapper to bootstrap a new React app with Render blueprint, PWA, tests, and CI defaults."
