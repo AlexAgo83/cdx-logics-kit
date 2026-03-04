@@ -1,0 +1,4 @@
+interface:
+  display_name: "MCP Chrome Devtools"
+  short_description: "Install and configure the Chrome DevTools MCP server"
+  default_prompt: "Use $logics-mcp-chrome-devtools to install and configure the Chrome DevTools MCP server in projects and control Chrome via MCP for UI automation."

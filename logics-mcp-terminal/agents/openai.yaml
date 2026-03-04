@@ -1,0 +1,4 @@
+interface:
+  display_name: "MCP Terminal"
+  short_description: "Install, configure, and use the Terminal MCP for running"
+  default_prompt: "Use $logics-mcp-terminal to install, configure, and use the Terminal MCP for running shell commands in Codex/agents."

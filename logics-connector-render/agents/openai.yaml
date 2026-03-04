@@ -1,0 +1,4 @@
+interface:
+  display_name: "Connector Render"
+  short_description: "Connect Render services/deploys and import deployment context"
+  default_prompt: "Use $logics-connector-render to connect Render to the Logics workflow: list services/deploys, snapshot/apply deployment plan changes, and import a Render service context."

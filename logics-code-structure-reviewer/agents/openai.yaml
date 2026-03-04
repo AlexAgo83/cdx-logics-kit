@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Structure Reviewer"
+  short_description: "Review code structure and suggest modularization boundaries"
+  default_prompt: "Use $logics-code-structure-reviewer to detect the repository's likely stack/framework and generate an adapted code-structure review as a Markdown report."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Breakdown"
+  short_description: "Break down a Logics backlog item into executable tasks"
+  default_prompt: "Use $logics-task-breakdown to break down a Logics backlog item into executable tasks."

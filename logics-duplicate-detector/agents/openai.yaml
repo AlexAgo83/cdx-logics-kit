@@ -1,0 +1,4 @@
+interface:
+  display_name: "Duplicate Detector"
+  short_description: "Detect potential duplicates across Logics documents"
+  default_prompt: "Use $logics-duplicate-detector to detect potential duplicates across Logics documents."

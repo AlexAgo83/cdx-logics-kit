@@ -1,0 +1,4 @@
+interface:
+  display_name: "Connector Jira"
+  short_description: "Connect Jira to the Logics workflow: search issues via"
+  default_prompt: "Use $logics-connector-jira to connect Jira to the Logics workflow: search issues via JQL and import a Jira issue into logics/backlog/ as."

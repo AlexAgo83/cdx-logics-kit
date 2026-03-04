@@ -1,0 +1,4 @@
+interface:
+  display_name: "Estimation Helper"
+  short_description: "Estimate effort and complexity for Logics backlog items"
+  default_prompt: "Use $logics-estimation-helper to estimate effort and complexity for Logics backlog items and tasks."

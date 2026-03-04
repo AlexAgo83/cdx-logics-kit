@@ -1,0 +1,4 @@
+interface:
+  display_name: "Acceptance To Tests"
+  short_description: "Convert acceptance criteria into a concrete validation/test plan"
+  default_prompt: "Use $logics-acceptance-to-tests to convert acceptance criteria into a concrete validation/test plan."

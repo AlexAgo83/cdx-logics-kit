@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture Decision Writer"
+  short_description: "Write architecture decision records in logics/architecture"
+  default_prompt: "Use $logics-architecture-decision-writer to write architecture decision records in logics/architecture."

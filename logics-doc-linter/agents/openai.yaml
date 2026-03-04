@@ -1,0 +1,4 @@
+interface:
+  display_name: "Doc Linter"
+  short_description: "Lint and validate the Logics Markdown conventions"
+  default_prompt: "Use $logics-doc-linter to lint and validate the Logics Markdown conventions."

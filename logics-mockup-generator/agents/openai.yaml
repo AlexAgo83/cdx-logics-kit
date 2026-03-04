@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mockup Generator"
+  short_description: "Generate quick PNG UI mockups and store them under"
+  default_prompt: "Use $logics-mockup-generator to generate quick PNG UI mockups and store them under logics/external."

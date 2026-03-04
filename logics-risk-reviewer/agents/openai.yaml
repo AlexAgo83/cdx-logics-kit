@@ -1,0 +1,4 @@
+interface:
+  display_name: "Risk Reviewer"
+  short_description: "Add a risk/rollback review to Logics docs"
+  default_prompt: "Use $logics-risk-reviewer to add a risk/rollback review to Logics docs."

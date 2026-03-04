@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Writer"
+  short_description: "Create lightweight functional specs inside this repo"
+  default_prompt: "Use $logics-spec-writer to create lightweight functional specs inside this repo."

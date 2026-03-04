@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workstream Planner"
+  short_description: "Plan workstreams/roadmap from Logics backlog and tasks"
+  default_prompt: "Use $logics-workstream-planner to plan workstreams/roadmap from Logics backlog and tasks."

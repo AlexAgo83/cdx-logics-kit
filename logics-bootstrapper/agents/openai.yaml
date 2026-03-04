@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bootstrapper"
+  short_description: "Bootstrap the Logics directory structure in a new repository"
+  default_prompt: "Use $logics-bootstrapper to bootstrap the Logics directory structure in a new repository and add .gitkeep files for empty folders so the."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Relationship Linker"
+  short_description: "Build and maintain relationships across Logics documents"
+  default_prompt: "Use $logics-relationship-linker to build and maintain relationships across Logics documents."

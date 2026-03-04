@@ -1,0 +1,4 @@
+interface:
+  display_name: "Global Reviewer"
+  short_description: "Run a global review of the repository's Logics workflow"
+  default_prompt: "Use $logics-global-reviewer to run a global review of the repository's Logics workflow and documents, then propose concrete optimizations/improvements as a Markdown."

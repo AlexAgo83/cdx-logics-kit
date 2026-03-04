@@ -1,0 +1,4 @@
+interface:
+  display_name: "Metrics Owner"
+  short_description: "Add ownership and success metrics to Logics backlog/spec docs"
+  default_prompt: "Use $logics-metrics-owner to add ownership and success metrics to Logics backlog/spec docs."

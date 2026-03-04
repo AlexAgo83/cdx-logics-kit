@@ -1,0 +1,4 @@
+interface:
+  display_name: "Backlog Groomer"
+  short_description: "Groom and promote a Logics request into a backlog item"
+  default_prompt: "Use $logics-backlog-groomer to groom and promote a Logics request into a backlog item."

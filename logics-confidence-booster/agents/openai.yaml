@@ -1,0 +1,4 @@
+interface:
+  display_name: "Confidence Booster"
+  short_description: "Raise understanding/confidence with focused clarifications"
+  default_prompt: "Use $logics-confidence-booster to ask clarifying questions with suggested defaults to raise Understanding/Confidence above 90% for Logics request/backlog/task docs and update indicators."

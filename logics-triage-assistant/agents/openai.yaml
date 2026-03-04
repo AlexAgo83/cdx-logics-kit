@@ -1,0 +1,4 @@
+interface:
+  display_name: "Triage Assistant"
+  short_description: "Triage raw ideas into the Logics flow"
+  default_prompt: "Use $logics-triage-assistant to triage raw ideas into the Logics flow."

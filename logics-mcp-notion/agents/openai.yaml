@@ -1,0 +1,4 @@
+interface:
+  display_name: "MCP Notion"
+  short_description: "Install, configure, and use the Notion MCP server"
+  default_prompt: "Use $logics-mcp-notion to install, configure, and use the Notion MCP server to connect MCP clients to Notion."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Connector Figma"
+  short_description: "Connect Figma to the Logics workflow: list pages/nodes, export"
+  default_prompt: "Use $logics-connector-figma to connect Figma to the Logics workflow: list pages/nodes, export node images, and import a Figma node reference into."

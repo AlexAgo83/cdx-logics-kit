@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Template Writer"
+  short_description: "Generate a pull request description from a Logics task"
+  default_prompt: "Use $logics-pr-template-writer to generate a pull request description from a Logics task."

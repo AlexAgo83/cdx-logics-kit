@@ -1,0 +1,4 @@
+interface:
+  display_name: "MCP Linear"
+  short_description: "Install, configure, and use a Linear MCP server"
+  default_prompt: "Use $logics-mcp-linear to install, configure, and use a Linear MCP server to connect MCP clients to Linear."

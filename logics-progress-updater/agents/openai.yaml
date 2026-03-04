@@ -1,0 +1,4 @@
+interface:
+  display_name: "Progress Updater"
+  short_description: "Update Logics indicators consistently"
+  default_prompt: "Use $logics-progress-updater to update Logics indicators consistently."

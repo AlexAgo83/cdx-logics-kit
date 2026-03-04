@@ -1,0 +1,4 @@
+interface:
+  display_name: "MCP Figma"
+  short_description: "Install, configure, and use a Figma MCP server"
+  default_prompt: "Use $logics-mcp-figma to install, configure, and use a Figma MCP server to connect MCP clients to Figma."

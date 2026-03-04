@@ -1,0 +1,4 @@
+interface:
+  display_name: "Indexer"
+  short_description: "Generate a consolidated index of Logics documents"
+  default_prompt: "Use $logics-indexer to generate a consolidated index of Logics documents."

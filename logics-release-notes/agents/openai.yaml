@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Notes"
+  short_description: "Generate release notes from completed Logics tasks"
+  default_prompt: "Use $logics-release-notes to generate release notes from completed Logics tasks."

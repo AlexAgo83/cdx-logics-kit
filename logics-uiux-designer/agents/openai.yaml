@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI/UX Designer"
+  short_description: "Product UI/UX design assistant for this repo"
+  default_prompt: "Use $logics-uiux-designer to product UI/UX design assistant for this repo."

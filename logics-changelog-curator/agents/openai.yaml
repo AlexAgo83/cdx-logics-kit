@@ -1,0 +1,4 @@
+interface:
+  display_name: "Changelog Curator"
+  short_description: "Curate user-facing changelog entries from Logics release notes"
+  default_prompt: "Use $logics-changelog-curator to curate user-facing changelog entries from Logics release notes or completed tasks."
