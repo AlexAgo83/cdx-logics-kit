@@ -162,8 +162,8 @@ def main() -> int:
     parser.add_argument("path", help="Path to a logics request/backlog/task markdown file.")
     parser.add_argument("--type", choices=["request", "backlog", "task"], help="Override doc type.")
     parser.add_argument("--apply-defaults", action="store_true", help="Use suggested defaults without prompts.")
-    parser.add_argument("--understanding", help="Understanding indicator value (e.g. 85%).")
-    parser.add_argument("--confidence", help="Confidence indicator value (e.g. 80%).")
+    parser.add_argument("--understanding", help="Understanding indicator value (e.g. 85 percent).")
+    parser.add_argument("--confidence", help="Confidence indicator value (e.g. 80 percent).")
     parser.add_argument("--dry-run", action="store_true", help="Print output without writing.")
     args = parser.parse_args()
 

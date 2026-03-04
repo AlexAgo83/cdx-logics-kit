@@ -1,4 +1,4 @@
 interface:
   display_name: "Connector Linear"
-  short_description: "Connect Linear to the Logics workflow: list issues"
-  default_prompt: "Use $logics-connector-linear to connect Linear to the Logics workflow: list issues and import a Linear issue into logics/backlog/ as a new."
+  short_description: "Import Linear issues into Logics backlog documents"
+  default_prompt: "Use $logics-connector-linear to list Linear issues and import selected issues into logics/backlog."

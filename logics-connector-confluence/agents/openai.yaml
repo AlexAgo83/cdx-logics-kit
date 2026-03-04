@@ -1,4 +1,4 @@
 interface:
   display_name: "Connector Confluence"
-  short_description: "Connect Confluence to the Logics workflow: search pages via"
-  default_prompt: "Use $logics-connector-confluence to connect Confluence to the Logics workflow: search pages via CQL and import a page into logics/request/ as a."
+  short_description: "Import Confluence pages into Logics request documents"
+  default_prompt: "Use $logics-connector-confluence to search Confluence pages with CQL and import selected pages into logics/request."
