@@ -69,6 +69,9 @@ Run workflow coherence audit:
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --stale-days 30
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
 ```
 
 After promotion:

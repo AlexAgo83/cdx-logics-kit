@@ -66,6 +66,9 @@ Run workflow coherence audit (closure consistency, orphan items, stale pending d
 
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
 ```
 
 Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
@@ -74,6 +77,12 @@ Check Logics conventions:
 
 ```bash
 python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
+```
+
+Run Python tests for the kit:
+
+```bash
+python3 -m unittest discover -s logics/skills/tests -p "test_*.py" -v
 ```
 
 ## Indicators
@@ -130,7 +139,7 @@ python3 logics/skills/logics-connector-figma/scripts/figma_to_backlog.py \
 
 ### Confluence connector (pages → Logics requests)
 
-Prereqs: `CONFLUENCE_DOMAINE`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`.
+Prereqs: `CONFLUENCE_DOMAIN` (preferred, `CONFLUENCE_DOMAINE` legacy alias is also supported), `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`.
 
 Search pages (CQL):
 

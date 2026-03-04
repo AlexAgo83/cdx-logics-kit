@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -53,7 +54,7 @@ def _collect(repo_root: Path, rel_dir: str) -> list[Entry]:
     return [_parse_doc(p) for p in sorted(directory.glob("*.md"))]
 
 
-def _render_section(title: str, entries: list[Entry], show_progress: bool) -> str:
+def _render_section(title: str, entries: list[Entry], show_progress: bool, out_dir: Path) -> str:
     lines: list[str] = [f"## {title}", ""]
     if not entries:
         lines.append("_None_")
@@ -68,7 +69,7 @@ def _render_section(title: str, entries: list[Entry], show_progress: bool) -> st
     lines.extend([header, sep])
 
     for entry in entries:
-        rel = entry.path.as_posix()
+        rel = os.path.relpath(entry.path, start=out_dir).replace(os.sep, "/")
         doc_link = f"[{entry.doc_ref}]({rel})"
         if show_progress:
             lines.append(f"| {doc_link} | {entry.title} | {entry.progress or ''} |")
@@ -87,18 +88,19 @@ def main(argv: list[str]) -> int:
     requests = _collect(repo_root, "logics/request")
     backlog = _collect(repo_root, "logics/backlog")
     tasks = _collect(repo_root, "logics/tasks")
+    out_path = (repo_root / args.out).resolve()
+    out_dir = out_path.parent
 
     content = "\n".join(
         [
             "# Logics Index",
             "",
-            _render_section("Requests", requests, False),
-            _render_section("Backlog", backlog, True),
-            _render_section("Tasks", tasks, True),
+            _render_section("Requests", requests, False, out_dir),
+            _render_section("Backlog", backlog, True, out_dir),
+            _render_section("Tasks", tasks, True, out_dir),
         ]
     ).rstrip() + "\n"
 
-    out_path = (repo_root / args.out).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(content, encoding="utf-8")
     try:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import time
@@ -37,6 +38,13 @@ class DocMeta:
     progress: int | None
     from_version: tuple[int, int, int] | None
     text: str
+
+
+@dataclass(frozen=True)
+class AuditIssue:
+    code: str
+    path: Path | None
+    message: str
 
 
 def _find_repo_root(start: Path) -> Path:
@@ -119,6 +127,24 @@ def _extract_checkboxes(section_lines: Iterable[str]) -> list[tuple[bool, str]]:
     return out
 
 
+def _extract_section_bounds(lines: list[str], heading_title: str) -> tuple[int, int] | None:
+    start_idx = None
+    target = heading_title.strip().lower()
+    for idx, line in enumerate(lines):
+        if line.startswith("# ") and line[2:].strip().lower() == target:
+            start_idx = idx
+            break
+    if start_idx is None:
+        return None
+
+    end_idx = len(lines)
+    for idx in range(start_idx + 1, len(lines)):
+        if lines[idx].startswith("# "):
+            end_idx = idx
+            break
+    return start_idx, end_idx
+
+
 def _extract_request_ac_ids(request: DocMeta) -> list[str]:
     section = _extract_section_lines(request.text, "Acceptance criteria")
     ids: set[str] = set()
@@ -194,6 +220,143 @@ def _is_strict_scope(doc: DocMeta, cutoff: tuple[int, int, int] | None) -> bool:
     return doc.from_version >= cutoff
 
 
+def _has_ac_with_proof(text: str, ac_id: str) -> bool:
+    return (ac_id in text.upper()) and ("proof:" in text.lower())
+
+
+def _autofix_ac_traceability(path: Path, ac_ids: set[str]) -> bool:
+    if not ac_ids:
+        return False
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    section_bounds = _extract_section_bounds(lines, "AC Traceability")
+    if section_bounds is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append("# AC Traceability")
+        section_bounds = _extract_section_bounds(lines, "AC Traceability")
+        if section_bounds is None:
+            return False
+
+    modified = False
+    ac_pattern = re.compile(r"\b(AC\d+[a-z]?)\b", re.IGNORECASE)
+
+    for ac_id in sorted(ac_ids):
+        section_bounds = _extract_section_bounds(lines, "AC Traceability")
+        if section_bounds is None:
+            break
+        start_idx, end_idx = section_bounds
+        body_start = start_idx + 1
+
+        handled = False
+        for idx in range(body_start, end_idx):
+            line = lines[idx]
+            if ac_id not in line.upper():
+                continue
+            if "proof:" in line.lower():
+                handled = True
+                break
+            lines[idx] = line.rstrip() + " Proof: TODO."
+            modified = True
+            handled = True
+            break
+
+        if handled:
+            continue
+
+        insert_at = end_idx
+        while insert_at > body_start and not lines[insert_at - 1].strip():
+            insert_at -= 1
+
+        lines.insert(
+            insert_at,
+            f"- {ac_id} -> TODO: map this acceptance criterion to scope. Proof: TODO.",
+        )
+        modified = True
+
+    if not modified:
+        return False
+
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return True
+
+
+def _rel(repo_root: Path, path: Path | None) -> str:
+    if path is None:
+        return "(global)"
+    return path.relative_to(repo_root).as_posix()
+
+
+def _sorted_issues(issues: Iterable[AuditIssue], repo_root: Path) -> list[AuditIssue]:
+    unique: dict[tuple[str, str, str], AuditIssue] = {}
+    for issue in issues:
+        key = (_rel(repo_root, issue.path), issue.code, issue.message)
+        unique.setdefault(key, issue)
+    return sorted(unique.values(), key=lambda i: (_rel(repo_root, i.path), i.code, i.message))
+
+
+def _print_text_report(issues: list[AuditIssue], repo_root: Path, group_by_doc: bool) -> None:
+    if not issues:
+        print("Workflow audit: OK")
+        return
+
+    print("Workflow audit: FAILED")
+    if not group_by_doc:
+        for issue in issues:
+            rel = _rel(repo_root, issue.path)
+            if issue.path is None:
+                print(f"- [{issue.code}] {issue.message}")
+            else:
+                print(f"- {rel}: [{issue.code}] {issue.message}")
+        return
+
+    grouped: dict[str, list[AuditIssue]] = {}
+    for issue in issues:
+        grouped.setdefault(_rel(repo_root, issue.path), []).append(issue)
+    for rel_path in sorted(grouped):
+        print(f"- {rel_path}")
+        for issue in sorted(grouped[rel_path], key=lambda i: (i.code, i.message)):
+            print(f"  - [{issue.code}] {issue.message}")
+
+
+def _print_json_report(
+    issues: list[AuditIssue],
+    repo_root: Path,
+    autofix_enabled: bool,
+    autofix_modified: list[Path],
+) -> None:
+    by_code: dict[str, int] = {}
+    by_path: dict[str, int] = {}
+    serialized: list[dict[str, str]] = []
+
+    for issue in issues:
+        rel_path = _rel(repo_root, issue.path)
+        by_code[issue.code] = by_code.get(issue.code, 0) + 1
+        by_path[rel_path] = by_path.get(rel_path, 0) + 1
+        serialized.append(
+            {
+                "code": issue.code,
+                "path": rel_path,
+                "message": issue.message,
+            }
+        )
+
+    payload = {
+        "ok": not issues,
+        "issue_count": len(issues),
+        "issues": serialized,
+        "counts": {
+            "by_code": dict(sorted(by_code.items())),
+            "by_path": dict(sorted(by_path.items())),
+        },
+        "autofix": {
+            "enabled": autofix_enabled,
+            "modified_files": [_rel(repo_root, path) for path in sorted(autofix_modified)],
+        },
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workflow_audit.py",
@@ -217,6 +380,22 @@ def build_parser() -> argparse.ArgumentParser:
             "`From version` >= this semantic version (example: 1.3.0)."
         ),
     )
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format for audit results.",
+    )
+    parser.add_argument(
+        "--group-by-doc",
+        action="store_true",
+        help="Group text output by document path.",
+    )
+    parser.add_argument(
+        "--autofix-ac-traceability",
+        action="store_true",
+        help="Auto-add missing AC traceability skeleton entries in linked backlog/tasks docs.",
+    )
     return parser
 
 
@@ -230,7 +409,9 @@ def main(argv: list[str]) -> int:
     repo_root = _find_repo_root(Path.cwd())
     docs = _collect_docs(repo_root)
 
-    issues: list[str] = []
+    issues: list[AuditIssue] = []
+    autofix_targets: dict[Path, set[str]] = {}
+    autofix_modified: list[Path] = []
 
     # 1) task done/100% while item/request closure is inconsistent.
     for doc in docs.values():
@@ -241,26 +422,44 @@ def main(argv: list[str]) -> int:
 
         item_refs = _extract_refs(doc.text, DOC_KINDS["backlog"].prefix)
         if not item_refs:
-            issues.append(f"{doc.path.relative_to(repo_root)}: done task has no linked backlog item reference")
+            issues.append(
+                AuditIssue(
+                    code="task_missing_backlog_ref",
+                    path=doc.path,
+                    message="done task has no linked backlog item reference",
+                )
+            )
             continue
 
         for item_ref in sorted(item_refs):
             item_doc = docs.get(item_ref)
             if item_doc is None or item_doc.kind.kind != "backlog":
                 issues.append(
-                    f"{doc.path.relative_to(repo_root)}: references missing backlog item `{item_ref}`"
+                    AuditIssue(
+                        code="task_refs_missing_backlog",
+                        path=doc.path,
+                        message=f"references missing backlog item `{item_ref}`",
+                    )
                 )
                 continue
             if not _is_done(item_doc):
                 issues.append(
-                    f"{doc.path.relative_to(repo_root)}: done task linked to backlog item not closed `{item_ref}`"
+                    AuditIssue(
+                        code="task_links_open_backlog",
+                        path=doc.path,
+                        message=f"done task linked to backlog item not closed `{item_ref}`",
+                    )
                 )
 
             for request_doc in _linked_requests_for_item(item_doc, docs):
                 request_items = _linked_items_for_request(request_doc, docs)
                 if request_items and all(_is_done(item) for item in request_items) and not _is_done(request_doc):
                     issues.append(
-                        f"{request_doc.path.relative_to(repo_root)}: all backlog items are done but request is not closed"
+                        AuditIssue(
+                            code="request_not_closed_after_backlog_done",
+                            path=request_doc.path,
+                            message="all backlog items are done but request is not closed",
+                        )
                     )
 
     # 2) orphan backlog items (no request link).
@@ -269,7 +468,13 @@ def main(argv: list[str]) -> int:
             continue
         request_refs = _extract_refs(doc.text, DOC_KINDS["request"].prefix)
         if not request_refs:
-            issues.append(f"{doc.path.relative_to(repo_root)}: orphan backlog item (no linked request)")
+            issues.append(
+                AuditIssue(
+                    code="backlog_orphan_no_request",
+                    path=doc.path,
+                    message="orphan backlog item (no linked request)",
+                )
+            )
 
     # 3) delivered requests with incomplete backlog.
     for doc in docs.values():
@@ -279,12 +484,22 @@ def main(argv: list[str]) -> int:
             continue
         request_items = _linked_items_for_request(doc, docs)
         if not request_items:
-            issues.append(f"{doc.path.relative_to(repo_root)}: delivered request has no linked backlog items")
+            issues.append(
+                AuditIssue(
+                    code="request_done_without_backlog",
+                    path=doc.path,
+                    message="delivered request has no linked backlog items",
+                )
+            )
             continue
         for item in request_items:
             if not _is_done(item):
                 issues.append(
-                    f"{doc.path.relative_to(repo_root)}: delivered request linked to incomplete backlog item `{item.ref}`"
+                    AuditIssue(
+                        code="request_done_with_open_backlog",
+                        path=doc.path,
+                        message=f"delivered request linked to incomplete backlog item `{item.ref}`",
+                    )
                 )
 
     # 4) stale pending docs.
@@ -295,7 +510,11 @@ def main(argv: list[str]) -> int:
             age_days = _last_modified_age_days(doc.path)
             if age_days >= args.stale_days:
                 issues.append(
-                    f"{doc.path.relative_to(repo_root)}: stale pending doc ({age_days:.1f} days, status={doc.status})"
+                    AuditIssue(
+                        code="stale_pending_doc",
+                        path=doc.path,
+                        message=f"stale pending doc ({age_days:.1f} days, status={doc.status})",
+                    )
                 )
 
     # 5) AC traceability mapping with proof (request AC -> item/task).
@@ -309,7 +528,13 @@ def main(argv: list[str]) -> int:
 
             linked_items = _linked_items_for_request(request, docs)
             if not linked_items:
-                issues.append(f"{request.path.relative_to(repo_root)}: request has ACs but no linked backlog items")
+                issues.append(
+                    AuditIssue(
+                        code="ac_no_linked_backlog",
+                        path=request.path,
+                        message="request has ACs but no linked backlog items",
+                    )
+                )
                 continue
 
             linked_tasks: list[DocMeta] = []
@@ -317,27 +542,41 @@ def main(argv: list[str]) -> int:
                 linked_tasks.extend(_linked_tasks_for_item(item, docs))
 
             if not linked_tasks:
-                issues.append(f"{request.path.relative_to(repo_root)}: request has ACs but no linked tasks")
+                issues.append(
+                    AuditIssue(
+                        code="ac_no_linked_tasks",
+                        path=request.path,
+                        message="request has ACs but no linked tasks",
+                    )
+                )
                 continue
 
             for ac_id in ac_ids:
-                item_has_mapping = any(
-                    (ac_id in item.text.upper()) and ("proof:" in item.text.lower())
-                    for item in linked_items
-                )
+                item_has_mapping = any(_has_ac_with_proof(item.text, ac_id) for item in linked_items)
                 if not item_has_mapping:
-                    issues.append(
-                        f"{request.path.relative_to(repo_root)}: `{ac_id}` missing item-level traceability with proof"
-                    )
+                    if args.autofix_ac_traceability and linked_items:
+                        autofix_targets.setdefault(linked_items[0].path, set()).add(ac_id)
+                    else:
+                        issues.append(
+                            AuditIssue(
+                                code="ac_missing_item_traceability",
+                                path=request.path,
+                                message=f"`{ac_id}` missing item-level traceability with proof",
+                            )
+                        )
 
-                task_has_mapping = any(
-                    (ac_id in task.text.upper()) and ("proof:" in task.text.lower())
-                    for task in linked_tasks
-                )
+                task_has_mapping = any(_has_ac_with_proof(task.text, ac_id) for task in linked_tasks)
                 if not task_has_mapping:
-                    issues.append(
-                        f"{request.path.relative_to(repo_root)}: `{ac_id}` missing task-level traceability with proof"
-                    )
+                    if args.autofix_ac_traceability and linked_tasks:
+                        autofix_targets.setdefault(linked_tasks[0].path, set()).add(ac_id)
+                    else:
+                        issues.append(
+                            AuditIssue(
+                                code="ac_missing_task_traceability",
+                                path=request.path,
+                                message=f"`{ac_id}` missing task-level traceability with proof",
+                            )
+                        )
 
     # 6) DoR/DoD gates.
     if not args.skip_gates:
@@ -348,9 +587,21 @@ def main(argv: list[str]) -> int:
                 continue
             dor_checks = _extract_checkboxes(_extract_section_lines(request.text, "Definition of Ready (DoR)"))
             if not dor_checks:
-                issues.append(f"{request.path.relative_to(repo_root)}: missing DoR checklist")
+                issues.append(
+                    AuditIssue(
+                        code="request_missing_dor",
+                        path=request.path,
+                        message="missing DoR checklist",
+                    )
+                )
             elif any(not checked for checked, _label in dor_checks):
-                issues.append(f"{request.path.relative_to(repo_root)}: DoR checklist contains unchecked items")
+                issues.append(
+                    AuditIssue(
+                        code="request_dor_unchecked",
+                        path=request.path,
+                        message="DoR checklist contains unchecked items",
+                    )
+                )
 
         for task in [doc for doc in docs.values() if doc.kind.kind == "task"]:
             if not _is_strict_scope(task, cutoff):
@@ -359,18 +610,73 @@ def main(argv: list[str]) -> int:
                 continue
             dod_checks = _extract_checkboxes(_extract_section_lines(task.text, "Definition of Done (DoD)"))
             if not dod_checks:
-                issues.append(f"{task.path.relative_to(repo_root)}: missing DoD checklist")
+                issues.append(
+                    AuditIssue(
+                        code="task_missing_dod",
+                        path=task.path,
+                        message="missing DoD checklist",
+                    )
+                )
             elif any(not checked for checked, _label in dod_checks):
-                issues.append(f"{task.path.relative_to(repo_root)}: DoD checklist contains unchecked items")
+                issues.append(
+                    AuditIssue(
+                        code="task_dod_unchecked",
+                        path=task.path,
+                        message="DoD checklist contains unchecked items",
+                    )
+                )
 
-    if not issues:
-        print("Workflow audit: OK")
-        return 0
+    if args.autofix_ac_traceability and autofix_targets:
+        for path, ac_ids in sorted(autofix_targets.items(), key=lambda pair: pair[0].as_posix()):
+            if _autofix_ac_traceability(path, ac_ids):
+                autofix_modified.append(path)
 
-    print("Workflow audit: FAILED")
-    for issue in sorted(set(issues)):
-        print(f"- {issue}")
-    return 1
+        if autofix_modified:
+            docs = _collect_docs(repo_root)
+            issues = [
+                issue
+                for issue in issues
+                if issue.code not in {"ac_missing_item_traceability", "ac_missing_task_traceability"}
+            ]
+
+            for request in [doc for doc in docs.values() if doc.kind.kind == "request"]:
+                if args.skip_ac_traceability:
+                    break
+                if not _is_strict_scope(request, cutoff):
+                    continue
+                ac_ids = _extract_request_ac_ids(request)
+                if not ac_ids:
+                    continue
+                linked_items = _linked_items_for_request(request, docs)
+                linked_tasks: list[DocMeta] = []
+                for item in linked_items:
+                    linked_tasks.extend(_linked_tasks_for_item(item, docs))
+                for ac_id in ac_ids:
+                    if linked_items and not any(_has_ac_with_proof(item.text, ac_id) for item in linked_items):
+                        issues.append(
+                            AuditIssue(
+                                code="ac_missing_item_traceability",
+                                path=request.path,
+                                message=f"`{ac_id}` missing item-level traceability with proof",
+                            )
+                        )
+                    if linked_tasks and not any(_has_ac_with_proof(task.text, ac_id) for task in linked_tasks):
+                        issues.append(
+                            AuditIssue(
+                                code="ac_missing_task_traceability",
+                                path=request.path,
+                                message=f"`{ac_id}` missing task-level traceability with proof",
+                            )
+                        )
+
+    sorted_issues = _sorted_issues(issues, repo_root)
+
+    if args.format == "json":
+        _print_json_report(sorted_issues, repo_root, args.autofix_ac_traceability, autofix_modified)
+    else:
+        _print_text_report(sorted_issues, repo_root, args.group_by_doc)
+
+    return 0 if not sorted_issues else 1
 
 
 if __name__ == "__main__":

@@ -6,7 +6,8 @@ description: Connect Confluence (Atlassian) to the Logics workflow: search pages
 # Confluence connector
 
 ## Environment variables
-- `CONFLUENCE_DOMAINE` (e.g. `https://<domain>.atlassian.net/wiki`)
+- `CONFLUENCE_DOMAIN` (preferred, e.g. `https://<domain>.atlassian.net/wiki`)
+- `CONFLUENCE_DOMAINE` (legacy alias, still supported)
 - `CONFLUENCE_EMAIL`
 - `CONFLUENCE_API_TOKEN`
 

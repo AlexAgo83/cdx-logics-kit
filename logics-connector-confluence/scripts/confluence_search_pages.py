@@ -20,9 +20,14 @@ def _find_repo_root(start: Path) -> Path:
 
 
 def _confluence_domain() -> str:
-    domain = os.environ.get("CONFLUENCE_DOMAINE", "").strip().rstrip("/")
+    domain = os.environ.get("CONFLUENCE_DOMAIN", "").strip().rstrip("/")
     if not domain:
-        raise SystemExit("Missing CONFLUENCE_DOMAINE (e.g. https://<domain>.atlassian.net/wiki).")
+        domain = os.environ.get("CONFLUENCE_DOMAINE", "").strip().rstrip("/")
+    if not domain:
+        raise SystemExit(
+            "Missing CONFLUENCE_DOMAIN (or legacy CONFLUENCE_DOMAINE), "
+            "e.g. https://<domain>.atlassian.net/wiki."
+        )
     return domain
 
 
@@ -77,4 +82,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-
