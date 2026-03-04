@@ -130,15 +130,19 @@ def _compute_progress(lines: list[str], kind: str) -> str | None:
     return None
 
 
-def _parse_indicators(lines: list[str]) -> dict[str, str]:
+def _parse_indicators(lines: list[str]) -> tuple[list[str], dict[str, str]]:
+    order: list[str] = []
     indicators: dict[str, str] = {}
     for line in lines:
         if not line.startswith("> "):
             continue
         match = re.match(r">\s*([^:]+):\s*(.+)$", line)
         if match:
-            indicators[match.group(1).strip()] = match.group(2).strip()
-    return indicators
+            key = match.group(1).strip()
+            if key not in indicators:
+                order.append(key)
+            indicators[key] = match.group(2).strip()
+    return order, indicators
 
 
 def _ensure_indicators(lines: list[str], kind: str, auto_progress: bool) -> tuple[list[str], bool]:
@@ -156,22 +160,27 @@ def _ensure_indicators(lines: list[str], kind: str, auto_progress: bool) -> tupl
     while indicator_end < len(lines) and lines[indicator_end].startswith("> "):
         indicator_end += 1
 
-    existing = _parse_indicators(lines[indicator_start:indicator_end])
+    existing_order, existing = _parse_indicators(lines[indicator_start:indicator_end])
     required = ["From version", "Understanding", "Confidence"]
     if kind in {"backlog", "task"}:
         required.append("Progress")
 
     if auto_progress and kind in {"backlog", "task"}:
         computed = _compute_progress(lines, kind)
-        if computed:
+        if computed and existing.get("Progress") != computed:
             existing["Progress"] = computed
+            updated = True
 
     for key in required:
         if key not in existing:
             existing[key] = INDICATOR_DEFAULTS[key]
+            if key not in existing_order:
+                existing_order.append(key)
             updated = True
 
-    new_indicators = [f"> {key}: {existing[key]}" for key in required]
+    # Preserve non-required indicators already present in docs (Status, Complexity, Theme, Reminder, etc.).
+    # The fixer should only add missing required keys and update Progress when requested.
+    new_indicators = [f"> {key}: {existing[key]}" for key in existing_order]
     content_start = indicator_end
     while content_start < len(lines) and lines[content_start].strip() == "":
         content_start += 1
