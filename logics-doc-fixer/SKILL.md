@@ -1,6 +1,6 @@
 ---
 name: logics-doc-fixer
-description: Validate and repair Logics request/backlog/task docs (structure, required indicators, and cross‑references). Use when Codex should audit `logics/request`, `logics/backlog`, or `logics/tasks` for missing sections/indicators, auto-update Progress from checkboxes, and backfill missing request↔backlog↔task references.
+description: Validate and repair Logics request/backlog/task docs (structure, indicators, and cross‑references) without deleting existing metadata. Use when Codex should audit `logics/request`, `logics/backlog`, or `logics/tasks` for missing sections/indicators, auto-update Progress from checkboxes, backfill missing request↔backlog↔task references, or restore dropped indicator lines.
 ---
 
 # Logics Doc Fixer
@@ -22,9 +22,10 @@ python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py logics/request
 
 ## What it fixes
 
-- Ensures required **indicators** exist:
-  - Requests: `From version`, `Understanding`, `Confidence`, `Complexity`, `Theme`
+- Ensures minimum **indicators** exist:
+  - Requests: `From version`, `Understanding`, `Confidence`
   - Backlog/tasks: plus `Progress`
+- Preserves all existing indicator lines (for example `Status`, `Complexity`, `Theme`, `Reminder`) and never removes them.
 - Auto‑updates **Progress** from checkbox completion in `# Plan` (or `# Acceptance criteria` for backlog if checkboxes exist).
 - Ensures required **sections** exist and adds placeholders when missing.
 - Repairs **references** when possible:
@@ -42,3 +43,4 @@ python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py logics/request
 
 - Matching is **slug-based** (e.g., `req_005_my_feature` ↔ `item_012_my_feature`).
 - If multiple matches exist, references are **not** auto-added to avoid bad links.
+- Safety rule: do not perform destructive rewrites of indicator blocks. If indicators appear missing after a previous run, restore from git history (`HEAD`) before any new edits.

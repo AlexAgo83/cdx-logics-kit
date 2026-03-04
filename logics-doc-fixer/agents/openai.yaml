@@ -1,0 +1,4 @@
+interface:
+  display_name: "Logics Doc Fixer"
+  short_description: "Repair Logics docs without metadata loss"
+  default_prompt: "Use $logics-doc-fixer to scan and repair Logics request/backlog/task docs while preserving all existing indicators."
