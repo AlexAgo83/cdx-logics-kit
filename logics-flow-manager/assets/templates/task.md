@@ -20,6 +20,10 @@
 # AC Traceability
 - AC1 -> Implemented in the steps above. Proof: add test/commit/file links.
 
+# Links
+- Backlog item: {{BACKLOG_LINK_PLACEHOLDER}}
+- Request(s): {{REQUEST_LINK_PLACEHOLDER}}
+
 # Validation
 - {{VALIDATION_1}}
 - {{VALIDATION_2}}

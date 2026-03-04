@@ -35,6 +35,7 @@ class DocMeta:
     ref: str
     status: str | None
     progress: int | None
+    from_version: tuple[int, int, int] | None
     text: str
 
 
@@ -72,6 +73,15 @@ def _progress_value(value: str | None) -> int | None:
     except ValueError:
         return None
     return max(0, min(100, parsed))
+
+
+def _parse_semver(value: str | None) -> tuple[int, int, int] | None:
+    if value is None:
+        return None
+    match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", value.strip())
+    if match is None:
+        return None
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
 
 def _extract_refs(text: str, prefix: str) -> set[str]:
@@ -139,12 +149,14 @@ def _collect_docs(repo_root: Path) -> dict[str, DocMeta]:
             lines = text.splitlines()
             status = _status_normalized(_indicator_value(lines, "Status"))
             progress = _progress_value(_indicator_value(lines, "Progress"))
+            from_version = _parse_semver(_indicator_value(lines, "From version"))
             docs[path.stem] = DocMeta(
                 kind=kind,
                 path=path,
                 ref=path.stem,
                 status=status,
                 progress=progress,
+                from_version=from_version,
                 text=text,
             )
     return docs
@@ -174,6 +186,14 @@ def _last_modified_age_days(path: Path) -> float:
     return (time.time() - path.stat().st_mtime) / 86400.0
 
 
+def _is_strict_scope(doc: DocMeta, cutoff: tuple[int, int, int] | None) -> bool:
+    if cutoff is None:
+        return True
+    if doc.from_version is None:
+        return False
+    return doc.from_version >= cutoff
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workflow_audit.py",
@@ -190,11 +210,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip DoR/DoD gate checks.",
     )
+    parser.add_argument(
+        "--legacy-cutoff-version",
+        help=(
+            "Only enforce AC traceability and DoR/DoD gates for docs with "
+            "`From version` >= this semantic version (example: 1.3.0)."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
+    cutoff = _parse_semver(args.legacy_cutoff_version)
+    if args.legacy_cutoff_version and cutoff is None:
+        raise SystemExit(
+            f"Invalid --legacy-cutoff-version `{args.legacy_cutoff_version}`. Expected semantic version like 1.3.0."
+        )
     repo_root = _find_repo_root(Path.cwd())
     docs = _collect_docs(repo_root)
 
@@ -269,6 +301,8 @@ def main(argv: list[str]) -> int:
     # 5) AC traceability mapping with proof (request AC -> item/task).
     if not args.skip_ac_traceability:
         for request in [doc for doc in docs.values() if doc.kind.kind == "request"]:
+            if not _is_strict_scope(request, cutoff):
+                continue
             ac_ids = _extract_request_ac_ids(request)
             if not ac_ids:
                 continue
@@ -308,6 +342,8 @@ def main(argv: list[str]) -> int:
     # 6) DoR/DoD gates.
     if not args.skip_gates:
         for request in [doc for doc in docs.values() if doc.kind.kind == "request"]:
+            if not _is_strict_scope(request, cutoff):
+                continue
             if request.status not in {"ready", "in progress", "done"}:
                 continue
             dor_checks = _extract_checkboxes(_extract_section_lines(request.text, "Definition of Ready (DoR)"))
@@ -317,6 +353,8 @@ def main(argv: list[str]) -> int:
                 issues.append(f"{request.path.relative_to(repo_root)}: DoR checklist contains unchecked items")
 
         for task in [doc for doc in docs.values() if doc.kind.kind == "task"]:
+            if not _is_strict_scope(task, cutoff):
+                continue
             if not _is_done(task):
                 continue
             dod_checks = _extract_checkboxes(_extract_section_lines(task.text, "Definition of Done (DoD)"))

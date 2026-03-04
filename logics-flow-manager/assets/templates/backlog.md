@@ -21,6 +21,10 @@
 # AC Traceability
 - AC1 -> Item scope and delivery path are defined. Proof: add test/commit/file links.
 
+# Links
+- Request: {{REQUEST_LINK_PLACEHOLDER}}
+- Primary task(s): {{TASK_LINK_PLACEHOLDER}}
+
 # Priority
 - Impact:
 - Urgency:

@@ -156,6 +156,13 @@ def _extract_refs(text: str, kind: DocKind) -> set[str]:
     return {match.group(0) for match in pattern.finditer(text)}
 
 
+def _doc_ref_from_path(path: Path, kind: DocKind) -> str | None:
+    stem = path.stem
+    if stem.startswith(f"{kind.prefix}_"):
+        return stem
+    return None
+
+
 def _progress_value_to_int(value: str | None) -> int | None:
     if value is None:
         return None
@@ -256,6 +263,9 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
         "ACCEPTANCE_PLACEHOLDER": "AC1: Define an objective acceptance check",
         "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
         "NOTES_PLACEHOLDER": "",
+        "REQUEST_LINK_PLACEHOLDER": "`req_XXX_example`",
+        "BACKLOG_LINK_PLACEHOLDER": "`item_XXX_example`",
+        "TASK_LINK_PLACEHOLDER": "`task_XXX_example`",
         "STEP_1": "First implementation step",
         "STEP_2": "Second implementation step",
         "STEP_3": "Third implementation step",
@@ -305,13 +315,23 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
 
     template_text = _template_path(Path(__file__), DOC_KINDS["backlog"].template_name).read_text(encoding="utf-8")
     values = _build_template_values(args, doc_ref, title, include_progress=True)
-    values["NOTES_PLACEHOLDER"] = f"- Derived from `{source_path.relative_to(repo_root)}`."
+    source_ref = _doc_ref_from_path(source_path, DOC_KINDS["request"])
+    source_rel = source_path.relative_to(repo_root)
+    if source_ref is not None:
+        values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_ref}`"
+        values["NOTES_PLACEHOLDER"] = (
+            f"- Derived from request `{source_ref}`.\n"
+            f"- Source file: `{source_rel}`."
+        )
+    else:
+        values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_rel}`"
+        values["NOTES_PLACEHOLDER"] = f"- Derived from `{source_rel}`."
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
     _update_request_backlog_links(
         source_path,
-        str(output_path.relative_to(repo_root)),
+        doc_ref,
         args.dry_run,
     )
 
@@ -333,7 +353,23 @@ def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
 
     template_text = _template_path(Path(__file__), DOC_KINDS["task"].template_name).read_text(encoding="utf-8")
     values = _build_template_values(args, doc_ref, title, include_progress=True)
-    values["CONTEXT_PLACEHOLDER"] = f"Derived from `{source_path.relative_to(repo_root)}`"
+    source_text = source_path.read_text(encoding="utf-8")
+    source_ref = _doc_ref_from_path(source_path, DOC_KINDS["backlog"])
+    source_rel = source_path.relative_to(repo_root)
+    request_refs = sorted(_extract_refs(source_text, DOC_KINDS["request"]))
+
+    context_lines = [
+        f"- Derived from backlog item `{source_ref or source_rel}`.",
+        f"- Source file: `{source_rel}`.",
+    ]
+    if request_refs:
+        context_lines.append("- Related request(s): " + ", ".join(f"`{ref}`" for ref in request_refs) + ".")
+
+    values["CONTEXT_PLACEHOLDER"] = "\n".join(context_lines)
+    values["BACKLOG_LINK_PLACEHOLDER"] = f"`{source_ref}`" if source_ref is not None else f"`{source_rel}`"
+    if request_refs:
+        values["REQUEST_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in request_refs)
+
     values["STEP_1"] = "Clarify scope and acceptance criteria"
     values["STEP_2"] = "Implement changes"
     values["STEP_3"] = "Add/adjust tests and polish UX"
@@ -355,6 +391,31 @@ def _maybe_close_request_chain(repo_root: Path, request_ref: str, dry_run: bool)
         if not _is_doc_done(request_path, DOC_KINDS["request"]):
             _close_doc(request_path, DOC_KINDS["request"], dry_run)
             print(f"Auto-closed request {request_ref} (all linked backlog items are done).")
+
+
+def _sync_close_eligible_requests(repo_root: Path, dry_run: bool) -> tuple[int, int]:
+    request_dir = repo_root / DOC_KINDS["request"].directory
+    closed = 0
+    scanned = 0
+    for request_path in sorted(request_dir.glob("req_*.md")):
+        request_ref = request_path.stem
+        scanned += 1
+        if _is_doc_done(request_path, DOC_KINDS["request"]):
+            continue
+        linked_items = _collect_docs_linking_ref(repo_root, DOC_KINDS["backlog"], request_ref)
+        if not linked_items:
+            continue
+        if all(_is_doc_done(item_path, DOC_KINDS["backlog"]) for item_path in linked_items):
+            _close_doc(request_path, DOC_KINDS["request"], dry_run)
+            print(f"Auto-closed request {request_ref} (all linked backlog items are done).")
+            closed += 1
+    return scanned, closed
+
+
+def cmd_sync_close_eligible_requests(args: argparse.Namespace) -> None:
+    repo_root = _find_repo_root(Path.cwd())
+    scanned, closed = _sync_close_eligible_requests(repo_root, args.dry_run)
+    print(f"Scanned {scanned} requests, auto-closed {closed}.")
 
 
 def cmd_close(args: argparse.Namespace) -> None:
@@ -397,6 +458,10 @@ def cmd_close(args: argparse.Namespace) -> None:
                 continue
             processed_request_refs.add(request_ref)
             _maybe_close_request_chain(repo_root, request_ref, args.dry_run)
+
+    if kind.kind == "request":
+        request_ref = source_path.stem
+        _maybe_close_request_chain(repo_root, request_ref, args.dry_run)
 
 
 def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
@@ -449,6 +514,15 @@ def build_parser() -> argparse.ArgumentParser:
         close_kind.add_argument("source")
         close_kind.add_argument("--dry-run", action="store_true")
         close_kind.set_defaults(func=cmd_close)
+
+    sync_parser = sub.add_parser("sync", help="Sync workflow metadata and closure transitions.")
+    sync_sub = sync_parser.add_subparsers(dest="sync_kind", required=True)
+    close_eligible = sync_sub.add_parser(
+        "close-eligible-requests",
+        help="Auto-close requests when all linked backlog items are done.",
+    )
+    close_eligible.add_argument("--dry-run", action="store_true")
+    close_eligible.set_defaults(func=cmd_sync_close_eligible_requests)
 
     return parser
 
