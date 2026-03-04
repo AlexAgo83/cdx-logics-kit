@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migration Compat Guardian"
+  short_description: "Enforce migration and compatibility guardrails"
+  default_prompt: "Use $logics-migration-compat-guardian to add migration and backward-compatibility guardrails to this Logics document."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Impact Orchestrator"
+  short_description: "Turn git diffs into focused test plans"
+  default_prompt: "Use $logics-test-impact-orchestrator to analyze current changes and produce a minimal safe validation sequence."

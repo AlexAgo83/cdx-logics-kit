@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Gatekeeper"
+  short_description: "Run release-readiness checks on Logics docs"
+  default_prompt: "Use $logics-release-gatekeeper to run release gates and generate a pass or fail report from completed Logics items."
