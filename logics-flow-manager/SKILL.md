@@ -17,6 +17,8 @@ description: Manage this repository's Logics workflow (logics/request → logics
   - `Progress: ??%` (mainly tasks; optionally backlog)
   - `Complexity: Low | Medium | High`
   - `Theme: Combat | Items | Economy | UI | ...`
+- When writing a request, the `# Context` section must include a Mermaid diagram that visualizes the need.
+- Prefer a compact business-readable `flowchart TD` or `flowchart LR` showing inputs, decision points, outputs, and feedback loops.
 
 If unsure, open `logics/instructions.md` and follow the workflow described there.
 
@@ -83,3 +85,4 @@ After promotion:
 Before promotion:
 
 - If `Understanding` or `Confidence` is below 90% in the source doc, run the **logics-confidence-booster** skill first to clarify and update indicators.
+- For request docs, replace the default Mermaid scaffold with a diagram specific to the need before considering the request ready.
