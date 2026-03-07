@@ -11,6 +11,15 @@
 # Context
 {{CONTEXT_PLACEHOLDER}}
 
+```mermaid
+flowchart LR
+    Backlog[Backlog: {{BACKLOG_LINK_PLACEHOLDER}}] --> Step1[{{STEP_1}}]
+    Step1 --> Step2[{{STEP_2}}]
+    Step2 --> Step3[{{STEP_3}}]
+    Step3 --> Validation[Validation]
+    Validation --> Report[Report and Done]
+```
+
 # Plan
 - [ ] 1. {{STEP_1}}
 - [ ] 2. {{STEP_2}}

@@ -19,6 +19,8 @@ description: Manage this repository's Logics workflow (logics/request → logics
   - `Theme: Combat | Items | Economy | UI | ...`
 - When writing a request, the `# Context` section must include a Mermaid diagram that visualizes the need.
 - Prefer a compact business-readable `flowchart TD` or `flowchart LR` showing inputs, decision points, outputs, and feedback loops.
+- Backlog items should include a Mermaid diagram that makes the delivery slice explicit: request/source -> problem -> scope -> acceptance criteria -> task(s).
+- Tasks should include a Mermaid diagram that shows the execution path: backlog/source -> implementation steps -> validation -> done/report.
 
 If unsure, open `logics/instructions.md` and follow the workflow described there.
 
@@ -86,3 +88,4 @@ Before promotion:
 
 - If `Understanding` or `Confidence` is below 90% in the source doc, run the **logics-confidence-booster** skill first to clarify and update indicators.
 - For request docs, replace the default Mermaid scaffold with a diagram specific to the need before considering the request ready.
+- For backlog/task docs, replace the default Mermaid scaffold with a doc-specific diagram whenever the default no longer reflects the real flow.

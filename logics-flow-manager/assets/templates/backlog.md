@@ -15,6 +15,14 @@
 - In:
 - Out:
 
+```mermaid
+flowchart LR
+    Req[Request: {{REQUEST_LINK_PLACEHOLDER}}] --> Problem[Problem to solve]
+    Problem --> Scope[Scoped delivery]
+    Scope --> AC[Acceptance criteria]
+    AC --> Tasks[Implementation task(s)]
+```
+
 # Acceptance criteria
 - {{ACCEPTANCE_PLACEHOLDER}}
 
