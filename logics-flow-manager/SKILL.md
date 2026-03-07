@@ -68,6 +68,14 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog l
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_example.md
 ```
 
+When a task is actually finished, prefer the kit-native guarded flow instead of editing indicators manually:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_example.md
+```
+
+`finish task` closes the task, propagates closure to linked backlog/request docs when eligible, and verifies that the linked chain stayed synchronized. Use `close` only when you explicitly want the lower-level primitive.
+
 Run workflow coherence audit:
 
 ```bash

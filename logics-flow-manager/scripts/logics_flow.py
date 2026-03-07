@@ -464,6 +464,72 @@ def cmd_close(args: argparse.Namespace) -> None:
         _maybe_close_request_chain(repo_root, request_ref, args.dry_run)
 
 
+def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
+    issues: list[str] = []
+    task_ref = task_path.stem
+    task_text = task_path.read_text(encoding="utf-8")
+    item_refs = sorted(_extract_refs(task_text, DOC_KINDS["backlog"]))
+
+    if not item_refs:
+        return [f"task `{task_ref}` has no linked backlog item reference"]
+
+    processed_request_refs: set[str] = set()
+    for item_ref in item_refs:
+        item_path = _resolve_doc_path(repo_root, DOC_KINDS["backlog"], item_ref)
+        if item_path is None:
+            issues.append(f"task `{task_ref}` references missing backlog item `{item_ref}`")
+            continue
+        if not _is_doc_done(item_path, DOC_KINDS["backlog"]):
+            issues.append(f"linked backlog item `{item_ref}` is not closed after finishing task `{task_ref}`")
+
+        item_text = item_path.read_text(encoding="utf-8")
+        request_refs = sorted(_extract_refs(item_text, DOC_KINDS["request"]))
+        if not request_refs:
+            issues.append(f"linked backlog item `{item_ref}` has no request reference")
+            continue
+
+        for request_ref in request_refs:
+            if request_ref in processed_request_refs:
+                continue
+            processed_request_refs.add(request_ref)
+            request_path = _resolve_doc_path(repo_root, DOC_KINDS["request"], request_ref)
+            if request_path is None:
+                issues.append(f"backlog item `{item_ref}` references missing request `{request_ref}`")
+                continue
+
+            linked_items = _collect_docs_linking_ref(repo_root, DOC_KINDS["backlog"], request_ref)
+            if linked_items and all(_is_doc_done(linked_item, DOC_KINDS["backlog"]) for linked_item in linked_items):
+                if not _is_doc_done(request_path, DOC_KINDS["request"]):
+                    issues.append(
+                        f"request `{request_ref}` should be closed because all linked backlog items are done"
+                    )
+
+    return issues
+
+
+def cmd_finish_task(args: argparse.Namespace) -> None:
+    repo_root = _find_repo_root(Path.cwd())
+    source_path = Path(args.source).resolve()
+    if not source_path.is_file():
+        raise SystemExit(f"Source not found: {source_path}")
+    if not source_path.stem.startswith(f"{DOC_KINDS['task'].prefix}_"):
+        raise SystemExit(f"Expected a `{DOC_KINDS['task'].prefix}_...` task file. Got: {source_path.name}")
+
+    close_args = argparse.Namespace(kind="task", source=args.source, dry_run=args.dry_run)
+    cmd_close(close_args)
+
+    if args.dry_run:
+        print("Dry run: skipped post-close verification.")
+        return
+
+    issues = _verify_finished_task_chain(repo_root, source_path)
+    if issues:
+        details = "\n".join(f"- {issue}" for issue in issues)
+        raise SystemExit(f"Finish verification failed:\n{details}")
+
+    print(f"Finish verification: OK for {source_path.relative_to(repo_root)}")
+
+
 def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
     parser.add_argument("--from-version", default="X.X.X")
     parser.add_argument("--understanding", default="??%")
@@ -481,7 +547,7 @@ def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logics_flow.py",
-        description="Create/promote/close Logics docs with consistent IDs, templates, and workflow transitions.",
+        description="Create/promote/close/finish Logics docs with consistent IDs, templates, and workflow transitions.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -514,6 +580,19 @@ def build_parser() -> argparse.ArgumentParser:
         close_kind.add_argument("source")
         close_kind.add_argument("--dry-run", action="store_true")
         close_kind.set_defaults(func=cmd_close)
+
+    finish_parser = sub.add_parser(
+        "finish",
+        help="Finish a completed Logics doc using the recommended workflow guardrails.",
+    )
+    finish_sub = finish_parser.add_subparsers(dest="finish_kind", required=True)
+    finish_task = finish_sub.add_parser(
+        "task",
+        help="Close a task, propagate task -> backlog -> request transitions, and verify the linked chain.",
+    )
+    finish_task.add_argument("source")
+    finish_task.add_argument("--dry-run", action="store_true")
+    finish_task.set_defaults(func=cmd_finish_task)
 
     sync_parser = sub.add_parser("sync", help="Sync workflow metadata and closure transitions.")
     sync_sub = sync_parser.add_subparsers(dest="sync_kind", required=True)
