@@ -13,9 +13,9 @@
 
 ```mermaid
 flowchart LR
-    Backlog[Backlog: {{BACKLOG_LINK_PLACEHOLDER}}] --> Step1[{{STEP_1}}]
-    Step1 --> Step2[{{STEP_2}}]
-    Step2 --> Step3[{{STEP_3}}]
+    Backlog[Backlog source] --> Step1[Implementation step 1]
+    Step1 --> Step2[Implementation step 2]
+    Step2 --> Step3[Implementation step 3]
     Step3 --> Validation[Validation]
     Validation --> Report[Report and Done]
 ```

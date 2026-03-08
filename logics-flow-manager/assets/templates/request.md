@@ -17,8 +17,8 @@
 flowchart TD
     A[Primary input or trigger] --> B[Need or problem]
     B --> C[Expected outcome]
-    C --> D[User-visible result]
-    D --> E[Feedback or follow-up]
+    C --> D[User visible result]
+    D --> E[Feedback or follow up]
 ```
 
 # Acceptance criteria
