@@ -1,9 +1,31 @@
 # cdx-logics-kit
 
-A reusable “Logics skills” kit (guides + scripts) to import into your projects under `logics/skills/`.
+<p align="center">
+  <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
+  <img src="https://img.shields.io/badge/version-v0.1.5%2B-4C8BF5" alt="Version" />
+  <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/workflow-request--backlog--task--spec-2EA44F" alt="Workflow" />
+  <img src="https://img.shields.io/badge/AI-context%20memory-FFB000" alt="AI Context Memory" />
+</p>
 
-Goal: standardize a lightweight Markdown-based workflow (`logics/request` → `logics/backlog` → `logics/tasks` → `logics/specs`) and provide commands to create/promote/lint/index/review.
-Project purpose: build an extended context memory and optimize token usage by improving need analysis before design.
+A reusable Logics kit to import into your projects under `logics/skills/`.
+
+The kit standardizes a lightweight Markdown workflow:
+
+`logics/request` -> `logics/backlog` -> `logics/tasks` -> `logics/specs`
+
+It also ships scripts and skills to create, promote, lint, audit, review, and enrich those docs so project context stays durable, inspectable, and reusable across AI sessions.
+
+```mermaid
+flowchart LR
+    Need[Need captured] --> Request[Request]
+    Request --> Backlog[Backlog item]
+    Backlog --> Task[Executable task]
+    Task --> Spec[Spec or delivery notes]
+    Spec --> Audit[Lint and workflow audit]
+    Audit --> Memory[Reusable project memory]
+```
 
 ## VS Code extension
 
@@ -24,6 +46,13 @@ git submodule add -b main git@github.com:AlexAgo83/cdx-logics-kit.git logics/ski
 git submodule update --init --recursive
 ```
 
+HTTPS variant:
+
+```bash
+git submodule add -b main https://github.com/AlexAgo83/cdx-logics-kit.git logics/skills
+git submodule update --init --recursive
+```
+
 Then bootstrap the Logics tree (creates missing folders + `.gitkeep`, and a default `logics/instructions.md` if missing):
 
 ```bash
@@ -32,12 +61,20 @@ python3 logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py
 
 ## Usage (inside the project repo)
 
-Create a request/backlog/task with auto-incremented IDs:
+### Create workflow docs
+
+Create a request, backlog item, or task with auto-incremented IDs:
 
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "My first need"
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "My first need"
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement my first need"
+```
+
+Create a functional spec in `logics/specs`:
+
+```bash
+python3 logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.0
 ```
 
 Status model used by generated docs:
@@ -49,20 +86,40 @@ Status model used by generated docs:
 - `Done`
 - `Archived`
 
-Promote between stages:
+### Promote between stages
 
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_my_first_need.md
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_my_first_need.md
 ```
 
-Close docs with automatic workflow propagation:
+### Finish and close docs
+
+When a task is actually completed, use the guarded finish flow:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_implement_my_first_need.md
+```
+
+`finish task` is the recommended path because it closes the task, propagates closure to linked backlog/request docs when eligible, and verifies the linked chain.
+
+Lower-level close commands are still available when you explicitly want the primitive transition commands:
 
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_implement_my_first_need.md
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_my_first_need.md
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_my_first_need.md
 ```
 
-Run workflow coherence audit (closure consistency, orphan items, stale pending docs, AC traceability, DoR/DoD gates):
+### Sync workflow state
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-eligible-requests
+```
+
+### Audit workflow coherence
+
+Audit closure consistency, orphan items, stale pending docs, acceptance-criteria traceability, and DoR/DoD gates:
 
 ```bash
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
@@ -73,11 +130,15 @@ python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac
 
 Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
 
+### Lint Logics docs
+
 Check Logics conventions:
 
 ```bash
 python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
 ```
+
+### Run kit tests
 
 Run Python tests for the kit:
 
@@ -87,12 +148,17 @@ python3 -m unittest discover -s logics/skills/tests -p "test_*.py" -v
 
 ## Indicators
 
-Requests, backlog items, and tasks now include two additional top-level indicators:
+Requests, backlog items, and tasks include these top-level indicators:
 
-- `Complexity:` (e.g., `Low | Medium | High`)
-- `Theme:` (e.g., `Combat | Items | Economy | UI`)
+- `From version:`
+- `Status:` (`Draft | Ready | In progress | Blocked | Done | Archived`)
+- `Understanding:`
+- `Confidence:`
+- `Progress:` (mainly tasks, optionally backlog)
+- `Complexity:` (for example `Low | Medium | High`)
+- `Theme:` (for example `Combat | Items | Economy | UI`)
 
-These fields are intended to keep the flow scannable and make it easier to group work by theme later.
+These fields keep the flow scannable and make it easier to group work by theme and delivery state.
 
 ## Connectors
 
@@ -259,6 +325,14 @@ git submodule update --remote --merge
 git add logics/skills
 git commit -m "Update Logics kit"
 ```
+
+## Collaboration
+
+Contribution workflow and repository expectations live in `CONTRIBUTING.md`.
+
+## License
+
+This project is licensed under the MIT License. See `LICENSE`.
 
 Pin to a tag (recommended if you want controlled upgrades):
 
