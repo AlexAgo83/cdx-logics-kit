@@ -94,7 +94,8 @@ The promotion flow seeds more of the next-stage document automatically:
 - source indicators such as `From version`, `Understanding`, `Confidence`, `Complexity`, and `Theme`;
 - request acceptance criteria into backlog acceptance criteria + AC traceability;
 - backlog acceptance criteria into task AC traceability;
-- source context/problem statements into the generated problem/context sections.
+- source context/problem statements into the generated problem/context sections;
+- actionable `Decision framing` follow-up text inside the generated doc itself.
 
 Split a broad request/backlog item into several executable children:
 
@@ -117,7 +118,7 @@ When a task is actually finished, prefer the kit-native guarded flow instead of 
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_example.md
 ```
 
-`finish task` closes the task, propagates closure to linked backlog/request docs when eligible, and verifies that the linked chain stayed synchronized. Use `close` only when you explicitly want the lower-level primitive.
+`finish task` closes the task, propagates closure to linked backlog/request docs when eligible, verifies that the linked chain stayed synchronized, appends finish/report evidence to the task, and leaves a completion note in linked backlog items. Use `close` only when you explicitly want the lower-level primitive.
 
 Run workflow coherence audit:
 

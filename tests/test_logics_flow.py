@@ -346,8 +346,8 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("> Theme: Workflow", backlog_text)
             self.assertIn("- Remove repetitive manual cleanup", backlog_text)
             self.assertIn("- AC1: promotion preserves useful indicators", backlog_text)
-            self.assertIn("- AC1 -> TODO: map this acceptance criterion to scope. Proof: TODO.", backlog_text)
-            self.assertIn("- AC2 -> TODO: map this acceptance criterion to scope. Proof: TODO.", backlog_text)
+            self.assertIn("- AC1 -> Scope: promotion preserves useful indicators. Proof: TODO.", backlog_text)
+            self.assertIn("- AC2 -> Scope: backlog AC traceability is seeded. Proof: TODO.", backlog_text)
 
     def test_split_request_creates_multiple_backlog_items(self) -> None:
         script = self._script()
@@ -452,7 +452,119 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("task_000_implementation_slice_a", backlog_text)
             self.assertIn("task_001_implementation_slice_b", backlog_text)
             task_text = task_files[0].read_text(encoding="utf-8")
-            self.assertIn("- AC1 -> TODO: map this acceptance criterion to scope. Proof: TODO.", task_text)
+            self.assertIn("- AC1 -> Scope: tasks are created. Proof: TODO.", task_text)
+
+    def test_new_backlog_includes_decision_follow_up_guidance(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "new",
+                    "backlog",
+                    "--title",
+                    "Checkout auth migration",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            backlog = repo / "logics" / "backlog" / "item_000_checkout_auth_migration.md"
+            backlog_text = backlog.read_text(encoding="utf-8")
+            self.assertIn("- Product follow-up: Create or link a product brief before implementation moves deeper into delivery.", backlog_text)
+            self.assertIn("- Architecture follow-up: Create or link an architecture decision before irreversible implementation work starts.", backlog_text)
+
+    def test_finish_task_appends_validation_report_and_backlog_note(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_demo_request.md"
+            backlog = repo / "logics" / "backlog" / "item_000_demo_item.md"
+            task = repo / "logics" / "tasks" / "task_000_demo_task.md"
+
+            self._write_doc(
+                request,
+                [
+                    "## req_000_demo_request - Demo request",
+                    "> From version: 1.0.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Backlog",
+                    "- `item_000_demo_item`",
+                ],
+            )
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_demo_item - Demo item",
+                    "> From version: 1.0.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Links",
+                    "- Request: `req_000_demo_request`",
+                    "",
+                    "# Notes",
+                    "- Existing note",
+                ],
+            )
+            self._write_doc(
+                task,
+                [
+                    "## task_000_demo_task - Demo task",
+                    "> From version: 1.0.0",
+                    "> Status: In progress",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 80%",
+                    "",
+                    "# Links",
+                    "- Backlog item: `item_000_demo_item`",
+                    "",
+                    "# Validation",
+                    "- Existing validation",
+                    "",
+                    "# Definition of Done (DoD)",
+                    "- [ ] Scope implemented and acceptance criteria covered.",
+                    "- [ ] Validation commands executed and results captured.",
+                    "",
+                    "# Report",
+                    "- Existing report",
+                ],
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script), "finish", "task", str(task)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            task_text = task.read_text(encoding="utf-8")
+            backlog_text = backlog.read_text(encoding="utf-8")
+            self.assertIn("- Finish workflow executed on ", task_text)
+            self.assertIn("- Linked backlog/request close verification passed.", task_text)
+            self.assertIn("- Finished on ", task_text)
+            self.assertIn("- Linked backlog item(s): `item_000_demo_item`", task_text)
+            self.assertIn("- Related request(s): `req_000_demo_request`", task_text)
+            self.assertIn("- Task `task_000_demo_task` was finished via `logics_flow.py finish task` on ", backlog_text)
 
 
 if __name__ == "__main__":

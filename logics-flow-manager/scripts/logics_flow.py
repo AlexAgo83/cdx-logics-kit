@@ -250,6 +250,32 @@ def _extract_ac_ids(text: str) -> list[str]:
     return sorted(ids)
 
 
+def _parse_acceptance_entries(items: list[str]) -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    seen_ids: set[str] = set()
+    explicit_pattern = re.compile(r"^(AC\d+[a-z]?)\s*:\s*(.+)$", re.IGNORECASE)
+    generated_index = 1
+
+    for raw_item in items:
+        item = raw_item.strip()
+        if not item:
+            continue
+        match = explicit_pattern.match(item)
+        if match:
+            ac_id = match.group(1).upper()
+            summary = match.group(2).strip()
+        else:
+            while True:
+                ac_id = f"AC{generated_index}"
+                generated_index += 1
+                if ac_id not in seen_ids:
+                    break
+            summary = item
+        seen_ids.add(ac_id)
+        entries.append((ac_id, summary))
+    return entries
+
+
 def _render_bullet_block(items: Iterable[str], fallback: str) -> str:
     cleaned = [item.strip() for item in items if item and item.strip()]
     if not cleaned:
@@ -270,8 +296,11 @@ def _render_validation_block(items: Iterable[str]) -> str:
     return "\n".join(f"- {item}" for item in cleaned)
 
 
-def _render_ac_traceability_block(ac_ids: Iterable[str], fallback: str) -> str:
-    rendered = [f"- {ac_id} -> TODO: map this acceptance criterion to scope. Proof: TODO." for ac_id in ac_ids]
+def _render_ac_traceability_block(ac_entries: Iterable[tuple[str, str]], fallback: str) -> str:
+    rendered = [
+        f"- {ac_id} -> Scope: {summary}. Proof: TODO."
+        for ac_id, summary in ac_entries
+    ]
     if not rendered:
         rendered = [f"- AC1 -> {fallback}. Proof: TODO."]
     return "\n".join(rendered)
@@ -295,7 +324,7 @@ def _seed_backlog_from_request(values: dict[str, str], source_text: str, request
     needs = _list_items_from_section(source_text, "Needs")
     context_lines = _clean_section_lines(_section_lines(source_text, "Context"))
     acceptance_items = _acceptance_items(source_text)
-    ac_ids = _extract_ac_ids("\n".join(acceptance_items))
+    ac_entries = _parse_acceptance_entries(acceptance_items)
 
     problem_items = list(needs)
     if context_lines:
@@ -307,7 +336,7 @@ def _seed_backlog_from_request(values: dict[str, str], source_text: str, request
         "AC1: Define an objective acceptance check",
     )
     values["AC_TRACEABILITY_PLACEHOLDER"] = _render_ac_traceability_block(
-        ac_ids,
+        ac_entries,
         "Backlog scope and delivery path are defined",
     )
 
@@ -329,7 +358,7 @@ def _seed_task_from_backlog(
 ) -> None:
     problem_lines = _clean_section_lines(_section_lines(source_text, "Problem"))
     acceptance_items = _acceptance_items(source_text)
-    backlog_ac_ids = _extract_ac_ids(source_text)
+    backlog_ac_entries = _parse_acceptance_entries(acceptance_items)
 
     context_lines = [
         f"- Derived from backlog item `{source_ref or source_rel}`.",
@@ -349,7 +378,7 @@ def _seed_task_from_backlog(
         ]
     )
     values["AC_TRACEABILITY_PLACEHOLDER"] = _render_ac_traceability_block(
-        backlog_ac_ids,
+        backlog_ac_entries,
         "Implemented in the steps above",
     )
     values["VALIDATION_BLOCK"] = _render_validation_block(
@@ -527,6 +556,43 @@ def _mark_section_checkboxes_done(path: Path, heading: str, dry_run: bool) -> No
             modified = True
     if modified:
         _write(path, "\n".join(lines).rstrip() + "\n", dry_run)
+
+
+def _section_body_bounds(lines: list[str], heading: str) -> tuple[int | None, int | None]:
+    start_idx = None
+    target = f"# {heading}".lower()
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == target:
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return None, None
+    end_idx = len(lines)
+    for idx in range(start_idx, len(lines)):
+        if lines[idx].startswith("# "):
+            end_idx = idx
+            break
+    return start_idx, end_idx
+
+
+def _append_section_bullets(path: Path, heading: str, bullets: list[str], dry_run: bool) -> None:
+    if not bullets:
+        return
+    lines = _read_lines(path)
+    start_idx, end_idx = _section_body_bounds(lines, heading)
+    if start_idx is None or end_idx is None:
+        return
+
+    existing = {line.strip() for line in lines[start_idx:end_idx] if line.strip()}
+    new_lines = [bullet for bullet in bullets if bullet.strip() and bullet.strip() not in existing]
+    if not new_lines:
+        return
+
+    insert_at = end_idx
+    while insert_at > start_idx and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    updated_lines = lines[:insert_at] + new_lines + lines[insert_at:]
+    _write(path, "\n".join(updated_lines).rstrip() + "\n", dry_run)
 
 
 def _normalize_status(value: str) -> str:
@@ -742,8 +808,10 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
         "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
         "PRODUCT_FRAMING_STATUS": "Not needed",
         "PRODUCT_FRAMING_SIGNALS": "(none detected)",
+        "PRODUCT_FRAMING_ACTION": "No product brief follow-up is expected based on current signals.",
         "ARCHITECTURE_FRAMING_STATUS": "Not needed",
         "ARCHITECTURE_FRAMING_SIGNALS": "(none detected)",
+        "ARCHITECTURE_FRAMING_ACTION": "No architecture decision follow-up is expected based on current signals.",
         "BACKLOG_LINK_PLACEHOLDER": "`item_XXX_example`",
         "TASK_LINK_PLACEHOLDER": "`task_XXX_example`",
         "STEP_1": "First implementation step",
@@ -764,11 +832,27 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
     return values
 
 
+def _decision_follow_up(level: str, kind: str) -> str:
+    if kind == "product":
+        if level == "Required":
+            return "Create or link a product brief before implementation moves deeper into delivery."
+        if level == "Consider":
+            return "Review whether a product brief is needed before scope becomes harder to change."
+        return "No product brief follow-up is expected based on current signals."
+    if level == "Required":
+        return "Create or link an architecture decision before irreversible implementation work starts."
+    if level == "Consider":
+        return "Review whether an architecture decision is needed before implementation becomes harder to reverse."
+    return "No architecture decision follow-up is expected based on current signals."
+
+
 def _apply_decision_assessment(values: dict[str, str], assessment: DecisionAssessment) -> None:
     values["PRODUCT_FRAMING_STATUS"] = assessment.product_level
     values["PRODUCT_FRAMING_SIGNALS"] = _signals_display(assessment.product_signals)
+    values["PRODUCT_FRAMING_ACTION"] = _decision_follow_up(assessment.product_level, "product")
     values["ARCHITECTURE_FRAMING_STATUS"] = assessment.architecture_level
     values["ARCHITECTURE_FRAMING_SIGNALS"] = _signals_display(assessment.architecture_signals)
+    values["ARCHITECTURE_FRAMING_ACTION"] = _decision_follow_up(assessment.architecture_level, "architecture")
 
 
 def _print_decision_summary(
@@ -1147,6 +1231,38 @@ def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
     return issues
 
 
+def _record_finished_task_follow_up(repo_root: Path, task_path: Path, dry_run: bool) -> None:
+    task_ref = task_path.stem
+    task_text = task_path.read_text(encoding="utf-8")
+    item_refs = sorted(_extract_refs(task_text, REF_PREFIXES["backlog"]))
+    request_refs: set[str] = set()
+
+    for item_ref in item_refs:
+        item_path = _resolve_doc_path(repo_root, DOC_KINDS["backlog"], item_ref)
+        if item_path is None:
+            continue
+        item_text = item_path.read_text(encoding="utf-8")
+        request_refs.update(_extract_refs(item_text, REF_PREFIXES["request"]))
+        _append_section_bullets(
+            item_path,
+            "Notes",
+            [f"- Task `{task_ref}` was finished via `logics_flow.py finish task` on {date.today().isoformat()}."],
+            dry_run,
+        )
+
+    validation_bullets = [
+        f"- Finish workflow executed on {date.today().isoformat()}.",
+        "- Linked backlog/request close verification passed.",
+    ]
+    report_bullets = [
+        f"- Finished on {date.today().isoformat()}.",
+        f"- Linked backlog item(s): {', '.join(f'`{ref}`' for ref in item_refs) if item_refs else '(none)'}",
+        f"- Related request(s): {', '.join(f'`{ref}`' for ref in sorted(request_refs)) if request_refs else '(none)'}",
+    ]
+    _append_section_bullets(task_path, "Validation", validation_bullets, dry_run)
+    _append_section_bullets(task_path, "Report", report_bullets, dry_run)
+
+
 def cmd_finish_task(args: argparse.Namespace) -> None:
     repo_root = _find_repo_root(Path.cwd())
     source_path = Path(args.source).resolve()
@@ -1158,6 +1274,7 @@ def cmd_finish_task(args: argparse.Namespace) -> None:
     close_args = argparse.Namespace(kind="task", source=args.source, dry_run=args.dry_run)
     cmd_close(close_args)
     _mark_section_checkboxes_done(source_path, "Definition of Done (DoD)", args.dry_run)
+    _record_finished_task_follow_up(repo_root, source_path, args.dry_run)
 
     if args.dry_run:
         print("Dry run: skipped post-close verification.")

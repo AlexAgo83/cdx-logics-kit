@@ -29,8 +29,10 @@ flowchart LR
 # Decision framing
 - Product framing: {{PRODUCT_FRAMING_STATUS}}
 - Product signals: {{PRODUCT_FRAMING_SIGNALS}}
+- Product follow-up: {{PRODUCT_FRAMING_ACTION}}
 - Architecture framing: {{ARCHITECTURE_FRAMING_STATUS}}
 - Architecture signals: {{ARCHITECTURE_FRAMING_SIGNALS}}
+- Architecture follow-up: {{ARCHITECTURE_FRAMING_ACTION}}
 
 # Links
 - Product brief(s): {{PRODUCT_LINK_PLACEHOLDER}}

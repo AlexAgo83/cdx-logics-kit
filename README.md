@@ -136,7 +136,9 @@ Promotion now carries forward more of the source doc instead of leaving mostly e
 - `From version`, `Understanding`, `Confidence`, `Complexity`, and `Theme` are reused when present.
 - request acceptance criteria seed backlog acceptance criteria and AC traceability.
 - backlog acceptance criteria seed task AC traceability.
+- seeded AC traceability now carries forward the acceptance-criterion summary instead of only a generic TODO line.
 - request/backlog source context is copied into the next-stage problem/context blocks.
+- `Decision framing` now includes suggested product/architecture follow-up directly in the generated doc, not only in CLI output.
 
 ### Split a broad request or backlog item
 
@@ -155,7 +157,7 @@ When a task is actually completed, use the guarded finish flow:
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_implement_my_first_need.md
 ```
 
-`finish task` is the recommended path because it closes the task, propagates closure to linked backlog/request docs when eligible, and verifies the linked chain.
+`finish task` is the recommended path because it closes the task, propagates closure to linked backlog/request docs when eligible, verifies the linked chain, appends finish/report evidence to the task, and leaves a completion note on linked backlog items.
 
 Lower-level close commands are still available when you explicitly want the primitive transition commands:
 
