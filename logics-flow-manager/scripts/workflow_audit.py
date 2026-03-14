@@ -27,6 +27,8 @@ DOC_KINDS = {
     "architecture": DocKind("architecture", "logics/architecture", "adr", False),
 }
 
+REF_PREFIXES = ("req", "item", "task", "prod", "adr", "spec")
+
 STATUS_IN_PROGRESS = {"draft", "ready", "in progress", "blocked"}
 STATUS_DONE = {"done", "archived"}
 
@@ -216,6 +218,66 @@ def _collect_docs(repo_root: Path) -> dict[str, DocMeta]:
                 text=text,
             )
     return docs
+
+
+def _scope_by_paths(docs: dict[str, DocMeta], repo_root: Path, raw_paths: list[str]) -> set[str]:
+    included: set[str] = set()
+    resolved_targets = [(repo_root / raw_path).resolve() for raw_path in raw_paths]
+    for ref, doc in docs.items():
+        doc_path = doc.path.resolve()
+        for target in resolved_targets:
+            if doc_path == target or target in doc_path.parents:
+                included.add(ref)
+                break
+    return included
+
+
+def _scope_by_refs(docs: dict[str, DocMeta], seed_refs: set[str]) -> set[str]:
+    included: set[str] = set()
+    queue = list(seed_refs)
+    while queue:
+        ref = queue.pop()
+        if ref in included:
+            continue
+        doc = docs.get(ref)
+        if doc is None:
+            continue
+        included.add(ref)
+
+        linked_refs: set[str] = set()
+        for prefix in REF_PREFIXES:
+            linked_refs.update(_extract_refs(doc.text, prefix))
+        for candidate in docs.values():
+            if ref in candidate.text:
+                linked_refs.add(candidate.ref)
+
+        for linked_ref in linked_refs:
+            if linked_ref not in included:
+                queue.append(linked_ref)
+    return included
+
+
+def _apply_scope(
+    docs: dict[str, DocMeta],
+    repo_root: Path,
+    scope_paths: list[str],
+    scope_refs: list[str],
+    scope_since_version: tuple[int, int, int] | None,
+) -> dict[str, DocMeta]:
+    allowed_refs = set(docs)
+
+    if scope_paths:
+        allowed_refs &= _scope_by_paths(docs, repo_root, scope_paths)
+    if scope_refs:
+        allowed_refs &= _scope_by_refs(docs, set(scope_refs))
+    if scope_since_version is not None:
+        allowed_refs &= {
+            ref
+            for ref, doc in docs.items()
+            if doc.from_version is not None and doc.from_version >= scope_since_version
+        }
+
+    return {ref: doc for ref, doc in docs.items() if ref in allowed_refs}
 
 
 def _linked_items_for_request(request: DocMeta, docs: dict[str, DocMeta]) -> list[DocMeta]:
@@ -426,6 +488,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Auto-add missing AC traceability skeleton entries in linked backlog/tasks docs.",
     )
+    parser.add_argument(
+        "--paths",
+        nargs="*",
+        default=[],
+        help="Limit the audit to docs under these relative paths.",
+    )
+    parser.add_argument(
+        "--refs",
+        nargs="*",
+        default=[],
+        help="Limit the audit to these refs and their directly linked workflow neighborhood.",
+    )
+    parser.add_argument(
+        "--since-version",
+        help="Limit the audit to docs with `From version` >= this semantic version.",
+    )
     return parser
 
 
@@ -436,8 +514,14 @@ def main(argv: list[str]) -> int:
         raise SystemExit(
             f"Invalid --legacy-cutoff-version `{args.legacy_cutoff_version}`. Expected semantic version like 1.3.0."
         )
+    scope_since = _parse_semver(args.since_version)
+    if args.since_version and scope_since is None:
+        raise SystemExit(
+            f"Invalid --since-version `{args.since_version}`. Expected semantic version like 1.3.0."
+        )
     repo_root = _find_repo_root(Path.cwd())
-    docs = _collect_docs(repo_root)
+    all_docs = _collect_docs(repo_root)
+    docs = _apply_scope(all_docs, repo_root, args.paths, args.refs, scope_since)
 
     issues: list[AuditIssue] = []
     autofix_targets: dict[Path, set[str]] = {}
@@ -462,7 +546,7 @@ def main(argv: list[str]) -> int:
             continue
 
         for item_ref in sorted(item_refs):
-            item_doc = docs.get(item_ref)
+            item_doc = all_docs.get(item_ref)
             if item_doc is None or item_doc.kind.kind != "backlog":
                 issues.append(
                     AuditIssue(
@@ -481,8 +565,8 @@ def main(argv: list[str]) -> int:
                     )
                 )
 
-            for request_doc in _linked_requests_for_item(item_doc, docs):
-                request_items = _linked_items_for_request(request_doc, docs)
+            for request_doc in _linked_requests_for_item(item_doc, all_docs):
+                request_items = _linked_items_for_request(request_doc, all_docs)
                 if request_items and all(_is_done(item) for item in request_items) and not _is_done(request_doc):
                     issues.append(
                         AuditIssue(
@@ -570,7 +654,7 @@ def main(argv: list[str]) -> int:
         for ref in sorted(linked_refs):
             if ref == doc.ref:
                 continue
-            if ref not in docs:
+            if ref not in all_docs:
                 issues.append(
                     AuditIssue(
                         code="companion_doc_refs_missing_target",
@@ -585,7 +669,7 @@ def main(argv: list[str]) -> int:
             continue
         if not _is_done(doc):
             continue
-        request_items = _linked_items_for_request(doc, docs)
+        request_items = _linked_items_for_request(doc, all_docs)
         if not request_items:
             issues.append(
                 AuditIssue(
@@ -629,7 +713,7 @@ def main(argv: list[str]) -> int:
             if not ac_ids:
                 continue
 
-            linked_items = _linked_items_for_request(request, docs)
+            linked_items = _linked_items_for_request(request, all_docs)
             if not linked_items:
                 issues.append(
                     AuditIssue(
@@ -642,7 +726,7 @@ def main(argv: list[str]) -> int:
 
             linked_tasks: list[DocMeta] = []
             for item in linked_items:
-                linked_tasks.extend(_linked_tasks_for_item(item, docs))
+                linked_tasks.extend(_linked_tasks_for_item(item, all_docs))
 
             if not linked_tasks:
                 issues.append(
@@ -735,7 +819,8 @@ def main(argv: list[str]) -> int:
                 autofix_modified.append(path)
 
         if autofix_modified:
-            docs = _collect_docs(repo_root)
+            all_docs = _collect_docs(repo_root)
+            docs = _apply_scope(all_docs, repo_root, args.paths, args.refs, scope_since)
             issues = [
                 issue
                 for issue in issues
@@ -750,10 +835,10 @@ def main(argv: list[str]) -> int:
                 ac_ids = _extract_request_ac_ids(request)
                 if not ac_ids:
                     continue
-                linked_items = _linked_items_for_request(request, docs)
+                linked_items = _linked_items_for_request(request, all_docs)
                 linked_tasks: list[DocMeta] = []
                 for item in linked_items:
-                    linked_tasks.extend(_linked_tasks_for_item(item, docs))
+                    linked_tasks.extend(_linked_tasks_for_item(item, all_docs))
                 for ac_id in ac_ids:
                     if linked_items and not any(_has_ac_with_proof(item.text, ac_id) for item in linked_items):
                         issues.append(

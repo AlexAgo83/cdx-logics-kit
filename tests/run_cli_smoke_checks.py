@@ -73,11 +73,35 @@ def run_flow_fixture() -> None:
         )
         task_path = find_single("logics/tasks/task_*.md", project_root)
 
+        run(
+            [
+                sys.executable,
+                "logics/skills/logics-flow-manager/scripts/logics_flow.py",
+                "split",
+                "request",
+                str(request_path.relative_to(project_root)),
+                "--title",
+                "Smoke split child A",
+                "--title",
+                "Smoke split child B",
+            ],
+            cwd=project_root,
+        )
+
         mark_checkboxes_done(request_path)
         mark_checkboxes_done(task_path)
 
         run([sys.executable, "logics/skills/logics-doc-linter/scripts/logics_lint.py"], cwd=project_root)
         run([sys.executable, "logics/skills/logics-flow-manager/scripts/workflow_audit.py"], cwd=project_root)
+        run(
+            [
+                sys.executable,
+                "logics/skills/logics-flow-manager/scripts/workflow_audit.py",
+                "--refs",
+                request_path.stem,
+            ],
+            cwd=project_root,
+        )
 
 
 def run_companion_fixture() -> None:

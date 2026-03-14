@@ -90,6 +90,19 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_offline_recap_ui.md
 ```
 
+The promotion flow seeds more of the next-stage document automatically:
+- source indicators such as `From version`, `Understanding`, `Confidence`, `Complexity`, and `Theme`;
+- request acceptance criteria into backlog acceptance criteria + AC traceability;
+- backlog acceptance criteria into task AC traceability;
+- source context/problem statements into the generated problem/context sections.
+
+Split a broad request/backlog item into several executable children:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_example.md --title "Slice A" --title "Slice B"
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_example.md --title "Task A" --title "Task B"
+```
+
 Close docs with automatic transition propagation:
 
 ```bash
@@ -114,6 +127,9 @@ python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --stale-days
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_example
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
 ```
 
 After promotion:

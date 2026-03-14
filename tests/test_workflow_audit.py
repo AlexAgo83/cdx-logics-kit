@@ -204,6 +204,43 @@ class WorkflowAuditTest(unittest.TestCase):
             self.assertIn("companion_doc_missing_mermaid", payload["counts"]["by_code"])
             self.assertIn("companion_doc_contains_placeholders", payload["counts"]["by_code"])
 
+    def test_scoped_audit_can_focus_on_specific_ref_chain(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "workflow_audit.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._write_fixture_repo(repo)
+
+            unrelated_request = repo / "logics" / "request" / "req_999_unrelated.md"
+            unrelated_request.write_text(
+                "\n".join(
+                    [
+                        "## req_999_unrelated - Unrelated request",
+                        "> From version: 1.2.0",
+                        "> Status: Done",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json", "--refs", "req_000_demo_request"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 1, completed.stderr)
+            payload = json.loads(completed.stdout)
+            issue_paths = {issue["path"] for issue in payload["issues"]}
+            self.assertTrue(any(path.endswith("req_000_demo_request.md") for path in issue_paths))
+            self.assertFalse(any(path.endswith("req_999_unrelated.md") for path in issue_paths))
+
 
 if __name__ == "__main__":
     unittest.main()

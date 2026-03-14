@@ -296,6 +296,164 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("- Product brief(s): `prod_000_checkout_auth_migration`", request_text)
             self.assertIn("- Architecture decision(s): `adr_000_checkout_auth_migration`", request_text)
 
+    def test_request_to_backlog_seeds_indicators_problem_and_ac_traceability(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            request = repo / "logics" / "request" / "req_000_seeded_request.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_seeded_request - Seeded request",
+                    "> From version: 1.9.1",
+                    "> Status: Ready",
+                    "> Understanding: 91%",
+                    "> Confidence: 88%",
+                    "> Complexity: High",
+                    "> Theme: Workflow",
+                    "",
+                    "# Needs",
+                    "- Remove repetitive manual cleanup",
+                    "",
+                    "# Context",
+                    "- Promotion should carry useful data forward.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: promotion preserves useful indicators",
+                    "- AC2: backlog AC traceability is seeded",
+                ],
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script), "promote", "request-to-backlog", str(request)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            backlog = repo / "logics" / "backlog" / "item_000_seeded_request.md"
+            backlog_text = backlog.read_text(encoding="utf-8")
+            self.assertIn("> From version: 1.9.1", backlog_text)
+            self.assertIn("> Understanding: 91%", backlog_text)
+            self.assertIn("> Confidence: 88%", backlog_text)
+            self.assertIn("> Complexity: High", backlog_text)
+            self.assertIn("> Theme: Workflow", backlog_text)
+            self.assertIn("- Remove repetitive manual cleanup", backlog_text)
+            self.assertIn("- AC1: promotion preserves useful indicators", backlog_text)
+            self.assertIn("- AC1 -> TODO: map this acceptance criterion to scope. Proof: TODO.", backlog_text)
+            self.assertIn("- AC2 -> TODO: map this acceptance criterion to scope. Proof: TODO.", backlog_text)
+
+    def test_split_request_creates_multiple_backlog_items(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            request = repo / "logics" / "request" / "req_000_split_me.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_split_me - Split me",
+                    "> From version: 1.9.1",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- One request covering two deliveries",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "split",
+                    "request",
+                    str(request),
+                    "--title",
+                    "First delivery slice",
+                    "--title",
+                    "Second delivery slice",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            backlog_files = sorted((repo / "logics" / "backlog").glob("item_*.md"))
+            self.assertEqual(len(backlog_files), 2)
+            request_text = request.read_text(encoding="utf-8")
+            self.assertIn("item_000_first_delivery_slice", request_text)
+            self.assertIn("item_001_second_delivery_slice", request_text)
+
+    def test_split_backlog_creates_multiple_tasks_and_updates_task_links(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            backlog = repo / "logics" / "backlog" / "item_000_split_me.md"
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_split_me - Split me",
+                    "> From version: 1.9.1",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Problem",
+                    "- One backlog item covering two implementation tasks",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: tasks are created",
+                    "",
+                    "# Links",
+                    "- Request: `req_000_demo_request`",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "split",
+                    "backlog",
+                    str(backlog),
+                    "--title",
+                    "Implementation slice A",
+                    "--title",
+                    "Implementation slice B",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            task_files = sorted((repo / "logics" / "tasks").glob("task_*.md"))
+            self.assertEqual(len(task_files), 2)
+            backlog_text = backlog.read_text(encoding="utf-8")
+            self.assertIn("task_000_implementation_slice_a", backlog_text)
+            self.assertIn("task_001_implementation_slice_b", backlog_text)
+            task_text = task_files[0].read_text(encoding="utf-8")
+            self.assertIn("- AC1 -> TODO: map this acceptance criterion to scope. Proof: TODO.", task_text)
+
 
 if __name__ == "__main__":
     unittest.main()

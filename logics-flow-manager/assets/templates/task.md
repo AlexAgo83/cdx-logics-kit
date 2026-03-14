@@ -21,13 +21,10 @@ flowchart LR
 ```
 
 # Plan
-- [ ] 1. {{STEP_1}}
-- [ ] 2. {{STEP_2}}
-- [ ] 3. {{STEP_3}}
-- [ ] FINAL: Update related Logics docs
+{{PLAN_BLOCK}}
 
 # AC Traceability
-- AC1 -> Implemented in the steps above. Proof: add test/commit/file links.
+{{AC_TRACEABILITY_PLACEHOLDER}}
 
 # Decision framing
 - Product framing: {{PRODUCT_FRAMING_STATUS}}
@@ -42,8 +39,7 @@ flowchart LR
 - Request(s): {{REQUEST_LINK_PLACEHOLDER}}
 
 # Validation
-- {{VALIDATION_1}}
-- {{VALIDATION_2}}
+{{VALIDATION_BLOCK}}
 
 # Definition of Done (DoD)
 - [ ] Scope implemented and acceptance criteria covered.

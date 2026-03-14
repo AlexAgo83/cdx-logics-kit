@@ -24,10 +24,10 @@ flowchart LR
 ```
 
 # Acceptance criteria
-- {{ACCEPTANCE_PLACEHOLDER}}
+{{ACCEPTANCE_BLOCK}}
 
 # AC Traceability
-- AC1 -> Item scope and delivery path are defined. Proof: add test/commit/file links.
+{{AC_TRACEABILITY_PLACEHOLDER}}
 
 # Decision framing
 - Product framing: {{PRODUCT_FRAMING_STATUS}}

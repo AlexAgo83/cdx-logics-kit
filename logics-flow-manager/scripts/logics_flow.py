@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,26 @@ def _next_id(directory: Path, prefix: str) -> int:
     return max_id + 1
 
 
+def _reserve_doc(directory: Path, prefix: str, title: str, dry_run: bool) -> PlannedDoc:
+    slug = _slugify(title)
+    directory.mkdir(parents=True, exist_ok=True)
+
+    for _ in range(50):
+        doc_id = _next_id(directory, prefix)
+        ref = f"{prefix}_{doc_id:03d}_{slug}"
+        path = directory / f"{ref}.md"
+        if dry_run:
+            return PlannedDoc(ref=ref, path=path)
+        try:
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write("")
+            return PlannedDoc(ref=ref, path=path)
+        except FileExistsError:
+            continue
+
+    raise SystemExit(f"Could not reserve a unique `{prefix}` document id in {directory}")
+
+
 def _template_path(script_path: Path, template_name: str) -> Path:
     return script_path.parent.parent / "assets" / "templates" / template_name
 
@@ -167,13 +188,183 @@ def _signals_display(signals: tuple[str, ...]) -> str:
     return ", ".join(signals)
 
 
-def _plan_doc(repo_root: Path, directory: str, prefix: str, title: str) -> PlannedDoc:
+def _plan_doc(repo_root: Path, directory: str, prefix: str, title: str, dry_run: bool = False) -> PlannedDoc:
     target_dir = repo_root / directory
-    doc_id = _next_id(target_dir, prefix)
-    slug = _slugify(title)
-    ref = f"{prefix}_{doc_id:03d}_{slug}"
-    path = target_dir / f"{ref}.md"
-    return PlannedDoc(ref=ref, path=path)
+    return _reserve_doc(target_dir, prefix, title, dry_run=dry_run)
+
+
+def _indicator_map(lines: Iterable[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    pattern = re.compile(r"^\s*>\s*([^:]+)\s*:\s*(.+)\s*$")
+    for line in lines:
+        match = pattern.match(line)
+        if match:
+            out[match.group(1).strip()] = match.group(2).strip()
+    return out
+
+
+def _section_lines(text: str, heading: str) -> list[str]:
+    lines = text.splitlines()
+    start_idx = None
+    target = heading.strip().lower()
+    for idx, line in enumerate(lines):
+        if line.startswith("# ") and line[2:].strip().lower() == target:
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return []
+    out: list[str] = []
+    for idx in range(start_idx, len(lines)):
+        line = lines[idx]
+        if line.startswith("# "):
+            break
+        out.append(line)
+    return out
+
+
+def _clean_section_lines(lines: Iterable[str]) -> list[str]:
+    cleaned = [line.rstrip() for line in lines if line.strip()]
+    while cleaned and not cleaned[-1].strip():
+        cleaned.pop()
+    return cleaned
+
+
+def _list_items_from_section(text: str, heading: str) -> list[str]:
+    items: list[str] = []
+    for line in _section_lines(text, heading):
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            items.append(stripped[2:].strip())
+    return items
+
+
+def _acceptance_items(text: str) -> list[str]:
+    return _list_items_from_section(text, "Acceptance criteria")
+
+
+def _extract_ac_ids(text: str) -> list[str]:
+    ids: set[str] = set()
+    pattern = re.compile(r"\b(AC\d+[a-z]?)\b", re.IGNORECASE)
+    for match in pattern.finditer(text):
+        ids.add(match.group(1).upper())
+    return sorted(ids)
+
+
+def _render_bullet_block(items: Iterable[str], fallback: str) -> str:
+    cleaned = [item.strip() for item in items if item and item.strip()]
+    if not cleaned:
+        return f"- {fallback}"
+    return "\n".join(f"- {item}" for item in cleaned)
+
+
+def _render_plan_block(steps: list[str]) -> str:
+    rendered = [f"- [ ] {idx}. {step}" for idx, step in enumerate(steps, start=1)]
+    rendered.append("- [ ] FINAL: Update related Logics docs")
+    return "\n".join(rendered)
+
+
+def _render_validation_block(items: Iterable[str]) -> str:
+    cleaned = [item.strip() for item in items if item and item.strip()]
+    if not cleaned:
+        cleaned = ["Run the relevant automated tests for the changed surface.", "Run the relevant lint or quality checks."]
+    return "\n".join(f"- {item}" for item in cleaned)
+
+
+def _render_ac_traceability_block(ac_ids: Iterable[str], fallback: str) -> str:
+    rendered = [f"- {ac_id} -> TODO: map this acceptance criterion to scope. Proof: TODO." for ac_id in ac_ids]
+    if not rendered:
+        rendered = [f"- AC1 -> {fallback}. Proof: TODO."]
+    return "\n".join(rendered)
+
+
+def _copy_indicator_defaults(values: dict[str, str], source_text: str) -> None:
+    indicators = _indicator_map(source_text.splitlines())
+    if indicators.get("From version"):
+        values["FROM_VERSION"] = indicators["From version"]
+    if indicators.get("Understanding"):
+        values["UNDERSTANDING"] = indicators["Understanding"]
+    if indicators.get("Confidence"):
+        values["CONFIDENCE"] = indicators["Confidence"]
+    if indicators.get("Complexity"):
+        values["COMPLEXITY"] = indicators["Complexity"]
+    if indicators.get("Theme"):
+        values["THEME"] = indicators["Theme"]
+
+
+def _seed_backlog_from_request(values: dict[str, str], source_text: str, request_ref: str | None, source_rel: Path) -> None:
+    needs = _list_items_from_section(source_text, "Needs")
+    context_lines = _clean_section_lines(_section_lines(source_text, "Context"))
+    acceptance_items = _acceptance_items(source_text)
+    ac_ids = _extract_ac_ids("\n".join(acceptance_items))
+
+    problem_items = list(needs)
+    if context_lines:
+        problem_items.extend(context_lines[:2])
+
+    values["PROBLEM_PLACEHOLDER"] = _render_bullet_block(problem_items, "Describe the problem and user impact")
+    values["ACCEPTANCE_BLOCK"] = _render_bullet_block(
+        acceptance_items,
+        "AC1: Define an objective acceptance check",
+    )
+    values["AC_TRACEABILITY_PLACEHOLDER"] = _render_ac_traceability_block(
+        ac_ids,
+        "Backlog scope and delivery path are defined",
+    )
+
+    notes = []
+    if request_ref is not None:
+        notes.append(f"- Derived from request `{request_ref}`.")
+    notes.append(f"- Source file: `{source_rel}`.")
+    if context_lines:
+        notes.append(f"- Request context seeded into this backlog item from `{source_rel}`.")
+    values["NOTES_PLACEHOLDER"] = "\n".join(notes)
+
+
+def _seed_task_from_backlog(
+    values: dict[str, str],
+    source_text: str,
+    source_ref: str | None,
+    source_rel: Path,
+    request_refs: list[str],
+) -> None:
+    problem_lines = _clean_section_lines(_section_lines(source_text, "Problem"))
+    acceptance_items = _acceptance_items(source_text)
+    backlog_ac_ids = _extract_ac_ids(source_text)
+
+    context_lines = [
+        f"- Derived from backlog item `{source_ref or source_rel}`.",
+        f"- Source file: `{source_rel}`.",
+    ]
+    if request_refs:
+        context_lines.append("- Related request(s): " + ", ".join(f"`{ref}`" for ref in request_refs) + ".")
+    if problem_lines:
+        context_lines.extend(problem_lines[:3])
+
+    values["CONTEXT_PLACEHOLDER"] = "\n".join(context_lines)
+    values["PLAN_BLOCK"] = _render_plan_block(
+        [
+            "Confirm scope, dependencies, and linked acceptance criteria.",
+            "Implement the scoped changes from the backlog item.",
+            "Validate the result and update the linked Logics docs.",
+        ]
+    )
+    values["AC_TRACEABILITY_PLACEHOLDER"] = _render_ac_traceability_block(
+        backlog_ac_ids,
+        "Implemented in the steps above",
+    )
+    values["VALIDATION_BLOCK"] = _render_validation_block(
+        [
+            "Run the relevant automated tests for the changed surface.",
+            "Run the relevant lint or quality checks.",
+        ]
+    )
+
+
+def _split_titles(raw_titles: list[str]) -> list[str]:
+    titles = [title.strip() for title in raw_titles if title and title.strip()]
+    if not titles:
+        raise SystemExit("Provide at least one non-empty --title value.")
+    return titles
 
 
 def _render_product_brief(
@@ -315,6 +506,29 @@ def _upsert_indicators(path: Path, updates: dict[str, str], dry_run: bool) -> No
     _write(path, "\n".join(lines).rstrip() + "\n", dry_run)
 
 
+def _mark_section_checkboxes_done(path: Path, heading: str, dry_run: bool) -> None:
+    lines = _read_lines(path)
+    start_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == f"# {heading}".lower():
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return
+
+    modified = False
+    for idx in range(start_idx, len(lines)):
+        line = lines[idx]
+        if line.startswith("# "):
+            break
+        if line.lstrip().startswith("- [ ]"):
+            prefix, suffix = line.split("- [ ]", 1)
+            lines[idx] = f"{prefix}- [x]{suffix}"
+            modified = True
+    if modified:
+        _write(path, "\n".join(lines).rstrip() + "\n", dry_run)
+
+
 def _normalize_status(value: str) -> str:
     normalized = " ".join(value.strip().split()).lower()
     for allowed in ALLOWED_STATUSES:
@@ -426,6 +640,33 @@ def _update_request_backlog_links(
     _write(request_path, updated, dry_run)
 
 
+def _update_backlog_task_links(
+    backlog_path: Path,
+    task_refs: list[str],
+    dry_run: bool,
+) -> None:
+    if not task_refs:
+        return
+
+    lines = backlog_path.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    replaced = False
+
+    for line in lines:
+        if line.startswith("- Primary task(s):"):
+            refs = ", ".join(f"`{ref}`" for ref in task_refs)
+            updated_lines.append(f"- Primary task(s): {refs}")
+            replaced = True
+        else:
+            updated_lines.append(line)
+
+    if not replaced:
+        updated_lines.extend(["", "# Links", f"- Primary task(s): {', '.join(f'`{ref}`' for ref in task_refs)}"])
+
+    updated = "\n".join(updated_lines).rstrip() + "\n"
+    _write(backlog_path, updated, dry_run)
+
+
 def _update_request_companion_links(
     request_path: Path,
     heading: str,
@@ -492,6 +733,8 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
         "CONTEXT_PLACEHOLDER": "Add context and constraints",
         "BACKLOG_PLACEHOLDER": "- (none yet)",
         "ACCEPTANCE_PLACEHOLDER": "AC1: Define an objective acceptance check",
+        "ACCEPTANCE_BLOCK": "- AC1: Define an objective acceptance check",
+        "AC_TRACEABILITY_PLACEHOLDER": "- AC1 -> TODO: map this acceptance criterion to scope. Proof: TODO.",
         "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
         "NOTES_PLACEHOLDER": "",
         "REQUEST_LINK_PLACEHOLDER": "`req_XXX_example`",
@@ -506,8 +749,12 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
         "STEP_1": "First implementation step",
         "STEP_2": "Second implementation step",
         "STEP_3": "Third implementation step",
+        "PLAN_BLOCK": _render_plan_block(
+            ["First implementation step", "Second implementation step", "Third implementation step"]
+        ),
         "VALIDATION_1": "npm run tests",
         "VALIDATION_2": "npm run lint",
+        "VALIDATION_BLOCK": _render_validation_block(["npm run tests", "npm run lint"]),
         "REPORT_PLACEHOLDER": "",
     }
 
@@ -536,17 +783,18 @@ def _print_decision_summary(
     architecture_line = assessment.architecture_level
     if assessment.architecture_signals:
         architecture_line += f" ({_signals_display(assessment.architecture_signals)})"
-    print(
-        "\n".join(
-            [
-                f"Decision framing for {doc_ref}:",
-                f"- Product: {product_line}",
-                f"- Architecture: {architecture_line}",
-                f"- Product brief refs: {', '.join(product_refs) if product_refs else '(none yet)'}",
-                f"- Architecture decision refs: {', '.join(architecture_refs) if architecture_refs else '(none yet)'}",
-            ]
-        )
-    )
+    lines = [
+        f"Decision framing for {doc_ref}:",
+        f"- Product: {product_line}",
+        f"- Architecture: {architecture_line}",
+        f"- Product brief refs: {', '.join(product_refs) if product_refs else '(none yet)'}",
+        f"- Architecture decision refs: {', '.join(architecture_refs) if architecture_refs else '(none yet)'}",
+    ]
+    if assessment.product_level in {"Consider", "Required"} and not product_refs:
+        lines.append("- Suggested follow-up: create or link a product brief before delivery gets deeper.")
+    if assessment.architecture_level in {"Consider", "Required"} and not architecture_refs:
+        lines.append("- Suggested follow-up: create or link an architecture decision before irreversible implementation work.")
+    print("\n".join(lines))
 
 
 def _auto_create_companion_docs(
@@ -564,13 +812,13 @@ def _auto_create_companion_docs(
     created_architecture_refs = list(architecture_refs)
 
     if args.auto_create_adr and assessment.architecture_level == "Required" and not created_architecture_refs:
-        planned = _plan_doc(repo_root, "logics/architecture", REF_PREFIXES["architecture"], title)
+        planned = _plan_doc(repo_root, "logics/architecture", REF_PREFIXES["architecture"], title, dry_run=args.dry_run)
         content = _render_architecture_decision(title, planned.ref, request_ref, backlog_ref, task_ref)
         _write(planned.path, content, args.dry_run)
         created_architecture_refs.append(planned.ref)
 
     if args.auto_create_product_brief and assessment.product_level == "Required" and not created_product_refs:
-        planned = _plan_doc(repo_root, "logics/product", REF_PREFIXES["product"], title)
+        planned = _plan_doc(repo_root, "logics/product", REF_PREFIXES["product"], title, dry_run=args.dry_run)
         content = _render_product_brief(
             title,
             planned.ref,
@@ -585,19 +833,114 @@ def _auto_create_companion_docs(
     return created_product_refs, created_architecture_refs
 
 
+def _create_backlog_from_request(
+    repo_root: Path,
+    source_path: Path,
+    title: str,
+    args: argparse.Namespace,
+) -> PlannedDoc:
+    planned = _reserve_doc(repo_root / DOC_KINDS["backlog"].directory, DOC_KINDS["backlog"].prefix, title, args.dry_run)
+    template_text = _template_path(Path(__file__), DOC_KINDS["backlog"].template_name).read_text(encoding="utf-8")
+    values = _build_template_values(args, planned.ref, title, include_progress=True)
+    source_text = source_path.read_text(encoding="utf-8")
+    source_ref = _doc_ref_from_path(source_path, DOC_KINDS["request"])
+    source_rel = source_path.relative_to(repo_root)
+    _copy_indicator_defaults(values, source_text)
+    _seed_backlog_from_request(values, source_text, source_ref, source_rel)
+
+    product_refs = sorted(_extract_refs(source_text, REF_PREFIXES["product"]))
+    architecture_refs = sorted(_extract_refs(source_text, REF_PREFIXES["architecture"]))
+    assessment = _assess_decision_framing(title, source_text)
+    product_refs, architecture_refs = _auto_create_companion_docs(
+        repo_root,
+        title,
+        request_ref=source_ref,
+        backlog_ref=planned.ref,
+        task_ref=None,
+        assessment=assessment,
+        product_refs=product_refs,
+        architecture_refs=architecture_refs,
+        args=args,
+    )
+
+    if source_ref is not None:
+        values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_ref}`"
+    else:
+        values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_rel}`"
+    _apply_decision_assessment(values, assessment)
+    if product_refs:
+        values["PRODUCT_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in product_refs)
+    if architecture_refs:
+        values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
+
+    content = _render_template(template_text, values).rstrip() + "\n"
+    _write(planned.path, content, args.dry_run)
+    _update_request_backlog_links(source_path, planned.ref, args.dry_run)
+    for ref in product_refs:
+        _update_request_companion_links(source_path, "Product brief(s)", ref, args.dry_run)
+    for ref in architecture_refs:
+        _update_request_companion_links(source_path, "Architecture decision(s)", ref, args.dry_run)
+    _print_decision_summary(planned.ref, assessment, product_refs, architecture_refs)
+    return planned
+
+
+def _create_task_from_backlog(
+    repo_root: Path,
+    source_path: Path,
+    title: str,
+    args: argparse.Namespace,
+) -> PlannedDoc:
+    planned = _reserve_doc(repo_root / DOC_KINDS["task"].directory, DOC_KINDS["task"].prefix, title, args.dry_run)
+    template_text = _template_path(Path(__file__), DOC_KINDS["task"].template_name).read_text(encoding="utf-8")
+    values = _build_template_values(args, planned.ref, title, include_progress=True)
+    source_text = source_path.read_text(encoding="utf-8")
+    source_ref = _doc_ref_from_path(source_path, DOC_KINDS["backlog"])
+    source_rel = source_path.relative_to(repo_root)
+    _copy_indicator_defaults(values, source_text)
+
+    request_refs = sorted(_extract_refs(source_text, REF_PREFIXES["request"]))
+    product_refs = sorted(_extract_refs(source_text, REF_PREFIXES["product"]))
+    architecture_refs = sorted(_extract_refs(source_text, REF_PREFIXES["architecture"]))
+    assessment = _assess_decision_framing(title, source_text)
+    primary_request_ref = request_refs[0] if request_refs else None
+    product_refs, architecture_refs = _auto_create_companion_docs(
+        repo_root,
+        title,
+        request_ref=primary_request_ref,
+        backlog_ref=source_ref,
+        task_ref=planned.ref,
+        assessment=assessment,
+        product_refs=product_refs,
+        architecture_refs=architecture_refs,
+        args=args,
+    )
+
+    _seed_task_from_backlog(values, source_text, source_ref, source_rel, request_refs)
+    values["BACKLOG_LINK_PLACEHOLDER"] = f"`{source_ref}`" if source_ref is not None else f"`{source_rel}`"
+    _apply_decision_assessment(values, assessment)
+    if request_refs:
+        values["REQUEST_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in request_refs)
+    if product_refs:
+        values["PRODUCT_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in product_refs)
+    if architecture_refs:
+        values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
+
+    content = _render_template(template_text, values).rstrip() + "\n"
+    _write(planned.path, content, args.dry_run)
+    if source_ref is not None:
+        existing_task_refs = sorted(_extract_refs(source_text, REF_PREFIXES["task"]) | {planned.ref})
+        _update_backlog_task_links(source_path, existing_task_refs, args.dry_run)
+    _print_decision_summary(planned.ref, assessment, product_refs, architecture_refs)
+    return planned
+
+
 def cmd_new(args: argparse.Namespace) -> None:
     doc_kind = DOC_KINDS[args.kind]
     repo_root = _find_repo_root(Path.cwd())
-    directory = repo_root / doc_kind.directory
-
-    doc_id = _next_id(directory, doc_kind.prefix)
-    slug = _slugify(args.slug or args.title)
-    filename = f"{doc_kind.prefix}_{doc_id:03d}_{slug}.md"
-    doc_ref = f"{doc_kind.prefix}_{doc_id:03d}_{slug}"
-    output_path = directory / filename
+    planned = _reserve_doc(repo_root / doc_kind.directory, doc_kind.prefix, args.slug or args.title, args.dry_run)
 
     template_text = _template_path(Path(__file__), doc_kind.template_name).read_text(encoding="utf-8")
-    values = _build_template_values(args, doc_ref, args.title, doc_kind.include_progress)
+    values = _build_template_values(args, planned.ref, args.title, doc_kind.include_progress)
     assessment = _assess_decision_framing(args.title, "")
     product_refs: list[str] = []
     architecture_refs: list[str] = []
@@ -606,8 +949,8 @@ def cmd_new(args: argparse.Namespace) -> None:
             repo_root,
             args.title,
             request_ref=None,
-            backlog_ref=doc_ref if doc_kind.kind == "backlog" else None,
-            task_ref=doc_ref if doc_kind.kind == "task" else None,
+            backlog_ref=planned.ref if doc_kind.kind == "backlog" else None,
+            task_ref=planned.ref if doc_kind.kind == "task" else None,
             assessment=assessment,
             product_refs=product_refs,
             architecture_refs=architecture_refs,
@@ -620,9 +963,9 @@ def cmd_new(args: argparse.Namespace) -> None:
             values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
     content = _render_template(template_text, values).rstrip() + "\n"
-    _write(output_path, content, args.dry_run)
+    _write(planned.path, content, args.dry_run)
     if doc_kind.kind in {"backlog", "task"}:
-        _print_decision_summary(doc_ref, assessment, product_refs, architecture_refs)
+        _print_decision_summary(planned.ref, assessment, product_refs, architecture_refs)
 
 
 def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
@@ -632,60 +975,7 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
 
     title = _parse_title_from_source(source_path) or "Promoted backlog item"
     repo_root = _find_repo_root(Path.cwd())
-    directory = repo_root / DOC_KINDS["backlog"].directory
-
-    doc_id = _next_id(directory, DOC_KINDS["backlog"].prefix)
-    slug = _slugify(title)
-    filename = f"item_{doc_id:03d}_{slug}.md"
-    doc_ref = f"item_{doc_id:03d}_{slug}"
-    output_path = directory / filename
-
-    template_text = _template_path(Path(__file__), DOC_KINDS["backlog"].template_name).read_text(encoding="utf-8")
-    values = _build_template_values(args, doc_ref, title, include_progress=True)
-    source_text = source_path.read_text(encoding="utf-8")
-    source_ref = _doc_ref_from_path(source_path, DOC_KINDS["request"])
-    source_rel = source_path.relative_to(repo_root)
-    product_refs = sorted(_extract_refs(source_text, REF_PREFIXES["product"]))
-    architecture_refs = sorted(_extract_refs(source_text, REF_PREFIXES["architecture"]))
-    assessment = _assess_decision_framing(title, source_text)
-    product_refs, architecture_refs = _auto_create_companion_docs(
-        repo_root,
-        title,
-        request_ref=source_ref,
-        backlog_ref=doc_ref,
-        task_ref=None,
-        assessment=assessment,
-        product_refs=product_refs,
-        architecture_refs=architecture_refs,
-        args=args,
-    )
-    if source_ref is not None:
-        values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_ref}`"
-        values["NOTES_PLACEHOLDER"] = (
-            f"- Derived from request `{source_ref}`.\n"
-            f"- Source file: `{source_rel}`."
-        )
-    else:
-        values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_rel}`"
-        values["NOTES_PLACEHOLDER"] = f"- Derived from `{source_rel}`."
-    _apply_decision_assessment(values, assessment)
-    if product_refs:
-        values["PRODUCT_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in product_refs)
-    if architecture_refs:
-        values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
-
-    content = _render_template(template_text, values).rstrip() + "\n"
-    _write(output_path, content, args.dry_run)
-    _update_request_backlog_links(
-        source_path,
-        doc_ref,
-        args.dry_run,
-    )
-    for ref in product_refs:
-        _update_request_companion_links(source_path, "Product brief(s)", ref, args.dry_run)
-    for ref in architecture_refs:
-        _update_request_companion_links(source_path, "Architecture decision(s)", ref, args.dry_run)
-    _print_decision_summary(doc_ref, assessment, product_refs, architecture_refs)
+    _create_backlog_from_request(repo_root, source_path, title, args)
 
 
 def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
@@ -695,60 +985,37 @@ def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
 
     title = _parse_title_from_source(source_path) or "Implementation task"
     repo_root = _find_repo_root(Path.cwd())
-    directory = repo_root / DOC_KINDS["task"].directory
+    _create_task_from_backlog(repo_root, source_path, title, args)
 
-    doc_id = _next_id(directory, DOC_KINDS["task"].prefix)
-    slug = _slugify(title)
-    filename = f"task_{doc_id:03d}_{slug}.md"
-    doc_ref = f"task_{doc_id:03d}_{slug}"
-    output_path = directory / filename
 
-    template_text = _template_path(Path(__file__), DOC_KINDS["task"].template_name).read_text(encoding="utf-8")
-    values = _build_template_values(args, doc_ref, title, include_progress=True)
-    source_text = source_path.read_text(encoding="utf-8")
-    source_ref = _doc_ref_from_path(source_path, DOC_KINDS["backlog"])
-    source_rel = source_path.relative_to(repo_root)
-    request_refs = sorted(_extract_refs(source_text, REF_PREFIXES["request"]))
-    product_refs = sorted(_extract_refs(source_text, REF_PREFIXES["product"]))
-    architecture_refs = sorted(_extract_refs(source_text, REF_PREFIXES["architecture"]))
-    assessment = _assess_decision_framing(title, source_text)
-    primary_request_ref = request_refs[0] if request_refs else None
-    product_refs, architecture_refs = _auto_create_companion_docs(
-        repo_root,
-        title,
-        request_ref=primary_request_ref,
-        backlog_ref=source_ref,
-        task_ref=doc_ref,
-        assessment=assessment,
-        product_refs=product_refs,
-        architecture_refs=architecture_refs,
-        args=args,
-    )
+def cmd_split_request(args: argparse.Namespace) -> None:
+    source_path = Path(args.source).resolve()
+    if not source_path.is_file():
+        raise SystemExit(f"Source not found: {source_path}")
 
-    context_lines = [
-        f"- Derived from backlog item `{source_ref or source_rel}`.",
-        f"- Source file: `{source_rel}`.",
-    ]
-    if request_refs:
-        context_lines.append("- Related request(s): " + ", ".join(f"`{ref}`" for ref in request_refs) + ".")
+    repo_root = _find_repo_root(Path.cwd())
+    titles = _split_titles(args.title)
+    created_refs: list[str] = []
+    for title in titles:
+        planned = _create_backlog_from_request(repo_root, source_path, title, args)
+        created_refs.append(planned.ref)
 
-    values["CONTEXT_PLACEHOLDER"] = "\n".join(context_lines)
-    values["BACKLOG_LINK_PLACEHOLDER"] = f"`{source_ref}`" if source_ref is not None else f"`{source_rel}`"
-    _apply_decision_assessment(values, assessment)
-    if request_refs:
-        values["REQUEST_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in request_refs)
-    if product_refs:
-        values["PRODUCT_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in product_refs)
-    if architecture_refs:
-        values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
+    print(f"Split request into {len(created_refs)} backlog item(s): {', '.join(created_refs)}")
 
-    values["STEP_1"] = "Clarify scope and acceptance criteria"
-    values["STEP_2"] = "Implement changes"
-    values["STEP_3"] = "Add/adjust tests and polish UX"
 
-    content = _render_template(template_text, values).rstrip() + "\n"
-    _write(output_path, content, args.dry_run)
-    _print_decision_summary(doc_ref, assessment, product_refs, architecture_refs)
+def cmd_split_backlog(args: argparse.Namespace) -> None:
+    source_path = Path(args.source).resolve()
+    if not source_path.is_file():
+        raise SystemExit(f"Source not found: {source_path}")
+
+    repo_root = _find_repo_root(Path.cwd())
+    titles = _split_titles(args.title)
+    created_refs: list[str] = []
+    for title in titles:
+        planned = _create_task_from_backlog(repo_root, source_path, title, args)
+        created_refs.append(planned.ref)
+
+    print(f"Split backlog item into {len(created_refs)} task(s): {', '.join(created_refs)}")
 
 
 def _maybe_close_request_chain(repo_root: Path, request_ref: str, dry_run: bool) -> None:
@@ -890,6 +1157,7 @@ def cmd_finish_task(args: argparse.Namespace) -> None:
 
     close_args = argparse.Namespace(kind="task", source=args.source, dry_run=args.dry_run)
     cmd_close(close_args)
+    _mark_section_checkboxes_done(source_path, "Definition of Done (DoD)", args.dry_run)
 
     if args.dry_run:
         print("Dry run: skipped post-close verification.")
@@ -948,6 +1216,21 @@ def build_parser() -> argparse.ArgumentParser:
     b2t.add_argument("source")
     _add_common_doc_args(b2t, "task")
     b2t.set_defaults(func=cmd_promote_backlog_to_task)
+
+    split_parser = sub.add_parser("split", help="Split a request/backlog doc into multiple executable children.")
+    split_sub = split_parser.add_subparsers(dest="split_kind", required=True)
+
+    split_request = split_sub.add_parser("request", help="Split a request into multiple backlog items.")
+    split_request.add_argument("source")
+    split_request.add_argument("--title", action="append", required=True, help="Child backlog item title. Repeat the flag for multiple children.")
+    _add_common_doc_args(split_request, "backlog")
+    split_request.set_defaults(func=cmd_split_request)
+
+    split_backlog = split_sub.add_parser("backlog", help="Split a backlog item into multiple tasks.")
+    split_backlog.add_argument("source")
+    split_backlog.add_argument("--title", action="append", required=True, help="Child task title. Repeat the flag for multiple children.")
+    _add_common_doc_args(split_backlog, "task")
+    split_backlog.set_defaults(func=cmd_split_backlog)
 
     close_parser = sub.add_parser("close", help="Close a request/backlog/task and propagate transitions.")
     close_sub = close_parser.add_subparsers(dest="kind", required=True)

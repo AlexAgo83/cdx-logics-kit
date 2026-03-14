@@ -132,6 +132,21 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_my_first_need.md
 ```
 
+Promotion now carries forward more of the source doc instead of leaving mostly empty templates:
+- `From version`, `Understanding`, `Confidence`, `Complexity`, and `Theme` are reused when present.
+- request acceptance criteria seed backlog acceptance criteria and AC traceability.
+- backlog acceptance criteria seed task AC traceability.
+- request/backlog source context is copied into the next-stage problem/context blocks.
+
+### Split a broad request or backlog item
+
+Use `split` when one source doc should produce several executable children instead of one oversized backlog item or task:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_my_first_need.md --title "Delivery slice A" --title "Delivery slice B"
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_my_first_need.md --title "Implementation slice A" --title "Implementation slice B"
+```
+
 ### Finish and close docs
 
 When a task is actually completed, use the guarded finish flow:
@@ -165,6 +180,9 @@ python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
 python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_my_first_need
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
+python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
 ```
 
 Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
