@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: CLI smoke checks
+        run: python3 tests/run_cli_smoke_checks.py
+
+      - name: Versioned changelog generation dry-run
+        run: |
+          python3 logics-version-changelog-manager/scripts/generate_version_changelog.py \
+            --version "$(cat VERSION)" \
+            --out /tmp/CHANGELOGS_CI_PREVIEW.md \
+            --overwrite
+
+      - name: Release automation dry-run
+        run: python3 logics-version-release-manager/scripts/publish_version_release.py --dry-run

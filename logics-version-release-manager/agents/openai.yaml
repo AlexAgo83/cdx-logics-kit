@@ -1,0 +1,4 @@
+interface:
+  display_name: "Version Release Manager"
+  short_description: "Publish kit releases from VERSION and changelogs/"
+  default_prompt: "Use $logics-version-release-manager to validate the current kit version, changelog, tag, and GitHub release flow."

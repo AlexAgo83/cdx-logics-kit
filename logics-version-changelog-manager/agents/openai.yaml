@@ -1,0 +1,4 @@
+interface:
+  display_name: "Version Changelog Manager"
+  short_description: "Generate versioned kit changelogs from git history"
+  default_prompt: "Use $logics-version-changelog-manager to generate or refresh a versioned changelog for the kit under changelogs/."

@@ -104,7 +104,7 @@ python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --t
 Create a functional spec in `logics/specs`:
 
 ```bash
-python3 logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.0
+python3 logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.1
 ```
 
 Status model used by generated docs:
@@ -183,6 +183,33 @@ Run Python tests for the kit:
 
 ```bash
 python3 -m unittest discover -s logics/skills/tests -p "test_*.py" -v
+```
+
+Run CLI smoke checks against a temporary imported-project fixture:
+
+```bash
+python3 logics/skills/tests/run_cli_smoke_checks.py
+```
+
+## Versioning and releases
+
+The canonical kit version lives in [`VERSION`](VERSION).
+
+Versioned release notes live in [`changelogs/`](changelogs/):
+
+- [`changelogs/CHANGELOGS_1_0_1.md`](changelogs/CHANGELOGS_1_0_1.md)
+- [`changelogs/CHANGELOGS_1_0_0.md`](changelogs/CHANGELOGS_1_0_0.md)
+
+Generate or refresh the changelog for the current version:
+
+```bash
+python3 logics/skills/logics-version-changelog-manager/scripts/generate_version_changelog.py
+```
+
+Dry-run the GitHub release flow from the current `VERSION` and matching `changelogs/` entry:
+
+```bash
+python3 logics/skills/logics-version-release-manager/scripts/publish_version_release.py --dry-run
 ```
 
 ## Indicators

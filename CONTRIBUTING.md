@@ -23,9 +23,10 @@ Keep contributions aligned with that purpose:
 Run the checks that match the area you changed:
 
 ```bash
-python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
-python3 -m unittest discover -s logics/skills/tests -p "test_*.py" -v
+python3 -m unittest discover -s tests -p "test_*.py" -v
+python3 tests/run_cli_smoke_checks.py
+python3 logics-version-changelog-manager/scripts/generate_version_changelog.py --out /tmp/CHANGELOGS_PREVIEW.md --overwrite
+python3 logics-version-release-manager/scripts/publish_version_release.py --dry-run
 ```
 
 If you modify a specific connector or helper, also run a targeted smoke check for that script.
@@ -35,6 +36,7 @@ If you modify a specific connector or helper, also run a targeted smoke check fo
 - keep `README.md` aligned with the actual CLI and skill behavior
 - update examples when commands, flags, or recommended flows change
 - prefer examples that work inside a project importing the kit under `logics/skills/`
+- keep `VERSION`, `changelogs/`, and release tooling aligned when preparing a new release
 
 ## Script and template changes
 
