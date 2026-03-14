@@ -1,13 +1,14 @@
 ---
 name: logics-flow-manager
-description: Manage this repository's Logics workflow (logics/request → logics/backlog → logics/tasks): create new request/backlog/task docs, promote between stages, keep From version/Understanding/Confidence/Progress indicators consistent, and generate correctly-numbered filenames. Use when a user asks to triage an idea, write a request, promote it to a backlog item, or create an executable task plan.
+description: Manage this repository's Logics workflow (logics/request → logics/backlog → logics/tasks) and keep companion product or architecture refs aligned: create new request/backlog/task docs, promote between stages, keep From version/Understanding/Confidence/Progress indicators consistent, and generate correctly-numbered filenames. Use when a user asks to triage an idea, write a request, promote it to a backlog item, or create an executable task plan.
 ---
 
 # Logics flow
 
 ## Conventions
 
-- Keep docs in `logics/request/`, `logics/backlog/`, `logics/tasks/`.
+- Keep workflow docs in `logics/request/`, `logics/backlog/`, `logics/tasks/`.
+- Use companion docs in `logics/product/` for structuring product framing and `logics/architecture/` for structuring technical decisions.
 - Use numeric IDs and slugs in filenames: `req_001_my_title.md`, `item_002_some_scope.md`, `task_003_do_the_work.md`.
 - Keep indicators at the top:
   - `From version: X.X.X`
@@ -48,6 +49,27 @@ python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logi
 python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/tasks/task_003_example.md
 ```
 
+When a request or backlog item surfaces a structuring product choice, create a product brief before or alongside promotion:
+
+```bash
+python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing" --out-dir logics/product
+```
+
+When a backlog item surfaces a structuring technical choice, create an ADR/DAT:
+
+```bash
+python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy" --out-dir logics/architecture
+```
+
+For backlog/task creation or promotion, the script now auto-detects product and architecture signals and writes a `# Decision framing` section in generated docs. It stays advisory by default and can auto-create the companion docs when you opt in:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog \
+  --title "Checkout auth migration" \
+  --auto-create-product-brief \
+  --auto-create-adr
+```
+
 Optional flags:
 
 - `--from-version 0.14.3`
@@ -55,6 +77,8 @@ Optional flags:
 - `--status Draft|Ready|In progress|Blocked|Done|Archived`
 - `--complexity Low|Medium|High --theme UI`
 - `--progress 0%` (task/backlog)
+- `--auto-create-product-brief` (backlog/task only; create `logics/product/prod_###_*.md` when product framing is required)
+- `--auto-create-adr` (backlog/task only; create `logics/architecture/adr_###_*.md` when architecture framing is required)
 - `--dry-run` (show path + content preview, no writes)
 
 ## Promote between stages
@@ -97,10 +121,13 @@ After promotion:
 - Ensure the backlog item has clear acceptance criteria + priority.
 - Ensure the task has a step-by-step plan and at least 1–2 validation commands relevant to the work.
 - Ensure the source request lists any generated backlog items in its Backlog section.
+- Carry forward any linked `prod_###` and `adr_###` refs so downstream docs keep the product and architecture framing visible.
 
 Before promotion:
 
 - If `Understanding` or `Confidence` is below 90% in the source doc, run the **logics-confidence-booster** skill first to clarify and update indicators.
+- If the need requires a non-trivial product framing document, write a product brief in `logics/product/` and reference it from the source doc before promotion.
+- If the need requires a non-trivial technical decision, write an ADR in `logics/architecture/` and reference it from the source doc before promotion.
 - For request docs, replace the default Mermaid scaffold with a diagram specific to the need before considering the request ready.
 - For backlog/task docs, replace the default Mermaid scaffold with a doc-specific diagram whenever the default no longer reflects the real flow.
 - Before finalizing any Mermaid diagram, sanity-check that the labels still obey the Mermaid safety rules above so previewers do not fall back to raw source rendering.

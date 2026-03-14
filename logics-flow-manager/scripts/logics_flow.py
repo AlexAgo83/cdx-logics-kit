@@ -5,6 +5,7 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 
@@ -23,6 +24,14 @@ DOC_KINDS: dict[str, DocKind] = {
     "task": DocKind("task", "logics/tasks", "task", "task.md", True),
 }
 
+REF_PREFIXES = {
+    "request": "req",
+    "backlog": "item",
+    "task": "task",
+    "product": "prod",
+    "architecture": "adr",
+}
+
 ALLOWED_STATUSES = (
     "Draft",
     "Ready",
@@ -39,6 +48,38 @@ STATUS_BY_KIND_DEFAULT = {
 }
 
 ALLOWED_COMPLEXITIES = ("Low", "Medium", "High")
+
+PRODUCT_SIGNAL_RULES = {
+    "conversion journey": ("checkout", "signup", "sign up", "onboarding", "activation", "funnel", "conversion"),
+    "pricing and packaging": ("pricing", "plan", "subscription", "trial", "paywall"),
+    "user segmentation": ("persona", "segment", "target user", "role based"),
+    "navigation and discoverability": ("navigation", "search", "filter", "discover", "browse", "menu"),
+    "engagement loop": ("notification", "retention", "sharing", "invite", "feed"),
+    "experience scope": ("dashboard", "settings", "profile", "empty state", "first run"),
+}
+
+ARCHITECTURE_SIGNAL_RULES = {
+    "data model and persistence": ("schema", "database", "storage", "migration", "persistence", "data model"),
+    "contracts and integration": ("api", "contract", "webhook", "integration", "provider", "sdk"),
+    "runtime and boundaries": ("monolith", "modular", "module", "microservice", "boundary"),
+    "state and sync": ("cache", "state management", "offline", "sync", "queue", "event", "stream"),
+    "security and identity": ("auth", "authentication", "authorization", "permission", "security", "secret"),
+    "delivery and operations": ("deployment", "infra", "observability", "monitoring", "performance", "scaling"),
+}
+
+
+@dataclass(frozen=True)
+class DecisionAssessment:
+    product_level: str
+    product_signals: tuple[str, ...]
+    architecture_level: str
+    architecture_signals: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PlannedDoc:
+    ref: str
+    path: Path
 
 
 def _slugify(value: str) -> str:
@@ -77,6 +118,145 @@ def _render_template(template_text: str, values: dict[str, str]) -> str:
         return values.get(key, match.group(0))
 
     return re.sub(r"\{\{([A-Z0-9_]+)\}\}", repl, template_text)
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(value.lower().split())
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    normalized_phrase = _normalize_text(phrase)
+    pattern = r"\b" + re.escape(normalized_phrase).replace(r"\ ", r"\s+") + r"\b"
+    return re.search(pattern, text) is not None
+
+
+def _detect_signal_labels(text: str, rules: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    normalized = _normalize_text(text)
+    labels: list[str] = []
+    for label, phrases in rules.items():
+        if any(_contains_phrase(normalized, phrase) for phrase in phrases):
+            labels.append(label)
+    return tuple(labels)
+
+
+def _decision_level(title_signals: tuple[str, ...], all_signals: tuple[str, ...]) -> str:
+    if title_signals or len(all_signals) >= 2:
+        return "Required"
+    if all_signals:
+        return "Consider"
+    return "Not needed"
+
+
+def _assess_decision_framing(title: str, text: str) -> DecisionAssessment:
+    combined = f"{title}\n{text}".strip()
+    product_title_signals = _detect_signal_labels(title, PRODUCT_SIGNAL_RULES)
+    product_signals = _detect_signal_labels(combined, PRODUCT_SIGNAL_RULES)
+    architecture_title_signals = _detect_signal_labels(title, ARCHITECTURE_SIGNAL_RULES)
+    architecture_signals = _detect_signal_labels(combined, ARCHITECTURE_SIGNAL_RULES)
+    return DecisionAssessment(
+        product_level=_decision_level(product_title_signals, product_signals),
+        product_signals=product_signals,
+        architecture_level=_decision_level(architecture_title_signals, architecture_signals),
+        architecture_signals=architecture_signals,
+    )
+
+
+def _signals_display(signals: tuple[str, ...]) -> str:
+    if not signals:
+        return "(none detected)"
+    return ", ".join(signals)
+
+
+def _plan_doc(repo_root: Path, directory: str, prefix: str, title: str) -> PlannedDoc:
+    target_dir = repo_root / directory
+    doc_id = _next_id(target_dir, prefix)
+    slug = _slugify(title)
+    ref = f"{prefix}_{doc_id:03d}_{slug}"
+    path = target_dir / f"{ref}.md"
+    return PlannedDoc(ref=ref, path=path)
+
+
+def _render_product_brief(
+    title: str,
+    product_ref: str,
+    request_ref: str | None,
+    backlog_ref: str | None,
+    task_ref: str | None,
+    architecture_refs: list[str],
+) -> str:
+    template_path = Path(__file__).resolve().parents[2] / "logics-product-brief-writer" / "assets" / "templates" / "product_brief.md"
+    template_text = template_path.read_text(encoding="utf-8")
+    values = {
+        "DOC_REF": product_ref,
+        "TITLE": title,
+        "DATE": date.today().isoformat(),
+        "STATUS": "Proposed",
+        "REQUEST_REF": f"`{request_ref}`" if request_ref else "(none yet)",
+        "BACKLOG_REF": f"`{backlog_ref}`" if backlog_ref else "(none yet)",
+        "TASK_REF": f"`{task_ref}`" if task_ref else "(none yet)",
+        "ARCHITECTURE_REF": ", ".join(f"`{ref}`" for ref in architecture_refs) if architecture_refs else "(none yet)",
+        "OVERVIEW": "Summarize the product direction, the targeted user value, and the main expected outcomes.",
+        "OVERVIEW_MERMAID": (
+            "flowchart LR\n"
+            "    Problem[User problem] --> Direction[Chosen product direction]\n"
+            "    Direction --> Value[User value]\n"
+            "    Direction --> Scope[Scoped experience]\n"
+            "    Direction --> Outcome[Expected product outcomes]"
+        ),
+        "PROBLEM": "Describe the user or business problem this brief resolves.",
+        "USER_1": "Primary user or segment",
+        "GOAL_1": "Primary product goal",
+        "NON_GOAL_1": "Explicit non-goal or excluded expectation",
+        "IN_SCOPE_1": "Main capability or experience slice included",
+        "OUT_OF_SCOPE_1": "Main capability explicitly excluded for now",
+        "DECISION_1": "Key product trade-off or framing decision",
+        "SUCCESS_SIGNAL_1": "Observable success signal or product metric",
+        "QUESTION_1": "Main open product question to resolve",
+    }
+    return _render_template(template_text, values).rstrip() + "\n"
+
+
+def _render_architecture_decision(
+    title: str,
+    architecture_ref: str,
+    request_ref: str | None,
+    backlog_ref: str | None,
+    task_ref: str | None,
+) -> str:
+    template_path = (
+        Path(__file__).resolve().parents[2]
+        / "logics-architecture-decision-writer"
+        / "assets"
+        / "templates"
+        / "adr.md"
+    )
+    template_text = template_path.read_text(encoding="utf-8")
+    values = {
+        "DOC_REF": architecture_ref,
+        "TITLE": title,
+        "DATE": date.today().isoformat(),
+        "STATUS": "Proposed",
+        "DRIVERS": "List the main architectural drivers.",
+        "REQUEST_REF": f"`{request_ref}`" if request_ref else "(none yet)",
+        "BACKLOG_REF": f"`{backlog_ref}`" if backlog_ref else "(none yet)",
+        "TASK_REF": f"`{task_ref}`" if task_ref else "(none yet)",
+        "OVERVIEW": "Summarize the chosen direction, what changes, and the main impacted areas.",
+        "OVERVIEW_MERMAID": (
+            "flowchart LR\n"
+            "    Current[Current architecture] --> Decision[Chosen direction]\n"
+            "    Decision --> App[Application layer]\n"
+            "    Decision --> Data[Data and contracts]\n"
+            "    Decision --> Ops[Deployment and observability]\n"
+            "    Decision --> Team[Delivery and maintenance]"
+        ),
+        "CONTEXT": "Describe the problem, constraints, and drivers.",
+        "DECISION": "State the chosen option and rationale.",
+        "ALT_1": "Alternative option",
+        "CONSEQUENCE_1": "Operational/product consequence",
+        "MIGRATION_1": "Describe the rollout or migration step.",
+        "FOLLOW_UP_1": "List the backlog or task work enabled by this decision.",
+    }
+    return _render_template(template_text, values).rstrip() + "\n"
 
 
 def _parse_title_from_source(source_path: Path) -> str | None:
@@ -151,8 +331,8 @@ def _resolve_doc_path(repo_root: Path, kind: DocKind, doc_ref: str) -> Path | No
     return None
 
 
-def _extract_refs(text: str, kind: DocKind) -> set[str]:
-    pattern = re.compile(rf"\b{re.escape(kind.prefix)}_\d{{3}}_[a-z0-9_]+\b")
+def _extract_refs(text: str, prefix: str) -> set[str]:
+    pattern = re.compile(rf"\b{re.escape(prefix)}_\d{{3}}_[a-z0-9_]+\b")
     return {match.group(0) for match in pattern.finditer(text)}
 
 
@@ -264,6 +444,12 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
         "PROBLEM_PLACEHOLDER": "Describe the problem and user impact",
         "NOTES_PLACEHOLDER": "",
         "REQUEST_LINK_PLACEHOLDER": "`req_XXX_example`",
+        "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
+        "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
+        "PRODUCT_FRAMING_STATUS": "Not needed",
+        "PRODUCT_FRAMING_SIGNALS": "(none detected)",
+        "ARCHITECTURE_FRAMING_STATUS": "Not needed",
+        "ARCHITECTURE_FRAMING_SIGNALS": "(none detected)",
         "BACKLOG_LINK_PLACEHOLDER": "`item_XXX_example`",
         "TASK_LINK_PLACEHOLDER": "`task_XXX_example`",
         "STEP_1": "First implementation step",
@@ -280,6 +466,74 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
     return values
 
 
+def _apply_decision_assessment(values: dict[str, str], assessment: DecisionAssessment) -> None:
+    values["PRODUCT_FRAMING_STATUS"] = assessment.product_level
+    values["PRODUCT_FRAMING_SIGNALS"] = _signals_display(assessment.product_signals)
+    values["ARCHITECTURE_FRAMING_STATUS"] = assessment.architecture_level
+    values["ARCHITECTURE_FRAMING_SIGNALS"] = _signals_display(assessment.architecture_signals)
+
+
+def _print_decision_summary(
+    doc_ref: str,
+    assessment: DecisionAssessment,
+    product_refs: list[str],
+    architecture_refs: list[str],
+) -> None:
+    product_line = assessment.product_level
+    if assessment.product_signals:
+        product_line += f" ({_signals_display(assessment.product_signals)})"
+    architecture_line = assessment.architecture_level
+    if assessment.architecture_signals:
+        architecture_line += f" ({_signals_display(assessment.architecture_signals)})"
+    print(
+        "\n".join(
+            [
+                f"Decision framing for {doc_ref}:",
+                f"- Product: {product_line}",
+                f"- Architecture: {architecture_line}",
+                f"- Product brief refs: {', '.join(product_refs) if product_refs else '(none yet)'}",
+                f"- Architecture decision refs: {', '.join(architecture_refs) if architecture_refs else '(none yet)'}",
+            ]
+        )
+    )
+
+
+def _auto_create_companion_docs(
+    repo_root: Path,
+    title: str,
+    request_ref: str | None,
+    backlog_ref: str | None,
+    task_ref: str | None,
+    assessment: DecisionAssessment,
+    product_refs: list[str],
+    architecture_refs: list[str],
+    args: argparse.Namespace,
+) -> tuple[list[str], list[str]]:
+    created_product_refs = list(product_refs)
+    created_architecture_refs = list(architecture_refs)
+
+    if args.auto_create_adr and assessment.architecture_level == "Required" and not created_architecture_refs:
+        planned = _plan_doc(repo_root, "logics/architecture", REF_PREFIXES["architecture"], title)
+        content = _render_architecture_decision(title, planned.ref, request_ref, backlog_ref, task_ref)
+        _write(planned.path, content, args.dry_run)
+        created_architecture_refs.append(planned.ref)
+
+    if args.auto_create_product_brief and assessment.product_level == "Required" and not created_product_refs:
+        planned = _plan_doc(repo_root, "logics/product", REF_PREFIXES["product"], title)
+        content = _render_product_brief(
+            title,
+            planned.ref,
+            request_ref,
+            backlog_ref,
+            task_ref,
+            created_architecture_refs,
+        )
+        _write(planned.path, content, args.dry_run)
+        created_product_refs.append(planned.ref)
+
+    return created_product_refs, created_architecture_refs
+
+
 def cmd_new(args: argparse.Namespace) -> None:
     doc_kind = DOC_KINDS[args.kind]
     repo_root = _find_repo_root(Path.cwd())
@@ -293,9 +547,31 @@ def cmd_new(args: argparse.Namespace) -> None:
 
     template_text = _template_path(Path(__file__), doc_kind.template_name).read_text(encoding="utf-8")
     values = _build_template_values(args, doc_ref, args.title, doc_kind.include_progress)
+    assessment = _assess_decision_framing(args.title, "")
+    product_refs: list[str] = []
+    architecture_refs: list[str] = []
+    if doc_kind.kind in {"backlog", "task"}:
+        product_refs, architecture_refs = _auto_create_companion_docs(
+            repo_root,
+            args.title,
+            request_ref=None,
+            backlog_ref=doc_ref if doc_kind.kind == "backlog" else None,
+            task_ref=doc_ref if doc_kind.kind == "task" else None,
+            assessment=assessment,
+            product_refs=product_refs,
+            architecture_refs=architecture_refs,
+            args=args,
+        )
+        _apply_decision_assessment(values, assessment)
+        if product_refs:
+            values["PRODUCT_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in product_refs)
+        if architecture_refs:
+            values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
+    if doc_kind.kind in {"backlog", "task"}:
+        _print_decision_summary(doc_ref, assessment, product_refs, architecture_refs)
 
 
 def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
@@ -315,8 +591,23 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
 
     template_text = _template_path(Path(__file__), DOC_KINDS["backlog"].template_name).read_text(encoding="utf-8")
     values = _build_template_values(args, doc_ref, title, include_progress=True)
+    source_text = source_path.read_text(encoding="utf-8")
     source_ref = _doc_ref_from_path(source_path, DOC_KINDS["request"])
     source_rel = source_path.relative_to(repo_root)
+    product_refs = sorted(_extract_refs(source_text, REF_PREFIXES["product"]))
+    architecture_refs = sorted(_extract_refs(source_text, REF_PREFIXES["architecture"]))
+    assessment = _assess_decision_framing(title, source_text)
+    product_refs, architecture_refs = _auto_create_companion_docs(
+        repo_root,
+        title,
+        request_ref=source_ref,
+        backlog_ref=doc_ref,
+        task_ref=None,
+        assessment=assessment,
+        product_refs=product_refs,
+        architecture_refs=architecture_refs,
+        args=args,
+    )
     if source_ref is not None:
         values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_ref}`"
         values["NOTES_PLACEHOLDER"] = (
@@ -326,6 +617,11 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
     else:
         values["REQUEST_LINK_PLACEHOLDER"] = f"`{source_rel}`"
         values["NOTES_PLACEHOLDER"] = f"- Derived from `{source_rel}`."
+    _apply_decision_assessment(values, assessment)
+    if product_refs:
+        values["PRODUCT_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in product_refs)
+    if architecture_refs:
+        values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
@@ -334,6 +630,7 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
         doc_ref,
         args.dry_run,
     )
+    _print_decision_summary(doc_ref, assessment, product_refs, architecture_refs)
 
 
 def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
@@ -356,7 +653,22 @@ def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
     source_text = source_path.read_text(encoding="utf-8")
     source_ref = _doc_ref_from_path(source_path, DOC_KINDS["backlog"])
     source_rel = source_path.relative_to(repo_root)
-    request_refs = sorted(_extract_refs(source_text, DOC_KINDS["request"]))
+    request_refs = sorted(_extract_refs(source_text, REF_PREFIXES["request"]))
+    product_refs = sorted(_extract_refs(source_text, REF_PREFIXES["product"]))
+    architecture_refs = sorted(_extract_refs(source_text, REF_PREFIXES["architecture"]))
+    assessment = _assess_decision_framing(title, source_text)
+    primary_request_ref = request_refs[0] if request_refs else None
+    product_refs, architecture_refs = _auto_create_companion_docs(
+        repo_root,
+        title,
+        request_ref=primary_request_ref,
+        backlog_ref=source_ref,
+        task_ref=doc_ref,
+        assessment=assessment,
+        product_refs=product_refs,
+        architecture_refs=architecture_refs,
+        args=args,
+    )
 
     context_lines = [
         f"- Derived from backlog item `{source_ref or source_rel}`.",
@@ -367,8 +679,13 @@ def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
 
     values["CONTEXT_PLACEHOLDER"] = "\n".join(context_lines)
     values["BACKLOG_LINK_PLACEHOLDER"] = f"`{source_ref}`" if source_ref is not None else f"`{source_rel}`"
+    _apply_decision_assessment(values, assessment)
     if request_refs:
         values["REQUEST_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in request_refs)
+    if product_refs:
+        values["PRODUCT_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in product_refs)
+    if architecture_refs:
+        values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
     values["STEP_1"] = "Clarify scope and acceptance criteria"
     values["STEP_2"] = "Implement changes"
@@ -376,6 +693,7 @@ def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
 
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)
+    _print_decision_summary(doc_ref, assessment, product_refs, architecture_refs)
 
 
 def _maybe_close_request_chain(repo_root: Path, request_ref: str, dry_run: bool) -> None:
@@ -434,7 +752,7 @@ def cmd_close(args: argparse.Namespace) -> None:
     processed_request_refs: set[str] = set()
 
     if kind.kind == "task":
-        linked_item_refs = sorted(_extract_refs(text, DOC_KINDS["backlog"]))
+        linked_item_refs = sorted(_extract_refs(text, REF_PREFIXES["backlog"]))
         for item_ref in linked_item_refs:
             item_path = _resolve_doc_path(repo_root, DOC_KINDS["backlog"], item_ref)
             if item_path is None:
@@ -446,14 +764,14 @@ def cmd_close(args: argparse.Namespace) -> None:
                     print(f"Auto-closed backlog item {item_ref} (all linked tasks are done).")
 
             item_text = item_path.read_text(encoding="utf-8")
-            for request_ref in sorted(_extract_refs(item_text, DOC_KINDS["request"])):
+            for request_ref in sorted(_extract_refs(item_text, REF_PREFIXES["request"])):
                 if request_ref in processed_request_refs:
                     continue
                 processed_request_refs.add(request_ref)
                 _maybe_close_request_chain(repo_root, request_ref, args.dry_run)
 
     if kind.kind == "backlog":
-        for request_ref in sorted(_extract_refs(text, DOC_KINDS["request"])):
+        for request_ref in sorted(_extract_refs(text, REF_PREFIXES["request"])):
             if request_ref in processed_request_refs:
                 continue
             processed_request_refs.add(request_ref)
@@ -468,7 +786,7 @@ def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
     issues: list[str] = []
     task_ref = task_path.stem
     task_text = task_path.read_text(encoding="utf-8")
-    item_refs = sorted(_extract_refs(task_text, DOC_KINDS["backlog"]))
+    item_refs = sorted(_extract_refs(task_text, REF_PREFIXES["backlog"]))
 
     if not item_refs:
         return [f"task `{task_ref}` has no linked backlog item reference"]
@@ -483,7 +801,7 @@ def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
             issues.append(f"linked backlog item `{item_ref}` is not closed after finishing task `{task_ref}`")
 
         item_text = item_path.read_text(encoding="utf-8")
-        request_refs = sorted(_extract_refs(item_text, DOC_KINDS["request"]))
+        request_refs = sorted(_extract_refs(item_text, REF_PREFIXES["request"]))
         if not request_refs:
             issues.append(f"linked backlog item `{item_ref}` has no request reference")
             continue
@@ -541,6 +859,9 @@ def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
         parser.add_argument("--progress", default="0%")
     else:
         parser.add_argument("--progress", default="")
+    if kind in {"backlog", "task"}:
+        parser.add_argument("--auto-create-product-brief", action="store_true")
+        parser.add_argument("--auto-create-adr", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
 
 

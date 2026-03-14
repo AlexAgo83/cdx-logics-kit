@@ -24,9 +24,9 @@ def _find_repo_root(start: Path) -> Path:
 
 
 def _next_id(directory: Path) -> int:
-    pattern = re.compile(r"^adr_(\d{3})_.*\.md$")
+    pattern = re.compile(r"^prod_(\d{3})_.*\.md$")
     max_id = -1
-    for file_path in directory.glob("adr_*.md"):
+    for file_path in directory.glob("prod_*.md"):
         match = pattern.match(file_path.name)
         if not match:
             continue
@@ -43,9 +43,9 @@ def _render_template(template_text: str, values: dict[str, str]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Create a new ADR in logics/architecture.")
+    parser = argparse.ArgumentParser(description="Create a new product brief in logics/product.")
     parser.add_argument("--title", required=True)
-    parser.add_argument("--out-dir", default="logics/architecture")
+    parser.add_argument("--out-dir", default="logics/product")
     parser.add_argument("--status", default="Proposed")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
@@ -56,36 +56,38 @@ def main(argv: list[str]) -> int:
 
     doc_id = _next_id(out_dir)
     slug = _slugify(args.title)
-    filename = f"adr_{doc_id:03d}_{slug}.md"
-    doc_ref = f"adr_{doc_id:03d}_{slug}"
+    filename = f"prod_{doc_id:03d}_{slug}.md"
+    doc_ref = f"prod_{doc_id:03d}_{slug}"
     output_path = out_dir / filename
 
-    template_path = repo_root / "logics/skills/logics-architecture-decision-writer/assets/templates/adr.md"
+    template_path = repo_root / "logics/skills/logics-product-brief-writer/assets/templates/product_brief.md"
     template_text = template_path.read_text(encoding="utf-8")
     values = {
         "DOC_REF": doc_ref,
         "TITLE": args.title,
         "DATE": date.today().isoformat(),
         "STATUS": args.status,
-        "DRIVERS": "List the main architectural drivers.",
         "REQUEST_REF": "`req_XXX_example`",
         "BACKLOG_REF": "`item_XXX_example`",
         "TASK_REF": "`task_XXX_example`",
-        "OVERVIEW": "Summarize the chosen direction, what changes, and the main impacted areas.",
+        "ARCHITECTURE_REF": "`adr_XXX_example`",
+        "OVERVIEW": "Summarize the product direction, the targeted user value, and the main expected outcomes.",
         "OVERVIEW_MERMAID": (
             "flowchart LR\n"
-            "    Current[Current architecture] --> Decision[Chosen direction]\n"
-            "    Decision --> App[Application layer]\n"
-            "    Decision --> Data[Data and contracts]\n"
-            "    Decision --> Ops[Deployment and observability]\n"
-            "    Decision --> Team[Delivery and maintenance]"
+            "    Problem[User problem] --> Direction[Chosen product direction]\n"
+            "    Direction --> Value[User value]\n"
+            "    Direction --> Scope[Scoped experience]\n"
+            "    Direction --> Outcome[Expected product outcomes]"
         ),
-        "CONTEXT": "Describe the problem, constraints, and drivers.",
-        "DECISION": "State the chosen option and rationale.",
-        "ALT_1": "Alternative option",
-        "CONSEQUENCE_1": "Operational/product consequence",
-        "MIGRATION_1": "Describe the rollout or migration step.",
-        "FOLLOW_UP_1": "List the backlog or task work enabled by this decision.",
+        "PROBLEM": "Describe the user or business problem this brief resolves.",
+        "USER_1": "Primary user or segment",
+        "GOAL_1": "Primary product goal",
+        "NON_GOAL_1": "Explicit non-goal or excluded expectation",
+        "IN_SCOPE_1": "Main capability or experience slice included",
+        "OUT_OF_SCOPE_1": "Main capability explicitly excluded for now",
+        "DECISION_1": "Key product trade-off or framing decision",
+        "SUCCESS_SIGNAL_1": "Observable success signal or product metric",
+        "QUESTION_1": "Main open product question to resolve",
     }
     content = _render_template(template_text, values).rstrip() + "\n"
 

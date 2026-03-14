@@ -11,16 +11,25 @@
 
 A reusable Logics kit to import into your projects under `logics/skills/`.
 
-The kit standardizes a lightweight Markdown workflow:
+The kit standardizes a lightweight Markdown workflow with optional companion decision docs:
 
 `logics/request` -> `logics/backlog` -> `logics/tasks` -> `logics/specs`
+
+Companion framing docs can be added when needed:
+
+- `logics/product` for product briefs and product decision framing
+- `logics/architecture` for architecture decisions and structural technical choices
 
 It also ships scripts and skills to create, promote, lint, audit, review, and enrich those docs so project context stays durable, inspectable, and reusable across AI sessions.
 
 ```mermaid
 flowchart LR
     Need[Need captured] --> Request[Request]
+    Request --> Product[Product brief optional]
+    Request --> Arch[Architecture decision optional]
     Request --> Backlog[Backlog item]
+    Product --> Backlog
+    Arch --> Backlog
     Backlog --> Task[Executable task]
     Task --> Spec[Spec or delivery notes]
     Spec --> Audit[Lint and workflow audit]
@@ -71,6 +80,27 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --t
 python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement my first need"
 ```
 
+For backlog/task docs, `logics_flow.py` now evaluates product and architecture signals and writes a `# Decision framing` section. The detection is advisory by default and can auto-create companion docs when the signal is strong:
+
+```bash
+python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog \
+  --title "Checkout auth migration" \
+  --auto-create-product-brief \
+  --auto-create-adr
+```
+
+Create a product brief in `logics/product` when the subject needs a non-technical framing artifact:
+
+```bash
+python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing"
+```
+
+Create an architecture decision in `logics/architecture` when the subject needs a structural technical decision:
+
+```bash
+python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy"
+```
+
 Create a functional spec in `logics/specs`:
 
 ```bash
@@ -91,8 +121,8 @@ Metadata contract for normalized workflow docs:
 - `Status` is the canonical workflow indicator for requests, backlog items, and tasks.
 - `Progress` may still exist on backlog items and tasks, but it is supplemental rather than canonical.
 - Transitional legacy rule:
-  - older docs may still carry `Progress: 100%`,
-  - but normalized docs should also carry `Status: Done`.
+- older docs may still carry `Progress: 100%`
+- normalized docs should also carry `Status: Done`
 - New docs and touched docs should not rely on missing `Status`.
 
 ### Promote between stages
@@ -384,7 +414,7 @@ python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logi
 
 ## Doc fixer
 
-Validate + repair structure, indicators, and request/backlog/task references:
+Validate + repair structure, indicators, and request/backlog/task/product/architecture references:
 
 ```bash
 python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py

@@ -29,7 +29,15 @@ flowchart LR
 # AC Traceability
 - AC1 -> Item scope and delivery path are defined. Proof: add test/commit/file links.
 
+# Decision framing
+- Product framing: {{PRODUCT_FRAMING_STATUS}}
+- Product signals: {{PRODUCT_FRAMING_SIGNALS}}
+- Architecture framing: {{ARCHITECTURE_FRAMING_STATUS}}
+- Architecture signals: {{ARCHITECTURE_FRAMING_SIGNALS}}
+
 # Links
+- Product brief(s): {{PRODUCT_LINK_PLACEHOLDER}}
+- Architecture decision(s): {{ARCHITECTURE_LINK_PLACEHOLDER}}
 - Request: {{REQUEST_LINK_PLACEHOLDER}}
 - Primary task(s): {{TASK_LINK_PLACEHOLDER}}
 

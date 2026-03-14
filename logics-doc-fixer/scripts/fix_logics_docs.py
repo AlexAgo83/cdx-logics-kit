@@ -14,6 +14,14 @@ INDICATOR_DEFAULTS = {
     "Understanding": "??%",
     "Confidence": "??%",
     "Progress": "0%",
+    "Date": "YYYY-MM-DD",
+    "Status": "Proposed",
+    "Drivers": "List the main architectural drivers.",
+    "Related request": "(none yet)",
+    "Related backlog": "(none yet)",
+    "Related task": "(none yet)",
+    "Related architecture": "(none yet)",
+    "Reminder": "Update this doc when the framing changes.",
 }
 
 REQUEST_SECTIONS = [
@@ -37,6 +45,52 @@ TASK_SECTIONS = [
     ("# Report", ["- "]),
     ("# Notes", []),
 ]
+
+PRODUCT_SECTIONS = [
+    ("# Overview", ["Summarize the product direction."]),
+    ("# Product problem", ["Describe the user or business problem this brief resolves."]),
+    ("# Target users and situations", ["- Primary user or segment"]),
+    ("# Goals", ["- Primary product goal"]),
+    ("# Non-goals", ["- Explicit non-goal or excluded expectation"]),
+    ("# Scope and guardrails", ["- In:", "- Out:"]),
+    ("# Key product decisions", ["- Key product trade-off or framing decision"]),
+    ("# Success signals", ["- Observable success signal or product metric"]),
+    ("# Open questions", ["- Main open product question to resolve"]),
+]
+
+ARCHITECTURE_SECTIONS = [
+    ("# Overview", ["Summarize the chosen direction and impacted areas."]),
+    ("# Context", ["Describe the problem, constraints, and drivers."]),
+    ("# Decision", ["State the chosen option and rationale."]),
+    ("# Alternatives considered", ["- Alternative option"]),
+    ("# Consequences", ["- Operational or product consequence"]),
+    ("# Migration and rollout", ["- Describe the rollout or migration step."]),
+    ("# Follow-up work", ["- List the backlog or task work enabled by this decision."]),
+]
+
+REQUIRED_INDICATORS = {
+    "request": ["From version", "Understanding", "Confidence"],
+    "backlog": ["From version", "Understanding", "Confidence", "Progress"],
+    "task": ["From version", "Understanding", "Confidence", "Progress"],
+    "product": [
+        "Date",
+        "Status",
+        "Related request",
+        "Related backlog",
+        "Related task",
+        "Related architecture",
+        "Reminder",
+    ],
+    "architecture": [
+        "Date",
+        "Status",
+        "Drivers",
+        "Related request",
+        "Related backlog",
+        "Related task",
+        "Reminder",
+    ],
+}
 
 
 @dataclass
@@ -62,6 +116,10 @@ def _detect_kind(path: Path) -> str:
         return "backlog"
     if "/logics/tasks/" in path_str:
         return "task"
+    if "/logics/product/" in path_str:
+        return "product"
+    if "/logics/architecture/" in path_str:
+        return "architecture"
     raise ValueError(f"Unknown doc kind for {path}")
 
 
@@ -161,9 +219,7 @@ def _ensure_indicators(lines: list[str], kind: str, auto_progress: bool) -> tupl
         indicator_end += 1
 
     existing_order, existing = _parse_indicators(lines[indicator_start:indicator_end])
-    required = ["From version", "Understanding", "Confidence"]
-    if kind in {"backlog", "task"}:
-        required.append("Progress")
+    required = REQUIRED_INDICATORS[kind][:]
 
     if auto_progress and kind in {"backlog", "task"}:
         computed = _compute_progress(lines, kind)
@@ -190,6 +246,35 @@ def _ensure_indicators(lines: list[str], kind: str, auto_progress: bool) -> tupl
 
     new_lines = lines[: title_idx + 1] + new_indicators + [""] + lines[content_start:]
     return new_lines, updated
+
+
+def _ensure_indicator_value(lines: list[str], key: str, value: str) -> tuple[list[str], bool]:
+    title_idx = None
+    for idx, line in enumerate(lines):
+        if line.startswith("## "):
+            title_idx = idx
+            break
+    if title_idx is None:
+        return lines, False
+
+    indicator_start = title_idx + 1
+    indicator_end = indicator_start
+    while indicator_end < len(lines) and lines[indicator_end].startswith("> "):
+        indicator_end += 1
+
+    existing_order, existing = _parse_indicators(lines[indicator_start:indicator_end])
+    if existing.get(key) == value:
+        return lines, False
+
+    if key not in existing_order:
+        existing_order.append(key)
+    existing[key] = value
+    new_indicators = [f"> {indicator}: {existing[indicator]}" for indicator in existing_order]
+    content_start = indicator_end
+    while content_start < len(lines) and lines[content_start].strip() == "":
+        content_start += 1
+    new_lines = lines[: title_idx + 1] + new_indicators + [""] + lines[content_start:]
+    return new_lines, True
 
 
 def _ensure_request_backlog(lines: list[str], backlog_paths: list[Path]) -> tuple[list[str], bool]:
@@ -300,7 +385,7 @@ def _ensure_task_context_reference(lines: list[str], reference_line: str) -> tup
 
 def _collect_docs(repo_root: Path) -> list[DocRef]:
     docs: list[DocRef] = []
-    for subdir in ("request", "backlog", "tasks"):
+    for subdir in ("request", "backlog", "tasks", "product", "architecture"):
         for path in (repo_root / "logics" / subdir).glob("*.md"):
             doc_kind = "task" if subdir == "tasks" else subdir
             docs.append(DocRef(path=path, kind=doc_kind, slug=_slug_from_path(path)))
@@ -315,7 +400,11 @@ def _ensure_structure(
         return _ensure_sections(lines, REQUEST_SECTIONS)
     if kind == "backlog":
         return _ensure_sections(lines, BACKLOG_SECTIONS)
-    return _ensure_sections(lines, TASK_SECTIONS)
+    if kind == "task":
+        return _ensure_sections(lines, TASK_SECTIONS)
+    if kind == "product":
+        return _ensure_sections(lines, PRODUCT_SECTIONS)
+    return _ensure_sections(lines, ARCHITECTURE_SECTIONS)
 
 
 def _process_doc(
@@ -355,6 +444,38 @@ def _process_doc(
             lines, updated = _ensure_task_context_reference(lines, ref_line)
             changed = changed or updated
 
+    if doc.kind == "product":
+        request_paths = slug_refs.get("request", [])
+        backlog_paths = slug_refs.get("backlog", [])
+        task_paths = slug_refs.get("task", [])
+        architecture_paths = slug_refs.get("architecture", [])
+        if len(request_paths) == 1:
+            lines, updated = _ensure_indicator_value(lines, "Related request", f"`{request_paths[0].stem}`")
+            changed = changed or updated
+        if len(backlog_paths) == 1:
+            lines, updated = _ensure_indicator_value(lines, "Related backlog", f"`{backlog_paths[0].stem}`")
+            changed = changed or updated
+        if len(task_paths) == 1:
+            lines, updated = _ensure_indicator_value(lines, "Related task", f"`{task_paths[0].stem}`")
+            changed = changed or updated
+        if len(architecture_paths) == 1:
+            lines, updated = _ensure_indicator_value(lines, "Related architecture", f"`{architecture_paths[0].stem}`")
+            changed = changed or updated
+
+    if doc.kind == "architecture":
+        request_paths = slug_refs.get("request", [])
+        backlog_paths = slug_refs.get("backlog", [])
+        task_paths = slug_refs.get("task", [])
+        if len(request_paths) == 1:
+            lines, updated = _ensure_indicator_value(lines, "Related request", f"`{request_paths[0].stem}`")
+            changed = changed or updated
+        if len(backlog_paths) == 1:
+            lines, updated = _ensure_indicator_value(lines, "Related backlog", f"`{backlog_paths[0].stem}`")
+            changed = changed or updated
+        if len(task_paths) == 1:
+            lines, updated = _ensure_indicator_value(lines, "Related task", f"`{task_paths[0].stem}`")
+            changed = changed or updated
+
     final_text = "\n".join(lines).rstrip() + "\n"
     return final_text, changed
 
@@ -368,7 +489,7 @@ def _write(path: Path, content: str, write: bool) -> None:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        description="Validate and fix Logics request/backlog/task structure, indicators, and references.",
+        description="Validate and fix Logics request/backlog/task/product/architecture structure, indicators, and references.",
     )
     parser.add_argument("paths", nargs="*", help="Optional list of docs to check.")
     parser.add_argument("--repo-root", help="Repo root (defaults to auto-detect).")

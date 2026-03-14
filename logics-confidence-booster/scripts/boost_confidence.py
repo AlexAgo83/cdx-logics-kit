@@ -15,6 +15,10 @@ def detect_doc_type(path: Path) -> str:
         return "backlog"
     if name.startswith("task_"):
         return "task"
+    if name.startswith("prod_"):
+        return "product"
+    if name.startswith("adr_"):
+        return "architecture"
     return "unknown"
 
 
@@ -54,7 +58,7 @@ def get_indicator(lines: List[str], key: str) -> str | None:
 def parse_percent(value: str | None) -> int | None:
     if not value:
         return None
-    match = re.search(r"(\\d+)", value)
+    match = re.search(r"(\d+)", value)
     if not match:
         return None
     try:
@@ -154,16 +158,69 @@ def build_questions(doc_type: str) -> List[Tuple[str, str]]:
             ),
         ]
 
+    if doc_type == "product":
+        return [
+            (
+                "Define the primary user problem and why it matters now.",
+                "Primary problem: reduce friction on the core user journey.",
+            ),
+            (
+                "Define target users and the main usage situation.",
+                "Target users: first-time and occasional users in the primary flow.",
+            ),
+            (
+                "Define product goals and explicit non-goals.",
+                "Goals: improve completion and clarity. Non-goals: full redesign or new monetization.",
+            ),
+            (
+                "Define scope boundaries and key trade-offs.",
+                "In: core experience slice. Out: secondary flows and polish-heavy extensions.",
+            ),
+            (
+                "Define success signals and remaining open questions.",
+                "Success: better activation/completion signals. Open question: default behavior for edge cases.",
+            ),
+        ]
+
+    if doc_type == "architecture":
+        return [
+            (
+                "Define the architectural drivers and constraints.",
+                "Drivers: reliability, maintainability, and predictable contracts.",
+            ),
+            (
+                "Define the chosen direction and the main boundary changes.",
+                "Direction: clarify ownership and stabilize interfaces between key modules.",
+            ),
+            (
+                "Define notable alternatives and why they were not selected.",
+                "Alternative: keep the current structure and patch incrementally; rejected due to coupling.",
+            ),
+            (
+                "Define migration or rollout strategy.",
+                "Rollout: introduce the new path behind controlled adoption, then migrate progressively.",
+            ),
+            (
+                "Define operational consequences and follow-up work.",
+                "Consequences: more explicit contracts, some migration cost, clearer next backlog slices.",
+            ),
+        ]
+
     return base
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Boost Understanding/Confidence for Logics docs.")
-    parser.add_argument("path", help="Path to a logics request/backlog/task markdown file.")
-    parser.add_argument("--type", choices=["request", "backlog", "task"], help="Override doc type.")
+    parser.add_argument("path", help="Path to a supported Logics markdown file.")
+    parser.add_argument(
+        "--type",
+        choices=["request", "backlog", "task", "product", "architecture"],
+        help="Override doc type.",
+    )
     parser.add_argument("--apply-defaults", action="store_true", help="Use suggested defaults without prompts.")
     parser.add_argument("--understanding", help="Understanding indicator value (e.g. 85 percent).")
     parser.add_argument("--confidence", help="Confidence indicator value (e.g. 80 percent).")
+    parser.add_argument("--status", help="Optional status update for product or architecture docs.")
     parser.add_argument("--dry-run", action="store_true", help="Print output without writing.")
     args = parser.parse_args()
 
@@ -172,17 +229,20 @@ def main() -> int:
         raise SystemExit(f"File not found: {path}")
 
     doc_type = args.type or detect_doc_type(path)
+    if doc_type == "unknown":
+        raise SystemExit(f"Unsupported doc type for {path.name}")
     questions = build_questions(doc_type)
     answers = prompt_questions(questions, args.apply_defaults)
 
     lines = path.read_text(encoding="utf-8").splitlines()
     current_understanding = get_indicator(lines, "Understanding") or "??%"
     current_confidence = get_indicator(lines, "Confidence") or "??%"
+    current_status = get_indicator(lines, "Status")
 
     understanding = args.understanding
     confidence = args.confidence
 
-    if not args.apply_defaults:
+    if not args.apply_defaults and doc_type in {"request", "backlog", "task"}:
         if understanding is None:
             response = input(
                 f"Set Understanding (current {current_understanding})? "
@@ -198,25 +258,37 @@ def main() -> int:
             if response:
                 confidence = response
 
-    answered = sum(1 for _, answer in answers if answer.strip())
-    auto_understanding, auto_confidence = compute_indicators(answered, len(questions))
-    current_understanding_value = parse_percent(current_understanding)
-    current_confidence_value = parse_percent(current_confidence)
+    if not args.apply_defaults and doc_type in {"product", "architecture"} and args.status is None:
+        response = input(
+            f"Set Status (current {current_status or '(missing)'})? "
+            "Enter to keep current, or provide a status: "
+        ).strip()
+        if response:
+            args.status = response
 
-    if understanding is None:
-        target = auto_understanding
-        if current_understanding_value is not None:
-            target = max(current_understanding_value, auto_understanding)
-        understanding = f"{target}%"
+    if doc_type in {"request", "backlog", "task"}:
+        answered = sum(1 for _, answer in answers if answer.strip())
+        auto_understanding, auto_confidence = compute_indicators(answered, len(questions))
+        current_understanding_value = parse_percent(current_understanding)
+        current_confidence_value = parse_percent(current_confidence)
 
-    if confidence is None:
-        target = auto_confidence
-        if current_confidence_value is not None:
-            target = max(current_confidence_value, auto_confidence)
-        confidence = f"{target}%"
+        if understanding is None:
+            target = auto_understanding
+            if current_understanding_value is not None:
+                target = max(current_understanding_value, auto_understanding)
+            understanding = f"{target}%"
 
-    set_indicator(lines, "Understanding", understanding)
-    set_indicator(lines, "Confidence", confidence)
+        if confidence is None:
+            target = auto_confidence
+            if current_confidence_value is not None:
+                target = max(current_confidence_value, auto_confidence)
+            confidence = f"{target}%"
+
+        set_indicator(lines, "Understanding", understanding)
+        set_indicator(lines, "Confidence", confidence)
+
+    if args.status is not None:
+        set_indicator(lines, "Status", args.status)
 
     entries = [f"- {q} :: {a}" for q, a in answers]
     upsert_section(lines, "Clarifications", entries)

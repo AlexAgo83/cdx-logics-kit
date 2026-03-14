@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,60 @@ class LogicsLintTest(unittest.TestCase):
         subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, check=True)
+
+    def test_product_and_architecture_docs_are_linted(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / "product").mkdir(parents=True)
+            (repo / "logics" / "architecture").mkdir(parents=True)
+
+            (repo / "logics" / "product" / "prod_000_guest_checkout.md").write_text(
+                "\n".join(
+                    [
+                        "## prod_000_guest_checkout - Guest checkout",
+                        "> Date: 2026-03-14",
+                        "> Status: Proposed",
+                        "> Related request: `req_000_guest_checkout`",
+                        "> Related backlog: `item_000_guest_checkout`",
+                        "> Related task: (none yet)",
+                        "> Related architecture: `adr_000_guest_checkout`",
+                        "> Reminder: Keep this brief aligned with the latest product direction.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            (repo / "logics" / "architecture" / "adr_000_guest_checkout.md").write_text(
+                "\n".join(
+                    [
+                        "## adr_000_guest_checkout - Guest checkout",
+                        "> Date: 2026-03-14",
+                        "> Status: Accepted",
+                        "> Drivers: Session boundaries and auth model.",
+                        "> Related request: `req_000_guest_checkout`",
+                        "> Related backlog: `item_000_guest_checkout`",
+                        "> Related task: `task_000_guest_checkout`",
+                        "> Reminder: Keep this ADR aligned with the latest architecture direction.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--require-status"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("Logics lint: OK", completed.stdout)
 
     def test_require_status_rejects_missing_status(self) -> None:
         script = self._script()
@@ -101,7 +157,13 @@ class LogicsLintTest(unittest.TestCase):
                 encoding="utf-8",
             )
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                ["git", "commit", "-m", "seed"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
             task.write_text(
                 "\n".join(

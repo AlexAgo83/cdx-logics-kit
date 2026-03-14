@@ -10,6 +10,7 @@ from pathlib import Path
 DEFAULT_DIRS = (
     "logics",
     "logics/architecture",
+    "logics/product",
     "logics/request",
     "logics/backlog",
     "logics/tasks",

@@ -23,10 +23,28 @@ DOC_KINDS = {
     "request": DocKind("request", "logics/request", "req", False),
     "backlog": DocKind("backlog", "logics/backlog", "item", True),
     "task": DocKind("task", "logics/tasks", "task", True),
+    "product": DocKind("product", "logics/product", "prod", False),
+    "architecture": DocKind("architecture", "logics/architecture", "adr", False),
 }
 
 STATUS_IN_PROGRESS = {"draft", "ready", "in progress", "blocked"}
 STATUS_DONE = {"done", "archived"}
+
+COMPANION_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
+    "product": (
+        "Summarize the product direction, the targeted user value, and the main expected outcomes.",
+        "Describe the user or business problem this brief resolves.",
+        "Primary user or segment",
+        "Primary product goal",
+        "Main open product question to resolve",
+    ),
+    "architecture": (
+        "Summarize the chosen direction, what changes, and the main impacted areas.",
+        "Describe the problem, constraints, and drivers.",
+        "State the chosen option and rationale.",
+        "Describe the rollout or migration step.",
+    ),
+}
 
 
 @dataclass
@@ -95,6 +113,18 @@ def _parse_semver(value: str | None) -> tuple[int, int, int] | None:
 def _extract_refs(text: str, prefix: str) -> set[str]:
     pattern = re.compile(rf"\b{re.escape(prefix)}_\d{{3}}_[a-z0-9_]+\b")
     return {m.group(0) for m in pattern.finditer(text)}
+
+
+def _has_mermaid_block(text: str) -> bool:
+    return "```mermaid" in text
+
+
+def _decision_framing_value(text: str, label: str) -> str | None:
+    pattern = re.compile(rf"^\s*-\s*{re.escape(label)}\s*:\s*(.+)\s*$", re.MULTILINE)
+    match = pattern.search(text)
+    if match is None:
+        return None
+    return match.group(1).strip()
 
 
 def _extract_section_lines(text: str, heading_title: str) -> list[str]:
@@ -475,6 +505,79 @@ def main(argv: list[str]) -> int:
                     message="orphan backlog item (no linked request)",
                 )
             )
+
+    # 2b) required product/architecture framing without linked companion docs.
+    for doc in docs.values():
+        if doc.kind.kind not in {"backlog", "task"}:
+            continue
+        product_framing = _decision_framing_value(doc.text, "Product framing")
+        architecture_framing = _decision_framing_value(doc.text, "Architecture framing")
+        product_refs = _extract_refs(doc.text, "prod")
+        architecture_refs = _extract_refs(doc.text, "adr")
+        if product_framing == "Required" and not product_refs:
+            issues.append(
+                AuditIssue(
+                    code="product_brief_required_missing_ref",
+                    path=doc.path,
+                    message="product framing is required but no linked product brief was found",
+                )
+            )
+        if architecture_framing == "Required" and not architecture_refs:
+            issues.append(
+                AuditIssue(
+                    code="architecture_decision_required_missing_ref",
+                    path=doc.path,
+                    message="architecture framing is required but no linked ADR was found",
+                )
+            )
+
+    # 2c) companion docs must be connected and maintained.
+    for doc in docs.values():
+        if doc.kind.kind not in {"product", "architecture"}:
+            continue
+        linked_refs = set()
+        for prefix in ("req", "item", "task", "prod", "adr"):
+            linked_refs.update(_extract_refs(doc.text, prefix))
+
+        if not any(ref.startswith(("req_", "item_", "task_")) for ref in linked_refs):
+            issues.append(
+                AuditIssue(
+                    code="companion_doc_missing_primary_link",
+                    path=doc.path,
+                    message="companion doc has no linked request, backlog item, or task reference",
+                )
+            )
+
+        if not _has_mermaid_block(doc.text):
+            issues.append(
+                AuditIssue(
+                    code="companion_doc_missing_mermaid",
+                    path=doc.path,
+                    message="companion doc is missing its overview Mermaid diagram",
+                )
+            )
+
+        placeholders = COMPANION_PLACEHOLDERS.get(doc.kind.kind, ())
+        if any(snippet in doc.text for snippet in placeholders):
+            issues.append(
+                AuditIssue(
+                    code="companion_doc_contains_placeholders",
+                    path=doc.path,
+                    message="companion doc still contains generator placeholder content",
+                )
+            )
+
+        for ref in sorted(linked_refs):
+            if ref == doc.ref:
+                continue
+            if ref not in docs:
+                issues.append(
+                    AuditIssue(
+                        code="companion_doc_refs_missing_target",
+                        path=doc.path,
+                        message=f"companion doc references missing target `{ref}`",
+                    )
+                )
 
     # 3) delivered requests with incomplete backlog.
     for doc in docs.values():

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Product Brief Writer"
+  short_description: "Write product briefs in logics/product"
+  default_prompt: "Use $logics-product-brief-writer to write product briefs in logics/product."

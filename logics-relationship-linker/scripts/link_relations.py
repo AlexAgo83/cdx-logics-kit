@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DOC_REF_RE = re.compile(r"\b(req|item|task|spec)_(\d{3})_[a-z0-9_]+\b")
+DOC_REF_RE = re.compile(r"\b(req|item|task|spec|prod|adr)_(\d{3})_[a-z0-9_]+\b")
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,14 @@ def _find_repo_root(start: Path) -> Path:
 
 def _iter_logics_docs(repo_root: Path) -> list[Path]:
     paths: list[Path] = []
-    for rel in ("logics/request", "logics/backlog", "logics/tasks", "logics/specs"):
+    for rel in (
+        "logics/architecture",
+        "logics/product",
+        "logics/request",
+        "logics/backlog",
+        "logics/tasks",
+        "logics/specs",
+    ):
         directory = repo_root / rel
         if not directory.is_dir():
             continue
@@ -102,4 +109,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

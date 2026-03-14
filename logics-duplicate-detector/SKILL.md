@@ -1,6 +1,6 @@
 ---
 name: logics-duplicate-detector
-description: Detect potential duplicates across Logics documents. Use when Codex should scan titles and content of requests/backlog/tasks/specs to find similar items and propose merge, split, or de-duplication.
+description: Detect potential duplicates across Logics documents. Use when Codex should scan titles and content of requests/backlog/tasks/specs/product briefs/architecture docs to find similar items and propose merge, split, or de-duplication.
 ---
 
 # Duplicate detection
@@ -19,4 +19,4 @@ python3 logics/skills/logics-duplicate-detector/scripts/find_duplicates.py --min
 ## Notes
 
 - Best-effort scoring (title + light content similarity), not a truth oracle.
-- By default it ignores docs sharing the same slug across stages (often `request↔backlog↔task` chains); use `--include-related` to include them.
+- By default it ignores docs sharing the same slug across stages (often `request↔backlog↔task` or companion chains); use `--include-related` to include them.

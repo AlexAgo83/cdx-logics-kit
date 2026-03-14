@@ -11,9 +11,22 @@ class IndexerLinksTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
+            (repo / "logics" / "product").mkdir(parents=True)
             (repo / "logics" / "request").mkdir(parents=True)
             (repo / "logics" / "backlog").mkdir(parents=True)
             (repo / "logics" / "tasks").mkdir(parents=True)
+
+            (repo / "logics" / "product" / "prod_000_checkout.md").write_text(
+                "\n".join(
+                    [
+                        "## prod_000_checkout - Checkout framing",
+                        "> Date: 2026-03-14",
+                        "> Status: Proposed",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
             (repo / "logics" / "request" / "req_000_demo.md").write_text(
                 "\n".join(
@@ -40,6 +53,7 @@ class IndexerLinksTest(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
 
             index_content = (repo / "logics" / "INDEX.md").read_text(encoding="utf-8")
+            self.assertIn("(product/prod_000_checkout.md)", index_content)
             self.assertIn("(request/req_000_demo.md)", index_content)
             self.assertNotIn(str(repo).replace("\\", "/"), index_content)
 

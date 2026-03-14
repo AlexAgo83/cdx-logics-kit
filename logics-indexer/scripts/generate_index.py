@@ -85,6 +85,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     repo_root = _find_repo_root(Path.cwd())
+    architecture = _collect(repo_root, "logics/architecture")
+    product = _collect(repo_root, "logics/product")
     requests = _collect(repo_root, "logics/request")
     backlog = _collect(repo_root, "logics/backlog")
     tasks = _collect(repo_root, "logics/tasks")
@@ -95,6 +97,8 @@ def main(argv: list[str]) -> int:
         [
             "# Logics Index",
             "",
+            _render_section("Architecture decisions", architecture, False, out_dir),
+            _render_section("Product briefs", product, False, out_dir),
             _render_section("Requests", requests, False, out_dir),
             _render_section("Backlog", backlog, True, out_dir),
             _render_section("Tasks", tasks, True, out_dir),

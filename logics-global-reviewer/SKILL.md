@@ -1,6 +1,6 @@
 ---
 name: logics-global-reviewer
-description: Run a global review of the repository's Logics workflow and documents, then propose concrete optimizations/improvements (hygiene, placeholders, stale indicators, missing links, progress distribution) as a Markdown report. Use when Codex needs to audit `logics/request`, `logics/backlog`, `logics/tasks`, and `logics/specs` and suggest next actions.
+description: Run a global review of the repository's Logics workflow and documents, then propose concrete optimizations/improvements (hygiene, placeholders, stale indicators, missing links, progress distribution) as a Markdown report. Use when Codex needs to audit `logics/request`, `logics/backlog`, `logics/tasks`, `logics/specs`, `logics/product`, and `logics/architecture` and suggest next actions.
 ---
 
 # Global Logics review
@@ -27,4 +27,3 @@ python3 logics/skills/logics-global-reviewer/scripts/logics_global_review.py --o
   - `python3 logics/skills/logics-indexer/scripts/generate_index.py --out logics/INDEX.md`
   - `python3 logics/skills/logics-relationship-linker/scripts/link_relations.py --out logics/RELATIONSHIPS.md`
   - `python3 logics/skills/logics-duplicate-detector/scripts/find_duplicates.py --min-score 0.55`
-

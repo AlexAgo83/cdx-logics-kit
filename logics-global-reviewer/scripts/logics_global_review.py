@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-DOC_REF_RE = re.compile(r"^(req|item|task|spec)_(\d{3})_[a-z0-9_]+$")
+DOC_REF_RE = re.compile(r"^(req|item|task|spec|prod|adr)_(\d{3})_[a-z0-9_]+$")
 
 
 @dataclass(frozen=True)
@@ -45,7 +45,14 @@ def _find_repo_root(start: Path) -> Path:
 
 def _iter_docs(repo_root: Path) -> list[Path]:
     paths: list[Path] = []
-    for rel in ("logics/request", "logics/backlog", "logics/tasks", "logics/specs"):
+    for rel in (
+        "logics/architecture",
+        "logics/product",
+        "logics/request",
+        "logics/backlog",
+        "logics/tasks",
+        "logics/specs",
+    ):
         directory = repo_root / rel
         if not directory.is_dir():
             continue
@@ -78,7 +85,7 @@ def _parse_indicators(lines: list[str]) -> dict[str, str]:
 
 
 def _outgoing_refs(text: str, self_ref: str) -> set[str]:
-    found = {m.group(0) for m in re.finditer(r"\b(req|item|task|spec)_(\d{3})_[a-z0-9_]+\b", text)}
+    found = {m.group(0) for m in re.finditer(r"\b(req|item|task|spec|prod|adr)_(\d{3})_[a-z0-9_]+\b", text)}
     return {ref for ref in found if ref != self_ref}
 
 
@@ -132,7 +139,7 @@ def _rel(repo_root: Path, path: Path) -> str:
 
 def _render_report(repo_root: Path, docs: list[DocInfo]) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    by_kind: dict[str, list[DocInfo]] = {"req": [], "item": [], "task": [], "spec": [], "unknown": []}
+    by_kind: dict[str, list[DocInfo]] = {"adr": [], "prod": [], "req": [], "item": [], "task": [], "spec": [], "unknown": []}
     for d in docs:
         by_kind.setdefault(d.kind, []).append(d)
 
@@ -160,6 +167,8 @@ def _render_report(repo_root: Path, docs: list[DocInfo]) -> str:
     lines.append("")
     lines.append("## Snapshot")
     lines.append("")
+    lines.append(f"- Architecture decisions: {count('adr')}")
+    lines.append(f"- Product briefs: {count('prod')}")
     lines.append(f"- Requests: {count('req')}")
     lines.append(f"- Backlog items: {count('item')}")
     lines.append(f"- Tasks: {count('task')}")
@@ -259,4 +268,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

@@ -14,21 +14,46 @@ class Kind:
     directory: str
     prefix: str
     requires_progress: bool
+    required_indicators: tuple[str, ...]
+    allowed_statuses: tuple[str, ...]
 
 
 KINDS = {
-    "request": Kind("logics/request", "req", False),
-    "backlog": Kind("logics/backlog", "item", True),
-    "task": Kind("logics/tasks", "task", True),
-}
-
-ALLOWED_STATUSES = {
-    "draft",
-    "ready",
-    "in progress",
-    "blocked",
-    "done",
-    "archived",
+    "request": Kind(
+        "logics/request",
+        "req",
+        False,
+        ("From version", "Understanding", "Confidence"),
+        ("Draft", "Ready", "In progress", "Blocked", "Done", "Archived"),
+    ),
+    "backlog": Kind(
+        "logics/backlog",
+        "item",
+        True,
+        ("From version", "Understanding", "Confidence", "Progress"),
+        ("Draft", "Ready", "In progress", "Blocked", "Done", "Archived"),
+    ),
+    "task": Kind(
+        "logics/tasks",
+        "task",
+        True,
+        ("From version", "Understanding", "Confidence", "Progress"),
+        ("Draft", "Ready", "In progress", "Blocked", "Done", "Archived"),
+    ),
+    "product": Kind(
+        "logics/product",
+        "prod",
+        False,
+        ("Date", "Status", "Related request", "Related backlog", "Related task", "Related architecture", "Reminder"),
+        ("Draft", "Proposed", "Active", "Validated", "Rejected", "Superseded", "Archived"),
+    ),
+    "architecture": Kind(
+        "logics/architecture",
+        "adr",
+        False,
+        ("Date", "Status", "Drivers", "Related request", "Related backlog", "Related task", "Reminder"),
+        ("Draft", "Proposed", "Accepted", "Rejected", "Superseded", "Archived"),
+    ),
 }
 
 
@@ -155,22 +180,21 @@ def _lint_file(path: Path, kind: Kind, require_status: bool) -> list[str]:
         if not heading.startswith(expected_prefix):
             issues.append(f"bad heading: expected '{expected_prefix}<Title>'")
 
-    for key in ("From version", "Understanding", "Confidence"):
+    for key in kind.required_indicators:
         if not _has_indicator(lines, key):
             issues.append(f"missing indicator: {key}")
-
-    if kind.requires_progress and not _has_indicator(lines, "Progress"):
-        issues.append("missing indicator: Progress")
 
     status_value = _indicator_value(lines, "Status")
     if status_value is None:
         if require_status:
             issues.append("missing indicator: Status")
-    elif " ".join(status_value.split()).lower() not in ALLOWED_STATUSES:
+    elif " ".join(status_value.split()).lower() not in {status.lower() for status in kind.allowed_statuses}:
         issues.append(
             "invalid Status value: "
             + status_value
-            + " (allowed: Draft | Ready | In progress | Blocked | Done | Archived)"
+            + " (allowed: "
+            + " | ".join(kind.allowed_statuses)
+            + ")"
         )
 
     return issues
@@ -184,7 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--require-status",
         action="store_true",
-        help="Require `Status` indicator in all request/backlog/task docs.",
+        help="Require `Status` indicator in all supported Logics docs.",
     )
     return parser
 
@@ -204,9 +228,7 @@ def main(argv: list[str]) -> int:
             issues = _lint_file(path, kind, require_status=args.require_status)
             rel_path = path.relative_to(repo_root)
             if rel_path in modified_paths:
-                required = {"Understanding", "Confidence"}
-                if kind.requires_progress:
-                    required.add("Progress")
+                required = set(kind.required_indicators)
                 if (
                     not _diff_has_indicator_changes(repo_root, rel_path, required)
                     and not _diff_is_status_only_normalization(repo_root, rel_path)

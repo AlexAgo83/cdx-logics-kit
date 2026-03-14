@@ -126,6 +126,84 @@ class WorkflowAuditTest(unittest.TestCase):
             self.assertIn("AC2", task_text)
             self.assertIn("Proof: TODO.", task_text)
 
+    def test_required_decision_framing_without_refs_is_reported(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "workflow_audit.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / "backlog").mkdir(parents=True)
+            (repo / "logics" / "tasks").mkdir(parents=True)
+
+            (repo / "logics" / "backlog" / "item_000_checkout.md").write_text(
+                "\n".join(
+                    [
+                        "## item_000_checkout - Checkout framing",
+                        "> From version: 1.2.0",
+                        "> Status: Ready",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "> Progress: 0%",
+                        "",
+                        "# Decision framing",
+                        "- Product framing: Required",
+                        "- Architecture framing: Required",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 1, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertIn("product_brief_required_missing_ref", payload["counts"]["by_code"])
+            self.assertIn("architecture_decision_required_missing_ref", payload["counts"]["by_code"])
+
+    def test_companion_docs_are_audited_for_links_mermaid_and_placeholders(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "workflow_audit.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / "product").mkdir(parents=True)
+
+            (repo / "logics" / "product" / "prod_000_guest_checkout.md").write_text(
+                "\n".join(
+                    [
+                        "## prod_000_guest_checkout - Guest checkout",
+                        "> Date: 2026-03-14",
+                        "> Status: Proposed",
+                        "",
+                        "# Overview",
+                        "Summarize the product direction, the targeted user value, and the main expected outcomes.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 1, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertIn("companion_doc_missing_primary_link", payload["counts"]["by_code"])
+            self.assertIn("companion_doc_missing_mermaid", payload["counts"]["by_code"])
+            self.assertIn("companion_doc_contains_placeholders", payload["counts"]["by_code"])
+
 
 if __name__ == "__main__":
     unittest.main()

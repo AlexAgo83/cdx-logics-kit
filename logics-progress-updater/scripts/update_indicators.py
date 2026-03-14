@@ -7,7 +7,22 @@ import sys
 from pathlib import Path
 
 
-INDICATOR_KEYS = ("From version", "Understanding", "Confidence", "Progress")
+INDICATOR_ALIASES = {
+    "from_version": "From version",
+    "understanding": "Understanding",
+    "confidence": "Confidence",
+    "progress": "Progress",
+    "complexity": "Complexity",
+    "theme": "Theme",
+    "date": "Date",
+    "status": "Status",
+    "drivers": "Drivers",
+    "related_request": "Related request",
+    "related_backlog": "Related backlog",
+    "related_task": "Related task",
+    "related_architecture": "Related architecture",
+    "reminder": "Reminder",
+}
 
 
 def _set_indicator(lines: list[str], key: str, value: str) -> list[str]:
@@ -41,6 +56,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--understanding")
     parser.add_argument("--confidence")
     parser.add_argument("--progress")
+    parser.add_argument("--complexity")
+    parser.add_argument("--theme")
+    parser.add_argument("--date")
+    parser.add_argument("--status")
+    parser.add_argument("--drivers")
+    parser.add_argument("--related-request")
+    parser.add_argument("--related-backlog")
+    parser.add_argument("--related-task")
+    parser.add_argument("--related-architecture")
+    parser.add_argument("--reminder")
     args = parser.parse_args(argv)
 
     path = Path(args.path)
@@ -50,14 +75,10 @@ def main(argv: list[str]) -> int:
     original = path.read_text(encoding="utf-8").splitlines()
     updated = original[:]
 
-    if args.from_version is not None:
-        updated = _set_indicator(updated, "From version", args.from_version)
-    if args.understanding is not None:
-        updated = _set_indicator(updated, "Understanding", args.understanding)
-    if args.confidence is not None:
-        updated = _set_indicator(updated, "Confidence", args.confidence)
-    if args.progress is not None:
-        updated = _set_indicator(updated, "Progress", args.progress)
+    for arg_name, indicator_name in INDICATOR_ALIASES.items():
+        value = getattr(args, arg_name)
+        if value is not None:
+            updated = _set_indicator(updated, indicator_name, value)
 
     if updated == original:
         print("No changes.")

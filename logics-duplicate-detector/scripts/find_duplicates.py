@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 WORD_RE = re.compile(r"[a-z0-9]+")
-DOC_META_RE = re.compile(r"^(req|item|task|spec)_(\d{3})_([a-z0-9_]+)$")
+DOC_META_RE = re.compile(r"^(req|item|task|spec|prod|adr)_(\d{3})_([a-z0-9_]+)$")
 
 
 @dataclass(frozen=True)
@@ -33,7 +33,14 @@ def _find_repo_root(start: Path) -> Path:
 
 def _iter_docs(repo_root: Path) -> list[Path]:
     paths: list[Path] = []
-    for rel in ("logics/request", "logics/backlog", "logics/tasks", "logics/specs"):
+    for rel in (
+        "logics/request",
+        "logics/backlog",
+        "logics/tasks",
+        "logics/specs",
+        "logics/product",
+        "logics/architecture",
+    ):
         directory = repo_root / rel
         if not directory.is_dir():
             continue
@@ -93,7 +100,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--include-related",
         action="store_true",
-        help="Include request/backlog/task/spec docs that share the same slug (often a normal chain).",
+        help="Include request/backlog/task/spec/product/architecture docs that share the same slug (often a normal chain).",
     )
     args = parser.parse_args(argv)
 

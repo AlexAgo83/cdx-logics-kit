@@ -11,6 +11,7 @@ Use English for all communication, code comments, and documentation.
 The `logics` folder defines a lightweight product flow:
 
 * `logics/architecture`: Architecture notes, decisions, and diagrams.
+* `logics/product`: Product briefs and product decision framing docs.
 * `logics/request`: Incoming requests or ideas (problem statement + context).
 * `logics/backlog`: Scoped items with acceptance criteria + priority.
 * `logics/tasks`: Execution plans derived from backlog items (plan + progress + validation).
