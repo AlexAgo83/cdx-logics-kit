@@ -44,7 +44,11 @@ class DocFixerTest(unittest.TestCase):
 
             product_text = product.read_text(encoding="utf-8")
             architecture_text = architecture.read_text(encoding="utf-8")
+            request_text = (repo / "logics" / "request" / "req_000_guest_checkout.md").read_text(encoding="utf-8")
 
+            self.assertIn("# Companion docs", request_text)
+            self.assertIn("- Product brief(s): `prod_000_guest_checkout`", request_text)
+            self.assertIn("- Architecture decision(s): `adr_000_guest_checkout`", request_text)
             self.assertIn("> Date: YYYY-MM-DD", product_text)
             self.assertIn("> Status: Proposed", product_text)
             self.assertIn("> Related request: `req_000_guest_checkout`", product_text)

@@ -182,11 +182,22 @@ def main(argv: list[str]) -> int:
         "DOC_REF": doc_ref,
         "TITLE": title,
         "FROM_VERSION": args.from_version,
+        "STATUS": "Ready",
         "UNDERSTANDING": args.understanding,
         "CONFIDENCE": args.confidence,
         "PROGRESS": args.progress,
         "PROBLEM_PLACEHOLDER": "\n".join(problem_lines),
         "ACCEPTANCE_PLACEHOLDER": "Define acceptance criteria",
+        "PRODUCT_FRAMING_STATUS": "Required",
+        "PRODUCT_FRAMING_SIGNALS": "imported design artifact",
+        "ARCHITECTURE_FRAMING_STATUS": "Consider",
+        "ARCHITECTURE_FRAMING_SIGNALS": "implementation impact review required",
+        "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
+        "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
+        "REQUEST_LINK_PLACEHOLDER": "(none yet)",
+        "TASK_LINK_PLACEHOLDER": "(none yet)",
+        "COMPLEXITY": "Medium",
+        "THEME": "UI",
         "NOTES_PLACEHOLDER": "\n".join(notes_lines),
     }
 
@@ -197,4 +208,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

@@ -30,5 +30,9 @@ flowchart TD
 - [ ] Acceptance criteria are testable.
 - [ ] Dependencies and known risks are listed.
 
+# Companion docs
+- Product brief(s): {{PRODUCT_LINK_PLACEHOLDER}}
+- Architecture decision(s): {{ARCHITECTURE_LINK_PLACEHOLDER}}
+
 # Backlog
 {{BACKLOG_PLACEHOLDER}}

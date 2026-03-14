@@ -142,6 +142,7 @@ def main(argv: list[str]) -> int:
     ]
     if page_url:
         context_parts.append(f"- Confluence: {page_url}")
+    context_parts.append("- Companion docs review: assess whether a product brief or ADR is needed before promotion.")
     context_parts.append("")
     if html:
         context_parts.append("```html")
@@ -154,10 +155,17 @@ def main(argv: list[str]) -> int:
         "DOC_REF": doc_ref,
         "TITLE": title,
         "FROM_VERSION": args.from_version,
+        "STATUS": "Draft",
         "UNDERSTANDING": args.understanding,
         "CONFIDENCE": args.confidence,
         "NEEDS_PLACEHOLDER": "Describe the need",
         "CONTEXT_PLACEHOLDER": context,
+        "ACCEPTANCE_PLACEHOLDER": "AC1: Define an objective acceptance check",
+        "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
+        "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
+        "BACKLOG_PLACEHOLDER": "- (none yet)",
+        "COMPLEXITY": "Medium",
+        "THEME": "General",
     }
     content = _render_template(template, values).rstrip() + "\n"
     _write(output_path, content, args.dry_run)

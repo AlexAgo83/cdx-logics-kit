@@ -27,6 +27,7 @@ INDICATOR_DEFAULTS = {
 REQUEST_SECTIONS = [
     ("# Needs", ["- Describe the need"]),
     ("# Context", ["Add context and constraints."]),
+    ("# Companion docs", ["- Product brief(s): (none yet)", "- Architecture decision(s): (none yet)"]),
     ("# Backlog", ["- (none yet)"]),
 ]
 
@@ -308,6 +309,41 @@ def _ensure_request_backlog(lines: list[str], backlog_paths: list[Path]) -> tupl
     return lines, updated
 
 
+def _ensure_request_companions(
+    lines: list[str],
+    heading: str,
+    refs: list[Path],
+) -> tuple[list[str], bool]:
+    updated = False
+    start, end = _find_section_bounds(lines, "# Companion docs")
+    if start is None:
+        return lines, False
+
+    section_lines = lines[start:end]
+    normalized_refs = [f"`{path.stem}`" for path in refs]
+    target_line = f"- {heading}: {', '.join(normalized_refs) if normalized_refs else '(none yet)'}"
+
+    found = False
+    new_section: list[str] = []
+    for line in section_lines:
+        if line.startswith(f"- {heading}:"):
+            new_section.append(target_line)
+            found = True
+            if line != target_line:
+                updated = True
+        else:
+            new_section.append(line)
+
+    if not found:
+        new_section.append(target_line)
+        updated = True
+
+    if new_section != section_lines:
+        updated = True
+    lines = lines[:start] + new_section + lines[end:]
+    return lines, updated
+
+
 def _ensure_notes_reference(
     lines: list[str],
     reference_line: str,
@@ -429,6 +465,14 @@ def _process_doc(
         backlog_paths = slug_refs.get("backlog", [])
         lines, updated = _ensure_request_backlog(lines, backlog_paths)
         changed = changed or updated
+        product_paths = slug_refs.get("product", [])
+        architecture_paths = slug_refs.get("architecture", [])
+        if len(product_paths) == 1:
+            lines, updated = _ensure_request_companions(lines, "Product brief(s)", product_paths)
+            changed = changed or updated
+        if len(architecture_paths) == 1:
+            lines, updated = _ensure_request_companions(lines, "Architecture decision(s)", architecture_paths)
+            changed = changed or updated
 
     if doc.kind == "backlog":
         request_paths = slug_refs.get("request", [])

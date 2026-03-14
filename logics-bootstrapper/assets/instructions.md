@@ -29,6 +29,26 @@ Use the following indicators in request/backlog/task items:
 * `Complexity: Low | Medium | High` : Effort/complexity classification.
 * `Theme: Combat | Items | Economy | UI | ...` : High-level theme/epic tag.
 
+Use the following indicators in product briefs:
+
+* `Date: YYYY-MM-DD` : The last meaningful framing date for this brief.
+* `Status: Draft | Proposed | Active | Validated | Rejected | Superseded | Archived` : Product maturity of the brief.
+* `Related request:` : Primary linked request ref when available.
+* `Related backlog:` : Primary linked backlog ref when available.
+* `Related task:` : Primary linked task ref when available.
+* `Related architecture:` : Linked ADR ref when the product framing depends on a technical decision.
+* `Reminder:` : Short maintenance instruction to keep the brief current.
+
+Use the following indicators in architecture docs:
+
+* `Date: YYYY-MM-DD` : The date of the current ADR revision.
+* `Status: Draft | Proposed | Accepted | Rejected | Superseded | Archived` : Decision state.
+* `Drivers:` : Main technical or operational drivers behind the decision.
+* `Related request:` : Primary linked request ref when available.
+* `Related backlog:` : Primary linked backlog ref when available.
+* `Related task:` : Primary linked task ref when available.
+* `Reminder:` : Short maintenance instruction to keep the ADR current.
+
 ## Automation
 
 This repository uses a reusable Logics skills kit (usually imported as a submodule under `logics/skills/`).

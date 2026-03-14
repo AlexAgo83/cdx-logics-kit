@@ -251,6 +251,51 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("- Product brief(s): `prod_000_checkout_auth_migration`", backlog_text)
             self.assertIn("- Architecture decision(s): `adr_000_checkout_auth_migration`", backlog_text)
 
+    def test_request_to_backlog_updates_request_companion_section(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            request = repo / "logics" / "request" / "req_000_checkout_auth_migration.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_checkout_auth_migration - Checkout auth migration",
+                    "> From version: 1.0.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Context",
+                    "- Imported request that should trigger companions.",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "promote",
+                    "request-to-backlog",
+                    str(request),
+                    "--auto-create-product-brief",
+                    "--auto-create-adr",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request_text = request.read_text(encoding="utf-8")
+            self.assertIn("# Companion docs", request_text)
+            self.assertIn("- Product brief(s): `prod_000_checkout_auth_migration`", request_text)
+            self.assertIn("- Architecture decision(s): `adr_000_checkout_auth_migration`", request_text)
+
 
 if __name__ == "__main__":
     unittest.main()

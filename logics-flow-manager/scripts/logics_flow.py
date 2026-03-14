@@ -426,6 +426,57 @@ def _update_request_backlog_links(
     _write(request_path, updated, dry_run)
 
 
+def _update_request_companion_links(
+    request_path: Path,
+    heading: str,
+    ref: str,
+    dry_run: bool,
+) -> None:
+    lines = request_path.read_text(encoding="utf-8").splitlines()
+    target_line = f"- {heading}: `{ref}`"
+
+    section_start = None
+    for idx, line in enumerate(lines):
+        if line.strip() == "# Companion docs":
+            section_start = idx
+            break
+
+    if section_start is None:
+        updated_lines = lines + ["", "# Companion docs", target_line]
+    else:
+        section_end = len(lines)
+        for idx in range(section_start + 1, len(lines)):
+            if lines[idx].startswith("# "):
+                section_end = idx
+                break
+
+        existing = lines[section_start + 1 : section_end]
+        updated_section = []
+        found_heading = False
+        found_ref = False
+        for line in existing:
+            if not line.strip():
+                continue
+            if line.startswith(f"- {heading}:"):
+                found_heading = True
+                refs = set(_extract_refs(line, REF_PREFIXES["product"])) | set(_extract_refs(line, REF_PREFIXES["architecture"]))
+                refs.add(ref)
+                ordered = ", ".join(f"`{value}`" for value in sorted(refs))
+                updated_section.append(f"- {heading}: {ordered}")
+                found_ref = True
+            else:
+                updated_section.append(line)
+        if not found_heading:
+            updated_section.append(target_line)
+        elif found_ref:
+            pass
+
+        updated_lines = lines[: section_start + 1] + updated_section + lines[section_end:]
+
+    updated = "\n".join(updated_lines).rstrip() + "\n"
+    _write(request_path, updated, dry_run)
+
+
 def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, include_progress: bool) -> dict[str, str]:
     values: dict[str, str] = {
         "DOC_REF": doc_ref,
@@ -630,6 +681,10 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
         doc_ref,
         args.dry_run,
     )
+    for ref in product_refs:
+        _update_request_companion_links(source_path, "Product brief(s)", ref, args.dry_run)
+    for ref in architecture_refs:
+        _update_request_companion_links(source_path, "Architecture decision(s)", ref, args.dry_run)
     _print_decision_summary(doc_ref, assessment, product_refs, architecture_refs)
 
 
