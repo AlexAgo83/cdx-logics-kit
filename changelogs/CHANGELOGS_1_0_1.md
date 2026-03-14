@@ -21,8 +21,10 @@
   - CLI smoke checks against a temporary imported-project fixture;
   - versioned changelog generation dry-runs;
   - release-automation dry-runs.
+- Aligned CI coverage with the documented Python support target by validating both Python `3.9` and `3.11`.
 
 ## Documentation and Operating Model
 
 - Updated the README with versioning, changelog, and release workflow guidance.
 - Updated contribution guidance to reference versioned changelogs and release tooling.
+- Clarified that legacy release-oriented skills (`logics-changelog-curator`, `logics-release-notes`, `logics-release-gatekeeper`) remain project-level workflow tools and are distinct from the kit repository release flow based on `VERSION` and `changelogs/`.
