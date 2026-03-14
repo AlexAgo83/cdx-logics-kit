@@ -86,6 +86,15 @@ Status model used by generated docs:
 - `Done`
 - `Archived`
 
+Metadata contract for normalized workflow docs:
+
+- `Status` is the canonical workflow indicator for requests, backlog items, and tasks.
+- `Progress` may still exist on backlog items and tasks, but it is supplemental rather than canonical.
+- Transitional legacy rule:
+  - older docs may still carry `Progress: 100%`,
+  - but normalized docs should also carry `Status: Done`.
+- New docs and touched docs should not rely on missing `Status`.
+
 ### Promote between stages
 
 ```bash
@@ -159,6 +168,12 @@ Requests, backlog items, and tasks include these top-level indicators:
 - `Theme:` (for example `Combat | Items | Economy | UI`)
 
 These fields keep the flow scannable and make it easier to group work by theme and delivery state.
+
+Normalization note:
+
+- request docs should always include `Status`
+- backlog/task docs should include both `Status` and `Progress`
+- when a backlog/task is complete, prefer `Status: Done` with `Progress: 100%`
 
 ## Connectors
 

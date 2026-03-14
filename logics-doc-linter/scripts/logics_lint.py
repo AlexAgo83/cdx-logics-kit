@@ -114,6 +114,31 @@ def _diff_has_indicator_changes(repo_root: Path, rel_path: Path, indicators: set
     return False
 
 
+def _diff_is_status_only_normalization(repo_root: Path, rel_path: Path) -> bool:
+    diff = _run_git(repo_root, ["diff", "--unified=0", "--", str(rel_path)])
+    diff += _run_git(repo_root, ["diff", "--cached", "--unified=0", "--", str(rel_path)])
+    if not diff:
+        return False
+
+    saw_change = False
+    for line in diff.splitlines():
+        if not line.startswith(("+", "-")):
+            continue
+        if line.startswith(("+++ ", "--- ")):
+            continue
+
+        changed = line[1:].strip()
+        if not changed:
+            continue
+
+        saw_change = True
+        if changed.startswith("> Status:"):
+            continue
+        return False
+
+    return saw_change
+
+
 def _lint_file(path: Path, kind: Kind, require_status: bool) -> list[str]:
     issues: list[str] = []
     name = path.name
@@ -182,7 +207,10 @@ def main(argv: list[str]) -> int:
                 required = {"Understanding", "Confidence"}
                 if kind.requires_progress:
                     required.add("Progress")
-                if not _diff_has_indicator_changes(repo_root, rel_path, required):
+                if (
+                    not _diff_has_indicator_changes(repo_root, rel_path, required)
+                    and not _diff_is_status_only_normalization(repo_root, rel_path)
+                ):
                     issues.append(
                         "modified without updating indicators: "
                         + ", ".join(sorted(required))
