@@ -55,6 +55,9 @@ class DocFixerTest(unittest.TestCase):
             self.assertIn("> Related backlog: `item_000_guest_checkout`", product_text)
             self.assertIn("> Reminder: Update this doc when the framing changes.", product_text)
             self.assertIn("# Product problem", product_text)
+            self.assertIn("# References", product_text)
+            self.assertIn("- `logics/request/req_000_guest_checkout.md`", product_text)
+            self.assertIn("- `logics/backlog/item_000_guest_checkout.md`", product_text)
 
             self.assertIn("> Date: YYYY-MM-DD", architecture_text)
             self.assertIn("> Status: Proposed", architecture_text)
@@ -63,6 +66,9 @@ class DocFixerTest(unittest.TestCase):
             self.assertIn("> Related backlog: `item_000_guest_checkout`", architecture_text)
             self.assertIn("> Reminder: Update this doc when the framing changes.", architecture_text)
             self.assertIn("# Decision", architecture_text)
+            self.assertIn("# References", architecture_text)
+            self.assertIn("- `logics/request/req_000_guest_checkout.md`", architecture_text)
+            self.assertIn("- `logics/backlog/item_000_guest_checkout.md`", architecture_text)
 
 
 if __name__ == "__main__":

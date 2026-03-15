@@ -7,6 +7,15 @@ import sys
 from datetime import date
 from pathlib import Path
 
+MANAGED_DIRS = {
+    "req_": "logics/request",
+    "item_": "logics/backlog",
+    "task_": "logics/tasks",
+    "prod_": "logics/product",
+    "adr_": "logics/architecture",
+    "spec_": "logics/specs",
+}
+
 
 def _slugify(value: str) -> str:
     value = value.strip().lower()
@@ -42,11 +51,44 @@ def _render_template(template_text: str, values: dict[str, str]) -> str:
     return re.sub(r"\{\{([A-Z0-9_]+)\}\}", repl, template_text)
 
 
+def _normalize_ref(value: str) -> str:
+    normalized = value.strip().strip("`").replace("\\", "/")
+    normalized = re.sub(r"^\./", "", normalized)
+    if not normalized:
+        return normalized
+    if "/" in normalized or normalized.endswith(".md"):
+        return normalized
+    for prefix, directory in MANAGED_DIRS.items():
+        if normalized.startswith(prefix):
+            return f"{directory}/{normalized}.md"
+    return normalized
+
+
+def _indicator_value(refs: list[str]) -> str:
+    if not refs:
+        return "(none yet)"
+    ids = [Path(ref).stem for ref in refs]
+    return ", ".join(f"`{ref_id}`" for ref_id in ids)
+
+
+def _references_block(*groups: list[str]) -> str:
+    refs: list[str] = []
+    for group in groups:
+        refs.extend(group)
+    deduped = list(dict.fromkeys(refs))
+    if not deduped:
+        return "- (none yet)"
+    return "\n".join(f"- `{ref}`" for ref in deduped)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Create a new ADR in logics/architecture.")
     parser.add_argument("--title", required=True)
     parser.add_argument("--out-dir", default="logics/architecture")
     parser.add_argument("--status", default="Proposed")
+    parser.add_argument("--request", action="append", default=[])
+    parser.add_argument("--backlog", action="append", default=[])
+    parser.add_argument("--task", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -59,6 +101,9 @@ def main(argv: list[str]) -> int:
     filename = f"adr_{doc_id:03d}_{slug}.md"
     doc_ref = f"adr_{doc_id:03d}_{slug}"
     output_path = out_dir / filename
+    request_refs = [_normalize_ref(value) for value in args.request if _normalize_ref(value)]
+    backlog_refs = [_normalize_ref(value) for value in args.backlog if _normalize_ref(value)]
+    task_refs = [_normalize_ref(value) for value in args.task if _normalize_ref(value)]
 
     template_path = repo_root / "logics/skills/logics-architecture-decision-writer/assets/templates/adr.md"
     template_text = template_path.read_text(encoding="utf-8")
@@ -68,9 +113,9 @@ def main(argv: list[str]) -> int:
         "DATE": date.today().isoformat(),
         "STATUS": args.status,
         "DRIVERS": "List the main architectural drivers.",
-        "REQUEST_REF": "`req_XXX_example`",
-        "BACKLOG_REF": "`item_XXX_example`",
-        "TASK_REF": "`task_XXX_example`",
+        "REQUEST_REF": _indicator_value(request_refs),
+        "BACKLOG_REF": _indicator_value(backlog_refs),
+        "TASK_REF": _indicator_value(task_refs),
         "OVERVIEW": "Summarize the chosen direction, what changes, and the main impacted areas.",
         "OVERVIEW_MERMAID": (
             "flowchart LR\n"
@@ -85,6 +130,7 @@ def main(argv: list[str]) -> int:
         "ALT_1": "Alternative option",
         "CONSEQUENCE_1": "Operational/product consequence",
         "MIGRATION_1": "Describe the rollout or migration step.",
+        "REFERENCES": _references_block(request_refs, backlog_refs, task_refs),
         "FOLLOW_UP_1": "List the backlog or task work enabled by this decision.",
     }
     content = _render_template(template_text, values).rstrip() + "\n"

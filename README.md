@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
-  <img src="https://img.shields.io/badge/version-v1.0.1-4C8BF5" alt="Version" />
+  <img src="https://img.shields.io/badge/version-v1.0.2-4C8BF5" alt="Version" />
   <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/workflow-request--backlog--task--spec-2EA44F" alt="Workflow" />
   <img src="https://img.shields.io/badge/AI-context%20memory-FFB000" alt="AI Context Memory" />
@@ -95,16 +95,36 @@ Create a product brief in `logics/product` when the subject needs a non-technica
 python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing"
 ```
 
+You can attach the primary linked workflow docs at creation time:
+
+```bash
+python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py \
+  --title "Guest checkout framing" \
+  --request req_001_guest_checkout \
+  --backlog item_002_guest_checkout \
+  --architecture adr_004_checkout_strategy
+```
+
 Create an architecture decision in `logics/architecture` when the subject needs a structural technical decision:
 
 ```bash
 python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy"
 ```
 
+You can attach the linked primary-flow docs at creation time:
+
+```bash
+python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py \
+  --title "Choose cache strategy" \
+  --request req_001_guest_checkout \
+  --backlog item_002_guest_checkout \
+  --task task_003_checkout_cache
+```
+
 Create a functional spec in `logics/specs`:
 
 ```bash
-python3 logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.1
+python3 logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.2
 ```
 
 Status model used by generated docs:
@@ -245,6 +265,12 @@ Requests, backlog items, and tasks include these top-level indicators:
 - `Theme:` (for example `Combat | Items | Economy | UI`)
 
 These fields keep the flow scannable and make it easier to group work by theme and delivery state.
+
+For product briefs and architecture docs:
+
+- keep `Related request/backlog/task/architecture` indicators current;
+- mirror those managed-doc links under `# References` as canonical backticked relative paths;
+- do not rely only on free-form prose if the relationship must appear in plugin references, reverse links, and orphan detection.
 
 Normalization note:
 
@@ -431,10 +457,10 @@ Pin to a tag (recommended if you want controlled upgrades):
 ```bash
 cd logics/skills
 git fetch --tags
-git checkout v1.0.1
+git checkout v1.0.2
 cd -
 git add logics/skills
-git commit -m "Pin Logics kit to v1.0.1"
+git commit -m "Pin Logics kit to v1.0.2"
 ```
 
 ## Notes

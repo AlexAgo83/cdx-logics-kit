@@ -56,6 +56,7 @@ PRODUCT_SECTIONS = [
     ("# Scope and guardrails", ["- In:", "- Out:"]),
     ("# Key product decisions", ["- Key product trade-off or framing decision"]),
     ("# Success signals", ["- Observable success signal or product metric"]),
+    ("# References", ["- (none yet)"]),
     ("# Open questions", ["- Main open product question to resolve"]),
 ]
 
@@ -66,6 +67,7 @@ ARCHITECTURE_SECTIONS = [
     ("# Alternatives considered", ["- Alternative option"]),
     ("# Consequences", ["- Operational or product consequence"]),
     ("# Migration and rollout", ["- Describe the rollout or migration step."]),
+    ("# References", ["- (none yet)"]),
     ("# Follow-up work", ["- List the backlog or task work enabled by this decision."]),
 ]
 
@@ -276,6 +278,65 @@ def _ensure_indicator_value(lines: list[str], key: str, value: str) -> tuple[lis
         content_start += 1
     new_lines = lines[: title_idx + 1] + new_indicators + [""] + lines[content_start:]
     return new_lines, True
+
+
+def _normalize_managed_ref(value: str) -> str | None:
+    normalized = value.strip().strip("`").replace("\\", "/")
+    normalized = re.sub(r"^\./", "", normalized)
+    if not normalized or normalized.startswith("("):
+        return None
+    if "/" in normalized or normalized.endswith(".md"):
+        return normalized
+    if normalized.startswith("req_"):
+        return f"logics/request/{normalized}.md"
+    if normalized.startswith("item_"):
+        return f"logics/backlog/{normalized}.md"
+    if normalized.startswith("task_"):
+        return f"logics/tasks/{normalized}.md"
+    if normalized.startswith("prod_"):
+        return f"logics/product/{normalized}.md"
+    if normalized.startswith("adr_"):
+        return f"logics/architecture/{normalized}.md"
+    if normalized.startswith("spec_"):
+        return f"logics/specs/{normalized}.md"
+    return normalized
+
+
+def _extract_indicator_backticked_refs(lines: list[str], keys: list[str]) -> list[str]:
+    wanted = {key.lower() for key in keys}
+    refs: list[str] = []
+    for line in lines:
+        if not line.startswith("> "):
+            continue
+        match = re.match(r">\s*([^:]+):\s*(.*)$", line)
+        if not match:
+            continue
+        key = match.group(1).strip().lower()
+        if key not in wanted:
+            continue
+        refs.extend(re.findall(r"`([^`]+)`", match.group(2)))
+
+    normalized = []
+    for ref in refs:
+        managed = _normalize_managed_ref(ref)
+        if managed:
+            normalized.append(managed)
+    return list(dict.fromkeys(normalized))
+
+
+def _ensure_reference_section(lines: list[str], refs: list[str]) -> tuple[list[str], bool]:
+    start, end = _find_section_bounds(lines, "# References")
+    if start is None:
+        if lines and lines[-1].strip() != "":
+            lines.append("")
+        lines.extend(["# References", *([f"- `{ref}`" for ref in refs] if refs else ["- (none yet)"])])
+        return lines, True
+
+    existing_section = lines[start:end]
+    target_section = [f"- `{ref}`" for ref in refs] if refs else ["- (none yet)"]
+    if existing_section == target_section:
+        return lines, False
+    return lines[:start] + target_section + lines[end:], True
 
 
 def _ensure_request_backlog(lines: list[str], backlog_paths: list[Path]) -> tuple[list[str], bool]:
@@ -505,6 +566,14 @@ def _process_doc(
         if len(architecture_paths) == 1:
             lines, updated = _ensure_indicator_value(lines, "Related architecture", f"`{architecture_paths[0].stem}`")
             changed = changed or updated
+        lines, updated = _ensure_reference_section(
+            lines,
+            _extract_indicator_backticked_refs(
+                lines,
+                ["Related request", "Related backlog", "Related task", "Related architecture"],
+            ),
+        )
+        changed = changed or updated
 
     if doc.kind == "architecture":
         request_paths = slug_refs.get("request", [])
@@ -519,6 +588,11 @@ def _process_doc(
         if len(task_paths) == 1:
             lines, updated = _ensure_indicator_value(lines, "Related task", f"`{task_paths[0].stem}`")
             changed = changed or updated
+        lines, updated = _ensure_reference_section(
+            lines,
+            _extract_indicator_backticked_refs(lines, ["Related request", "Related backlog", "Related task"]),
+        )
+        changed = changed or updated
 
     final_text = "\n".join(lines).rstrip() + "\n"
     return final_text, changed

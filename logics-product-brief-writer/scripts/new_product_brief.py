@@ -7,6 +7,15 @@ import sys
 from datetime import date
 from pathlib import Path
 
+MANAGED_DIRS = {
+    "req_": "logics/request",
+    "item_": "logics/backlog",
+    "task_": "logics/tasks",
+    "prod_": "logics/product",
+    "adr_": "logics/architecture",
+    "spec_": "logics/specs",
+}
+
 
 def _slugify(value: str) -> str:
     value = value.strip().lower()
@@ -42,11 +51,45 @@ def _render_template(template_text: str, values: dict[str, str]) -> str:
     return re.sub(r"\{\{([A-Z0-9_]+)\}\}", repl, template_text)
 
 
+def _normalize_ref(value: str) -> str:
+    normalized = value.strip().strip("`").replace("\\", "/")
+    normalized = re.sub(r"^\./", "", normalized)
+    if not normalized:
+        return normalized
+    if "/" in normalized or normalized.endswith(".md"):
+        return normalized
+    for prefix, directory in MANAGED_DIRS.items():
+        if normalized.startswith(prefix):
+            return f"{directory}/{normalized}.md"
+    return normalized
+
+
+def _indicator_value(refs: list[str]) -> str:
+    if not refs:
+        return "(none yet)"
+    ids = [Path(ref).stem for ref in refs]
+    return ", ".join(f"`{ref_id}`" for ref_id in ids)
+
+
+def _references_block(*groups: list[str]) -> str:
+    refs: list[str] = []
+    for group in groups:
+        refs.extend(group)
+    deduped = list(dict.fromkeys(refs))
+    if not deduped:
+        return "- (none yet)"
+    return "\n".join(f"- `{ref}`" for ref in deduped)
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Create a new product brief in logics/product.")
     parser.add_argument("--title", required=True)
     parser.add_argument("--out-dir", default="logics/product")
     parser.add_argument("--status", default="Proposed")
+    parser.add_argument("--request", action="append", default=[])
+    parser.add_argument("--backlog", action="append", default=[])
+    parser.add_argument("--task", action="append", default=[])
+    parser.add_argument("--architecture", action="append", default=[])
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -59,6 +102,10 @@ def main(argv: list[str]) -> int:
     filename = f"prod_{doc_id:03d}_{slug}.md"
     doc_ref = f"prod_{doc_id:03d}_{slug}"
     output_path = out_dir / filename
+    request_refs = [_normalize_ref(value) for value in args.request if _normalize_ref(value)]
+    backlog_refs = [_normalize_ref(value) for value in args.backlog if _normalize_ref(value)]
+    task_refs = [_normalize_ref(value) for value in args.task if _normalize_ref(value)]
+    architecture_refs = [_normalize_ref(value) for value in args.architecture if _normalize_ref(value)]
 
     template_path = repo_root / "logics/skills/logics-product-brief-writer/assets/templates/product_brief.md"
     template_text = template_path.read_text(encoding="utf-8")
@@ -67,10 +114,10 @@ def main(argv: list[str]) -> int:
         "TITLE": args.title,
         "DATE": date.today().isoformat(),
         "STATUS": args.status,
-        "REQUEST_REF": "`req_XXX_example`",
-        "BACKLOG_REF": "`item_XXX_example`",
-        "TASK_REF": "`task_XXX_example`",
-        "ARCHITECTURE_REF": "`adr_XXX_example`",
+        "REQUEST_REF": _indicator_value(request_refs),
+        "BACKLOG_REF": _indicator_value(backlog_refs),
+        "TASK_REF": _indicator_value(task_refs),
+        "ARCHITECTURE_REF": _indicator_value(architecture_refs),
         "OVERVIEW": "Summarize the product direction, the targeted user value, and the main expected outcomes.",
         "OVERVIEW_MERMAID": (
             "flowchart LR\n"
@@ -87,6 +134,7 @@ def main(argv: list[str]) -> int:
         "OUT_OF_SCOPE_1": "Main capability explicitly excluded for now",
         "DECISION_1": "Key product trade-off or framing decision",
         "SUCCESS_SIGNAL_1": "Observable success signal or product metric",
+        "REFERENCES": _references_block(request_refs, backlog_refs, task_refs, architecture_refs),
         "QUESTION_1": "Main open product question to resolve",
     }
     content = _render_template(template_text, values).rstrip() + "\n"

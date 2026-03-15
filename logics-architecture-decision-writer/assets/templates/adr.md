@@ -29,5 +29,8 @@
 # Migration and rollout
 - {{MIGRATION_1}}
 
+# References
+{{REFERENCES}}
+
 # Follow-up work
 - {{FOLLOW_UP_1}}

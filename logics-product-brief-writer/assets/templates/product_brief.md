@@ -36,5 +36,8 @@
 # Success signals
 - {{SUCCESS_SIGNAL_1}}
 
+# References
+{{REFERENCES}}
+
 # Open questions
 - {{QUESTION_1}}

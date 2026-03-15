@@ -38,6 +38,7 @@ Use the following indicators in product briefs:
 * `Related task:` : Primary linked task ref when available.
 * `Related architecture:` : Linked ADR ref when the product framing depends on a technical decision.
 * `Reminder:` : Short maintenance instruction to keep the brief current.
+* Keep linked managed docs mirrored under `# References` as backticked relative paths, not only in indicator prose.
 
 Use the following indicators in architecture docs:
 
@@ -48,6 +49,7 @@ Use the following indicators in architecture docs:
 * `Related backlog:` : Primary linked backlog ref when available.
 * `Related task:` : Primary linked task ref when available.
 * `Reminder:` : Short maintenance instruction to keep the ADR current.
+* Keep linked managed docs mirrored under `# References` as backticked relative paths, not only in indicator prose.
 
 ## Automation
 
