@@ -22,6 +22,14 @@ Companion framing docs can be added when needed:
 
 It also ships scripts and skills to create, promote, lint, audit, review, and enrich those docs so project context stays durable, inspectable, and reusable across AI sessions.
 
+## Why This Matters For AI Projects
+
+- Logics turns scattered AI chat history into explicit project artifacts stored in the repo.
+- Requests, backlog items, tasks, specs, product briefs, architecture decisions, and links act as long-lived context that can be reused across sessions and across assistants.
+- Instead of repasting large amounts of project history into every prompt, the assistant can rely on the structured `logics/*` corpus as the project memory.
+- That usually means lower token consumption, less context-window waste, and fewer regressions caused by missing prior decisions.
+- Because the context is written as Markdown in the repository, it stays reviewable by humans, diffable in git, and portable across tools.
+
 ```mermaid
 flowchart LR
     Need[Need captured] --> Request[Request]
