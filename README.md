@@ -476,6 +476,19 @@ git commit -m "Pin Logics kit to v1.0.2"
 - This repo is meant to be executed from the **project repo** (where `logics/skills` points to this kit).
 - `req_*`, `item_*`, `task_*`, `spec_*` docs stay in the project repo, so there’s no cross-project “pollution”.
 
+## UI steering
+
+Steer frontend generation away from generic AI-looking UI and toward grounded, product-native interfaces:
+
+```bash
+Use $logics-ui-steering whenever generating or refining HTML, CSS, React, Vue, Svelte, or other frontend UI code.
+```
+
+Skill docs:
+```
+logics/skills/logics-ui-steering/SKILL.md
+```
+
 ## Mockup generator
 
 Generate quick PNG UI mockups under `logics/external/mockup/`:

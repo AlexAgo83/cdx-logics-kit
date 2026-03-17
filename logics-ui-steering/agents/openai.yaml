@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI Steering"
+  short_description: "Grounded frontend generation and refinement guardrails"
+  default_prompt: "Use $logics-ui-steering to generate or refine frontend UI code with grounded, product-native patterns. Inspect the existing project styles first, preserve established tokens and components, avoid generic AI-looking UI defaults, and keep layout, color, typography, and motion restrained."
