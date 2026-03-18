@@ -43,6 +43,8 @@ flowchart LR
 - Request: {{REQUEST_LINK_PLACEHOLDER}}
 - Primary task(s): {{TASK_LINK_PLACEHOLDER}}
 
+{{REFERENCES_SECTION}}
+
 # Priority
 - Impact:
 - Urgency:

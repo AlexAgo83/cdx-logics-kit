@@ -40,6 +40,8 @@ flowchart LR
 - Backlog item: {{BACKLOG_LINK_PLACEHOLDER}}
 - Request(s): {{REQUEST_LINK_PLACEHOLDER}}
 
+{{REFERENCES_SECTION}}
+
 # Validation
 {{VALIDATION_BLOCK}}
 

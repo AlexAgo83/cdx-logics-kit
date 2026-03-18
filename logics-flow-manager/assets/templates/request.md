@@ -34,5 +34,7 @@ flowchart TD
 - Product brief(s): {{PRODUCT_LINK_PLACEHOLDER}}
 - Architecture decision(s): {{ARCHITECTURE_LINK_PLACEHOLDER}}
 
+{{REFERENCES_SECTION}}
+
 # Backlog
 {{BACKLOG_PLACEHOLDER}}

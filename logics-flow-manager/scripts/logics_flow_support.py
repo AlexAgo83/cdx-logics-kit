@@ -59,6 +59,11 @@ STATUS_BY_KIND_DEFAULT = {
 }
 
 ALLOWED_COMPLEXITIES = ("Low", "Medium", "High")
+UI_STEERING_REF = "logics/skills/logics-ui-steering/SKILL.md"
+FRONTEND_SIGNAL_PATTERN = re.compile(
+    r"\b(front[\s-]?end|ui|interface|webview|react|vue|svelte|html|css|component|screen|layout)\b",
+    re.IGNORECASE,
+)
 
 @dataclass(frozen=True)
 class PlannedDoc:
@@ -178,6 +183,24 @@ def _acceptance_items(text: str) -> list[str]:
     return _list_items_from_section(text, "Acceptance criteria")
 
 
+def _reference_items(text: str) -> list[str]:
+    return _list_items_from_section(text, "References")
+
+
+def _normalize_reference_item(item: str) -> str:
+    value = item.strip()
+    if value.startswith("`") and value.endswith("`"):
+        return value[1:-1].strip()
+    return value
+
+
+def _has_frontend_signals(*parts: str) -> bool:
+    haystack = "\n".join(part for part in parts if part).strip()
+    if not haystack:
+        return False
+    return FRONTEND_SIGNAL_PATTERN.search(haystack) is not None
+
+
 def _extract_ac_ids(text: str) -> list[str]:
     ids: set[str] = set()
     pattern = re.compile(r"\b(AC\d+[a-z]?)\b", re.IGNORECASE)
@@ -230,6 +253,36 @@ def _render_validation_block(items: Iterable[str]) -> str:
     if not cleaned:
         cleaned = ["Run the relevant automated tests for the changed surface.", "Run the relevant lint or quality checks."]
     return "\n".join(f"- {item}" for item in cleaned)
+
+
+def _render_references_section(items: Iterable[str]) -> str:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw_item in items:
+        item = _normalize_reference_item(raw_item)
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        cleaned.append(item)
+    if not cleaned:
+        return ""
+    rendered = "\n".join(f"- `{item}`" for item in cleaned)
+    return f"# References\n{rendered}"
+
+
+def _collect_reference_items(title: str, source_text: str = "") -> list[str]:
+    references = [_normalize_reference_item(item) for item in _reference_items(source_text)]
+    if _has_frontend_signals(title, source_text) and UI_STEERING_REF not in references:
+        references.append(UI_STEERING_REF)
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for reference in references:
+        if not reference or reference in seen:
+            continue
+        seen.add(reference)
+        cleaned.append(reference)
+    return cleaned
 
 
 def _render_ac_traceability_block(ac_entries: Iterable[tuple[str, str]], fallback: str) -> str:
@@ -677,6 +730,7 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
         "VALIDATION_2": "npm run lint",
         "VALIDATION_BLOCK": _render_validation_block(["npm run tests", "npm run lint"]),
         "REPORT_PLACEHOLDER": "",
+        "REFERENCES_SECTION": "",
     }
 
     if not include_progress:
@@ -735,6 +789,7 @@ def _create_backlog_from_request(
     source_rel = source_path.relative_to(repo_root)
     _copy_indicator_defaults(values, source_text)
     _seed_backlog_from_request(values, source_text, source_ref, source_rel)
+    values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(title, source_text))
 
     product_refs = sorted(_extract_refs(source_text, REF_PREFIXES["product"]))
     architecture_refs = sorted(_extract_refs(source_text, REF_PREFIXES["architecture"]))
@@ -804,6 +859,7 @@ def _create_task_from_backlog(
     )
 
     _seed_task_from_backlog(values, source_text, source_ref, source_rel, request_refs)
+    values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(title, source_text))
     values["BACKLOG_LINK_PLACEHOLDER"] = f"`{source_ref}`" if source_ref is not None else f"`{source_rel}`"
     _apply_decision_assessment(values, assessment)
     if request_refs:

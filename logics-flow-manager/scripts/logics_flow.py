@@ -15,6 +15,7 @@ def cmd_new(args: argparse.Namespace) -> None:
 
     template_text = _template_path(Path(__file__), doc_kind.template_name).read_text(encoding="utf-8")
     values = _build_template_values(args, planned.ref, args.title, doc_kind.include_progress)
+    values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(args.title))
     assessment = _assess_decision_framing(args.title, "")
     product_refs: list[str] = []
     architecture_refs: list[str] = []

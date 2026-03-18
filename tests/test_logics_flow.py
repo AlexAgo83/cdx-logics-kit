@@ -349,6 +349,61 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("- AC1 -> Scope: promotion preserves useful indicators. Proof: TODO.", backlog_text)
             self.assertIn("- AC2 -> Scope: backlog AC traceability is seeded. Proof: TODO.", backlog_text)
 
+    def test_frontend_oriented_request_surfaces_ui_steering_reference_through_promotion(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            request = repo / "logics" / "request" / "req_000_react_admin_ui.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_react_admin_ui - React admin UI",
+                    "> From version: 1.10.5",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Improve the React admin UI",
+                    "",
+                    "# Context",
+                    "- This workflow is focused on a user-facing webview interface.",
+                ],
+            )
+
+            backlog_result = subprocess.run(
+                [sys.executable, str(script), "promote", "request-to-backlog", str(request)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(backlog_result.returncode, 0, backlog_result.stderr)
+
+            backlog = repo / "logics" / "backlog" / "item_000_react_admin_ui.md"
+            backlog_text = backlog.read_text(encoding="utf-8")
+            self.assertIn("# References", backlog_text)
+            self.assertIn("- `logics/skills/logics-ui-steering/SKILL.md`", backlog_text)
+
+            task_result = subprocess.run(
+                [sys.executable, str(script), "promote", "backlog-to-task", str(backlog)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(task_result.returncode, 0, task_result.stderr)
+
+            task = repo / "logics" / "tasks" / "task_000_react_admin_ui.md"
+            task_text = task.read_text(encoding="utf-8")
+            self.assertIn("# References", task_text)
+            self.assertIn("- `logics/skills/logics-ui-steering/SKILL.md`", task_text)
+
     def test_split_request_creates_multiple_backlog_items(self) -> None:
         script = self._script()
 
