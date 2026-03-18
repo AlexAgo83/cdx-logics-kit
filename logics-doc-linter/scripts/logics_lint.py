@@ -5,6 +5,7 @@ import argparse
 import re
 import subprocess
 import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,6 +73,25 @@ TEMPLATE_PLACEHOLDER_SNIPPETS = (
     "Second implementation step",
     "Third implementation step",
 )
+GENERIC_MERMAID_SNIPPETS = (
+    "Primary input or trigger",
+    "Expected outcome",
+    "User visible result",
+    "Feedback or follow up",
+    "Request source",
+    "Problem to solve",
+    "Scoped delivery",
+    "Implementation task s",
+    "Backlog source",
+    "Implementation step 1",
+    "Implementation step 2",
+    "Implementation step 3",
+    "Report and Done",
+)
+MERMAID_SIGNATURE_PATTERN = re.compile(r"^\s*%%\s*logics-signature:\s*(.+?)\s*$", re.MULTILINE)
+MERMAID_BLOCK_PATTERN = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
+MERMAID_LABEL_MAX_WORDS = 6
+MERMAID_LABEL_MAX_CHARS = 42
 
 
 def _find_repo_root(start: Path) -> Path:
@@ -104,6 +124,165 @@ def _indicator_value(lines: list[str], key: str) -> str | None:
 
 def _has_indicator(lines: list[str], key: str) -> bool:
     return _indicator_value(lines, key) is not None
+
+
+def _ascii_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    return normalized.encode("ascii", "ignore").decode("ascii")
+
+
+def _plain_text(value: str) -> str:
+    text = _ascii_text(value)
+    text = re.sub(r"`+", "", text)
+    text = text.replace("&", " and ")
+    text = re.sub(r"[/{}[\]()+*#]", " ", text)
+    text = re.sub(r"[^A-Za-z0-9:._ -]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .:-")
+    return text
+
+
+def _safe_mermaid_label(value: str, fallback: str) -> str:
+    text = _plain_text(value)
+    if not text:
+        text = fallback
+    words = text.split()
+    if len(words) > MERMAID_LABEL_MAX_WORDS:
+        text = " ".join(words[:MERMAID_LABEL_MAX_WORDS])
+    if len(text) > MERMAID_LABEL_MAX_CHARS:
+        text = text[:MERMAID_LABEL_MAX_CHARS].rstrip(" .:-")
+    return text or fallback
+
+
+def _extract_title(lines: list[str]) -> str:
+    heading = _extract_first_heading(lines)
+    if heading is None:
+        return ""
+    match = re.match(r"^##\s+\S+\s*-\s*(.+?)\s*$", heading)
+    if match:
+        return match.group(1).strip()
+    return heading.removeprefix("## ").strip()
+
+
+def _section_lines(lines: list[str], heading: str) -> list[str]:
+    start_idx = None
+    target = heading.strip().lower()
+    for idx, line in enumerate(lines):
+        if line.startswith("# ") and line[2:].strip().lower() == target:
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return []
+    out: list[str] = []
+    for idx in range(start_idx, len(lines)):
+        line = lines[idx]
+        if line.startswith("# "):
+            break
+        out.append(line)
+    return out
+
+
+def _rendered_list_items(text: str) -> list[str]:
+    items: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        stripped = re.sub(r"^- \[[ xX]\]\s*", "", stripped)
+        if stripped.startswith("- "):
+            stripped = stripped[2:].strip()
+        items.append(stripped)
+    return items
+
+
+def _pick_mermaid_summary(candidates: list[str], fallback: str) -> str:
+    for candidate in candidates:
+        label = _safe_mermaid_label(candidate, "")
+        if label:
+            return label
+    return fallback
+
+
+def _extract_refs(text: str, prefix: str) -> list[str]:
+    pattern = re.compile(rf"\b{re.escape(prefix)}_\d{{3}}_[a-z0-9_]+\b")
+    return sorted({match.group(0) for match in pattern.finditer(text)})
+
+
+def _mermaid_signature_part(value: str) -> str:
+    text = _plain_text(value).lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    return text[:40]
+
+
+def _compose_mermaid_signature(kind_name: str, *parts: str) -> str:
+    signature_parts = [_mermaid_signature_part(kind_name)]
+    for part in parts:
+        rendered = _mermaid_signature_part(part)
+        if rendered:
+            signature_parts.append(rendered)
+    return "|".join(signature_parts)
+
+
+def _expected_mermaid_signature(kind_name: str, lines: list[str]) -> str:
+    text = "\n".join(lines)
+    title = _extract_title(lines)
+    if kind_name == "request":
+        need_items = _rendered_list_items("\n".join(_section_lines(lines, "Needs")))
+        context_items = _rendered_list_items("\n".join(_section_lines(lines, "Context")))
+        acceptance_items = _rendered_list_items("\n".join(_section_lines(lines, "Acceptance criteria")))
+        need_label = _pick_mermaid_summary([*need_items, *context_items, title], "Need scope")
+        outcome_label = _pick_mermaid_summary([*acceptance_items, *context_items], "Acceptance target")
+        return _compose_mermaid_signature("request", title, need_label, outcome_label)
+
+    if kind_name == "backlog":
+        request_refs = _extract_refs(text, "req")
+        problem_items = _rendered_list_items("\n".join(_section_lines(lines, "Problem")))
+        acceptance_items = _rendered_list_items("\n".join(_section_lines(lines, "Acceptance criteria")))
+        source_label = _pick_mermaid_summary([*request_refs, title], "Request source")
+        problem_label = _pick_mermaid_summary([*problem_items, title], "Problem scope")
+        acceptance_label = _pick_mermaid_summary(acceptance_items, "Acceptance check")
+        return _compose_mermaid_signature("backlog", title, source_label, problem_label, acceptance_label)
+
+    if kind_name == "task":
+        backlog_refs = _extract_refs(text, "item")
+        plan_items = [
+            item
+            for item in _rendered_list_items("\n".join(_section_lines(lines, "Plan")))
+            if not item.lower().startswith("final:")
+        ]
+        validation_items = _rendered_list_items("\n".join(_section_lines(lines, "Validation")))
+        source_label = _pick_mermaid_summary([*backlog_refs, title], "Backlog source")
+        step_one = _pick_mermaid_summary(plan_items[:1], "Confirm scope")
+        validation_label = _pick_mermaid_summary(validation_items, "Validation")
+        return _compose_mermaid_signature("task", title, source_label, step_one, validation_label)
+
+    return ""
+
+
+def _mermaid_warnings(kind_name: str, lines: list[str]) -> list[str]:
+    text = "\n".join(lines)
+    match = MERMAID_BLOCK_PATTERN.search(text)
+    if match is None:
+        return ["missing Mermaid overview block"]
+
+    block = match.group(1)
+    warnings: list[str] = []
+    generic_hits = [snippet for snippet in GENERIC_MERMAID_SNIPPETS if snippet in block]
+    if generic_hits:
+        warnings.append(
+            "contains generic Mermaid scaffold content: " + ", ".join(sorted(set(generic_hits)))
+        )
+
+    signature_match = MERMAID_SIGNATURE_PATTERN.search(block)
+    expected_signature = _expected_mermaid_signature(kind_name, lines)
+    if signature_match is None:
+        warnings.append("missing Mermaid context signature comment")
+    elif expected_signature and signature_match.group(1).strip() != expected_signature:
+        warnings.append(
+            "Mermaid context signature is stale: "
+            + f"expected `{expected_signature}`"
+        )
+
+    return warnings
 
 
 def _run_git(repo_root: Path, args: list[str]) -> str:
@@ -241,6 +420,7 @@ def _lint_file(path: Path, kind_name: str, kind: Kind, require_status: bool, che
             warnings.append(
                 "contains template placeholder content: " + ", ".join(sorted(set(placeholder_hits)))
             )
+        warnings.extend(_mermaid_warnings(kind_name, lines))
 
     return issues, warnings
 

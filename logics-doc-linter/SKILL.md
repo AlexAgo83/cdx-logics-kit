@@ -26,3 +26,4 @@ python3 logics/skills/logics-doc-linter/scripts/logics_lint.py --require-status
 - For modified or untracked workflow docs (`request`, `backlog`, `task`):
   - blocking errors for critical indicator placeholders such as `X.X.X` and `??%`
   - warning-level reporting for leftover template filler text such as `Describe the need` or `Add context and constraints`
+  - warning-level reporting for generic Mermaid scaffolds or missing/stale `%% logics-signature` comments in workflow Mermaid blocks

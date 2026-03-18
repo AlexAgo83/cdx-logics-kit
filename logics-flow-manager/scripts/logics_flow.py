@@ -37,6 +37,7 @@ def cmd_new(args: argparse.Namespace) -> None:
         if architecture_refs:
             values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
+    values["MERMAID_BLOCK"] = _render_workflow_mermaid(doc_kind.kind, args.title, values)
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(planned.path, content, args.dry_run)
     if doc_kind.kind in {"backlog", "task"}:

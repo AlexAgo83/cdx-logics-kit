@@ -11,14 +11,7 @@
 # Context
 {{CONTEXT_PLACEHOLDER}}
 
-```mermaid
-flowchart LR
-    Backlog[Backlog source] --> Step1[Implementation step 1]
-    Step1 --> Step2[Implementation step 2]
-    Step2 --> Step3[Implementation step 3]
-    Step3 --> Validation[Validation]
-    Validation --> Report[Report and Done]
-```
+{{MERMAID_BLOCK}}
 
 # Plan
 {{PLAN_BLOCK}}

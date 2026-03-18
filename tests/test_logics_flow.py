@@ -404,6 +404,68 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("# References", task_text)
             self.assertIn("- `logics/skills/logics-ui-steering/SKILL.md`", task_text)
 
+    def test_promotions_generate_context_aware_mermaid_signatures(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            request = repo / "logics" / "request" / "req_000_admin_read_flow.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_admin_read_flow - Admin read flow",
+                    "> From version: 1.10.5",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Double click should open the read panel",
+                    "",
+                    "# Context",
+                    "- The board and list should behave consistently for operators.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: double click opens read from board and list items",
+                ],
+            )
+
+            backlog_result = subprocess.run(
+                [sys.executable, str(script), "promote", "request-to-backlog", str(request)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(backlog_result.returncode, 0, backlog_result.stderr)
+
+            backlog = repo / "logics" / "backlog" / "item_000_admin_read_flow.md"
+            backlog_text = backlog.read_text(encoding="utf-8")
+            self.assertIn("%% logics-kind: backlog", backlog_text)
+            self.assertIn("%% logics-signature: backlog|admin-read-flow|req-000-admin-read-flow", backlog_text)
+            self.assertIn("Double click should open the read panel", backlog_text)
+            self.assertNotIn("Request source", backlog_text)
+
+            task_result = subprocess.run(
+                [sys.executable, str(script), "promote", "backlog-to-task", str(backlog)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(task_result.returncode, 0, task_result.stderr)
+
+            task = repo / "logics" / "tasks" / "task_000_admin_read_flow.md"
+            task_text = task.read_text(encoding="utf-8")
+            self.assertIn("%% logics-kind: task", task_text)
+            self.assertIn("%% logics-signature: task|admin-read-flow|item-000-admin-read-flow", task_text)
+            self.assertIn("Confirm scope dependencies and linked", task_text)
+            self.assertNotIn("Backlog source", task_text)
+
     def test_split_request_creates_multiple_backlog_items(self) -> None:
         script = self._script()
 

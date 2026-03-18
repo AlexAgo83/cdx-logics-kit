@@ -292,6 +292,130 @@ class LogicsLintTest(unittest.TestCase):
             self.assertIn("Logics lint: OK (warnings)", result.stdout)
             self.assertIn("WARNING: contains template placeholder content", result.stdout)
 
+    def test_untracked_workflow_doc_warns_on_generic_mermaid_scaffold(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._init_git_repo(repo)
+            (repo / "logics" / "backlog").mkdir(parents=True)
+            (repo / "README.md").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "seed"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            backlog = repo / "logics" / "backlog" / "item_000_demo_backlog.md"
+            backlog.write_text(
+                "\n".join(
+                    [
+                        "## item_000_demo_backlog - Demo backlog",
+                        "> From version: 1.10.5",
+                        "> Status: Ready",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "> Progress: 0%",
+                        "",
+                        "# Problem",
+                        "- Improve read orchestration for operators",
+                        "",
+                        "```mermaid",
+                        "flowchart LR",
+                        "    Req[Request source] --> Problem[Problem to solve]",
+                        "    Problem --> Scope[Scoped delivery]",
+                        "```",
+                        "",
+                        "# Acceptance criteria",
+                        "- AC1: read opens from the operator board",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Logics lint: OK (warnings)", result.stdout)
+            self.assertIn("WARNING: contains generic Mermaid scaffold content", result.stdout)
+
+    def test_untracked_workflow_doc_warns_on_stale_mermaid_signature(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._init_git_repo(repo)
+            (repo / "logics" / "tasks").mkdir(parents=True)
+            (repo / "README.md").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "seed"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            task = repo / "logics" / "tasks" / "task_000_demo_task.md"
+            task.write_text(
+                "\n".join(
+                    [
+                        "## task_000_demo_task - Demo task",
+                        "> From version: 1.10.5",
+                        "> Status: Ready",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "> Progress: 0%",
+                        "",
+                        "# Context",
+                        "- Derived from backlog item `item_000_demo_backlog`.",
+                        "",
+                        "```mermaid",
+                        "%% logics-kind: task",
+                        "%% logics-signature: task|stale-signature",
+                        "flowchart LR",
+                        "    Backlog[item_000_demo_backlog] --> Step1[Confirm scope]",
+                        "    Step1 --> Validation[Run tests]",
+                        "```",
+                        "",
+                        "# Plan",
+                        "- [ ] 1. Confirm scope, dependencies, and linked acceptance criteria.",
+                        "- [ ] 2. Implement the scoped changes from the backlog item.",
+                        "- [ ] 3. Validate the result and update the linked Logics docs.",
+                        "- [ ] FINAL: Update related Logics docs",
+                        "",
+                        "# Validation",
+                        "- python3 -m pytest",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Logics lint: OK (warnings)", result.stdout)
+            self.assertIn("WARNING: Mermaid context signature is stale", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

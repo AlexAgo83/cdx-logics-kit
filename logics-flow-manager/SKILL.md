@@ -22,6 +22,7 @@ description: Manage this repository's Logics workflow (logics/request → logics
 - Prefer a compact business-readable `flowchart TD` or `flowchart LR` showing inputs, decision points, outputs, and feedback loops.
 - Backlog items should include a Mermaid diagram that makes the delivery slice explicit: request/source -> problem -> scope -> acceptance criteria -> task(s).
 - Tasks should include a Mermaid diagram that shows the execution path: backlog/source -> implementation steps -> validation -> done/report.
+- Generated workflow Mermaid blocks now include `%% logics-signature: ...` metadata comments; keep them aligned with the current doc context so stale diagrams can be detected automatically.
 - Mermaid safety rules are mandatory:
   - use plain ASCII text labels only
   - do not use Markdown formatting inside node labels: no backticks, bold, italics, or inline code
@@ -147,4 +148,5 @@ Before promotion:
 - If the need requires a non-trivial technical decision, write an ADR in `logics/architecture/` and reference it from the source doc before promotion.
 - For request docs, replace the default Mermaid scaffold with a diagram specific to the need before considering the request ready.
 - For backlog/task docs, replace the default Mermaid scaffold with a doc-specific diagram whenever the default no longer reflects the real flow.
+- Refresh the Mermaid block whenever the title, problem/need, acceptance criteria, plan, validation path, or source links change in a way that changes the delivery story.
 - Before finalizing any Mermaid diagram, sanity-check that the labels still obey the Mermaid safety rules above so previewers do not fall back to raw source rendering.
