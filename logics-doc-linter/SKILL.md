@@ -19,7 +19,10 @@ python3 logics/skills/logics-doc-linter/scripts/logics_lint.py --require-status
 - Required indicators:
   - requests: `From version`, `Understanding`, `Confidence`
   - backlog/tasks: plus `Progress`
-  - product briefs: `Date`, `Status`, related refs, `Reminder`
-  - architecture docs: `Date`, `Status`, `Drivers`, related refs, `Reminder`
+- product briefs: `Date`, `Status`, related refs, `Reminder`
+- architecture docs: `Date`, `Status`, `Drivers`, related refs, `Reminder`
 - `Status` value validation when present using the allowed values for each doc family.
 - Optional strict mode (`--require-status`) to enforce `Status` on every supported doc type.
+- For modified or untracked workflow docs (`request`, `backlog`, `task`):
+  - blocking errors for critical indicator placeholders such as `X.X.X` and `??%`
+  - warning-level reporting for leftover template filler text such as `Describe the need` or `Add context and constraints`

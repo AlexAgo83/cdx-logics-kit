@@ -192,6 +192,106 @@ class LogicsLintTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Logics lint: OK", result.stdout)
 
+    def test_untracked_workflow_doc_fails_on_critical_placeholder_indicators(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._init_git_repo(repo)
+            (repo / "logics" / "request").mkdir(parents=True)
+            (repo / "README.md").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "seed"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            request = repo / "logics" / "request" / "req_000_demo_ui.md"
+            request.write_text(
+                "\n".join(
+                    [
+                        "## req_000_demo_ui - Demo UI",
+                        "> From version: X.X.X",
+                        "> Status: Draft",
+                        "> Understanding: ??%",
+                        "> Confidence: ??%",
+                        "",
+                        "# Needs",
+                        "- Demo need",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("placeholder indicator: From version = X.X.X", result.stdout)
+            self.assertIn("placeholder indicator: Understanding = ??%", result.stdout)
+            self.assertIn("placeholder indicator: Confidence = ??%", result.stdout)
+
+    def test_untracked_workflow_doc_warns_on_template_filler_without_failing(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._init_git_repo(repo)
+            (repo / "logics" / "request").mkdir(parents=True)
+            (repo / "README.md").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "seed"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            request = repo / "logics" / "request" / "req_000_demo_ui.md"
+            request.write_text(
+                "\n".join(
+                    [
+                        "## req_000_demo_ui - Demo UI",
+                        "> From version: 1.10.5",
+                        "> Status: Draft",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "",
+                        "# Needs",
+                        "- Describe the need",
+                        "",
+                        "# Context",
+                        "Add context and constraints",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Logics lint: OK (warnings)", result.stdout)
+            self.assertIn("WARNING: contains template placeholder content", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

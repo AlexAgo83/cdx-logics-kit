@@ -56,6 +56,23 @@ KINDS = {
     ),
 }
 
+WORKFLOW_KINDS = {"request", "backlog", "task"}
+CRITICAL_INDICATOR_PLACEHOLDERS = {
+    "From version": {"X.X.X"},
+    "Understanding": {"??%"},
+    "Confidence": {"??%"},
+    "Progress": {"??%"},
+}
+TEMPLATE_PLACEHOLDER_SNIPPETS = (
+    "Describe the need",
+    "Add context and constraints",
+    "Describe the problem and user impact",
+    "Define an objective acceptance check",
+    "First implementation step",
+    "Second implementation step",
+    "Third implementation step",
+)
+
 
 def _find_repo_root(start: Path) -> Path:
     current = start.resolve()
@@ -111,6 +128,7 @@ def _git_modified_paths(repo_root: Path) -> set[Path]:
     for args in (
         ["diff", "--name-only", "--diff-filter=ACMRT"],
         ["diff", "--cached", "--name-only", "--diff-filter=ACMRT"],
+        ["ls-files", "--others", "--exclude-standard"],
     ):
         output = _run_git(repo_root, args)
         for line in output.splitlines():
@@ -118,6 +136,17 @@ def _git_modified_paths(repo_root: Path) -> set[Path]:
             if not line:
                 continue
             paths.add(Path(line))
+    return paths
+
+
+def _git_untracked_paths(repo_root: Path) -> set[Path]:
+    paths: set[Path] = set()
+    output = _run_git(repo_root, ["ls-files", "--others", "--exclude-standard"])
+    for line in output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        paths.add(Path(line))
     return paths
 
 
@@ -164,8 +193,9 @@ def _diff_is_status_only_normalization(repo_root: Path, rel_path: Path) -> bool:
     return saw_change
 
 
-def _lint_file(path: Path, kind: Kind, require_status: bool) -> list[str]:
+def _lint_file(path: Path, kind_name: str, kind: Kind, require_status: bool, check_changed_doc_rules: bool) -> tuple[list[str], list[str]]:
     issues: list[str] = []
+    warnings: list[str] = []
     name = path.name
     if not re.match(rf"^{re.escape(kind.prefix)}_\d{{3}}_[a-z0-9_]+\.md$", name):
         issues.append(f"bad filename: {name}")
@@ -197,7 +227,22 @@ def _lint_file(path: Path, kind: Kind, require_status: bool) -> list[str]:
             + ")"
         )
 
-    return issues
+    if check_changed_doc_rules and kind_name in WORKFLOW_KINDS:
+        for key, disallowed_values in CRITICAL_INDICATOR_PLACEHOLDERS.items():
+            if key not in kind.required_indicators:
+                continue
+            current = _indicator_value(lines, key)
+            if current in disallowed_values:
+                issues.append(f"placeholder indicator: {key} = {current}")
+
+        text = "\n".join(lines)
+        placeholder_hits = [snippet for snippet in TEMPLATE_PLACEHOLDER_SNIPPETS if snippet in text]
+        if placeholder_hits:
+            warnings.append(
+                "contains template placeholder content: " + ", ".join(sorted(set(placeholder_hits)))
+            )
+
+    return issues, warnings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -218,16 +263,24 @@ def main(argv: list[str]) -> int:
 
     repo_root = _find_repo_root(Path.cwd())
     all_issues: list[tuple[Path, list[str]]] = []
+    all_warnings: list[tuple[Path, list[str]]] = []
     modified_paths = _git_modified_paths(repo_root)
+    untracked_paths = _git_untracked_paths(repo_root)
 
-    for kind in KINDS.values():
+    for kind_name, kind in KINDS.items():
         directory = repo_root / kind.directory
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.md")):
-            issues = _lint_file(path, kind, require_status=args.require_status)
             rel_path = path.relative_to(repo_root)
-            if rel_path in modified_paths:
+            issues, warnings = _lint_file(
+                path,
+                kind_name,
+                kind,
+                require_status=args.require_status,
+                check_changed_doc_rules=rel_path in modified_paths,
+            )
+            if rel_path in modified_paths and rel_path not in untracked_paths:
                 required = set(kind.required_indicators)
                 if (
                     not _diff_has_indicator_changes(repo_root, rel_path, required)
@@ -239,15 +292,27 @@ def main(argv: list[str]) -> int:
                     )
             if issues:
                 all_issues.append((rel_path, issues))
+            if warnings:
+                all_warnings.append((rel_path, warnings))
+
+    if not all_issues and not all_warnings:
+        print("Logics lint: OK")
+        return 0
 
     if not all_issues:
-        print("Logics lint: OK")
+        print("Logics lint: OK (warnings)")
+        for path, warnings in all_warnings:
+            for warning in warnings:
+                print(f"- {path}: WARNING: {warning}")
         return 0
 
     print("Logics lint: FAILED")
     for path, issues in all_issues:
         for issue in issues:
             print(f"- {path}: {issue}")
+    for path, warnings in all_warnings:
+        for warning in warnings:
+            print(f"- {path}: WARNING: {warning}")
     return 1
 
 
