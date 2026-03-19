@@ -127,9 +127,9 @@ def _progress_bucket(value: str | None) -> str:
     if pct <= 0:
         return "0%"
     if pct < 50:
-        return "1–49%"
+        return "1-49%"
     if pct < 100:
-        return "50–99%"
+        return "50-99%"
     return "100%"
 
 
@@ -151,12 +151,12 @@ def _render_report(repo_root: Path, docs: list[DocInfo]) -> str:
     stale_indicator_docs = [d for d in docs if any(v == "??%" for v in d.indicators.values())]
 
     tasks = by_kind.get("task", [])
-    task_progress = {"(missing)": 0, "??%": 0, "0%": 0, "1–49%": 0, "50–99%": 0, "100%": 0, "(invalid)": 0}
+    task_progress = {"(missing)": 0, "??%": 0, "0%": 0, "1-49%": 0, "50-99%": 0, "100%": 0, "(invalid)": 0}
     for t in tasks:
         task_progress[_progress_bucket(t.indicators.get("Progress"))] += 1
 
     backlog = by_kind.get("item", [])
-    backlog_progress = {"(missing)": 0, "??%": 0, "0%": 0, "1–49%": 0, "50–99%": 0, "100%": 0, "(invalid)": 0}
+    backlog_progress = {"(missing)": 0, "??%": 0, "0%": 0, "1-49%": 0, "50-99%": 0, "100%": 0, "(invalid)": 0}
     for b in backlog:
         backlog_progress[_progress_bucket(b.indicators.get("Progress"))] += 1
 
@@ -209,7 +209,7 @@ def _render_report(repo_root: Path, docs: list[DocInfo]) -> str:
         lines.append("")
         lines.append("| Bucket | Count |")
         lines.append("|---|---:|")
-        for bucket in ("(missing)", "??%", "0%", "1–49%", "50–99%", "100%", "(invalid)"):
+        for bucket in ("(missing)", "??%", "0%", "1-49%", "50-99%", "100%", "(invalid)"):
             lines.append(f"| {bucket} | {task_progress[bucket]} |")
         lines.append("")
 
@@ -218,7 +218,7 @@ def _render_report(repo_root: Path, docs: list[DocInfo]) -> str:
         lines.append("")
         lines.append("| Bucket | Count |")
         lines.append("|---|---:|")
-        for bucket in ("(missing)", "??%", "0%", "1–49%", "50–99%", "100%", "(invalid)"):
+        for bucket in ("(missing)", "??%", "0%", "1-49%", "50-99%", "100%", "(invalid)"):
             lines.append(f"| {bucket} | {backlog_progress[bucket]} |")
         lines.append("")
 
@@ -226,8 +226,8 @@ def _render_report(repo_root: Path, docs: list[DocInfo]) -> str:
     lines.append("")
     lines.append("1. Replace template placeholders in active docs and remove `??%` indicators once the scope is understood.")
     lines.append("2. Ensure each backlog item has measurable acceptance criteria and a clear priority (Impact/Urgency).")
-    lines.append("3. Ensure each task has a step-by-step plan and at least 1–2 concrete validation commands.")
-    lines.append("4. Keep relationships explicit: link request → backlog → task (and spec when useful).")
+    lines.append("3. Ensure each task has a step-by-step plan and at least 1-2 concrete validation commands.")
+    lines.append("4. Keep relationships explicit: link request -> backlog -> task (and spec when useful).")
     lines.append("5. Generate supporting views when the doc set grows: `logics/INDEX.md` + `logics/RELATIONSHIPS.md`.")
     lines.append("")
 
