@@ -13,8 +13,25 @@ claude mcp add chrome-devtools npx chrome-devtools-mcp@latest
 ```
 
 ## VS Code
+
+Preferred path: if you are not sure which shell quoting rules apply, add the MCP server through the VS Code MCP UI or settings JSON instead of the CLI.
+
+POSIX shell:
+
 ```bash
 code --add-mcp '{"name":"chrome-devtools","command":"npx","args":["-y","chrome-devtools-mcp@latest"]}'
+```
+
+PowerShell:
+
+```powershell
+code --add-mcp '{"name":"chrome-devtools","command":"npx","args":["-y","chrome-devtools-mcp@latest"]}'
+```
+
+`cmd.exe`:
+
+```cmd
+code --add-mcp "{\"name\":\"chrome-devtools\",\"command\":\"npx\",\"args\":[\"-y\",\"chrome-devtools-mcp@latest\"]}"
 ```
 
 ## Amp

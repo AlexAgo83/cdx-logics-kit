@@ -13,8 +13,25 @@ claude mcp add terminal npx -y @modelcontextprotocol/server-shell
 ```
 
 ## VS Code
+
+Preferred path: if you are not sure which shell quoting rules apply, add the MCP server through the VS Code MCP UI or settings JSON instead of the CLI.
+
+POSIX shell:
+
 ```bash
 code --add-mcp '{"name":"terminal","command":"npx","args":["-y","@modelcontextprotocol/server-shell"]}'
+```
+
+PowerShell:
+
+```powershell
+code --add-mcp '{"name":"terminal","command":"npx","args":["-y","@modelcontextprotocol/server-shell"]}'
+```
+
+`cmd.exe`:
+
+```cmd
+code --add-mcp "{\"name\":\"terminal\",\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-shell\"]}"
 ```
 
 ## Amp

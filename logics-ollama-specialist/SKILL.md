@@ -5,6 +5,12 @@ description: Install, configure, and integrate Ollama in local apps (macOS/Homeb
 
 # Logics Ollama Specialist
 
+Platform scope:
+
+- `ollama_install_macos.sh` is intentionally macOS-specific.
+- `ollama_check.sh` is a POSIX-shell helper and should not be treated as a Windows workflow entrypoint.
+- On Windows, follow the Ollama product's native install path first, then adapt the integration guidance in `references/`.
+
 ## Quick start
 
 1) Clarify OS, target model, and whether Ollama should run locally or on another host.
@@ -12,7 +18,7 @@ description: Install, configure, and integrate Ollama in local apps (macOS/Homeb
 3) If the app is a frontend, prefer a same-origin proxy (`/ollama/*`) to avoid CORS.
 4) If LAN URL causes 403, remove `Origin` in the proxy or set `OLLAMA_ORIGINS`.
 
-## Install Ollama (macOS)
+## Install Ollama (macOS-only helper)
 
 - Ask for explicit approval before running installs.
 - Use the script for safe/consistent setup:
@@ -121,8 +127,8 @@ See `references/pwa-vite.md`.
 ## Resources
 
 ### scripts/
-- `ollama_check.sh`: Verify `ollama`, Node, and basic `/api/version` reachability.
-- `ollama_install_macos.sh`: Install/start Ollama with an optional model (supports `DRY_RUN=1`).
+- `ollama_check.sh`: POSIX-shell helper to verify `ollama`, Node, and basic `/api/version` reachability.
+- `ollama_install_macos.sh`: macOS-only helper to install/start Ollama with an optional model (supports `DRY_RUN=1`).
 
 ### references/
 - `ollama-integration.md`: Proxy/CORS/Origin fixes, env vars, and endpoint notes.
