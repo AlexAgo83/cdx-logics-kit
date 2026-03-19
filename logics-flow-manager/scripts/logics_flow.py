@@ -146,7 +146,7 @@ def cmd_close(args: argparse.Namespace) -> None:
     _close_doc(source_path, kind, args.dry_run)
     print(f"Closed {kind.kind}: {source_path.relative_to(repo_root)}")
 
-    text = source_path.read_text(encoding="utf-8")
+    text = _strip_mermaid_blocks(source_path.read_text(encoding="utf-8"))
     processed_request_refs: set[str] = set()
 
     if kind.kind == "task":
@@ -161,7 +161,7 @@ def cmd_close(args: argparse.Namespace) -> None:
                     _close_doc(item_path, DOC_KINDS["backlog"], args.dry_run)
                     print(f"Auto-closed backlog item {item_ref} (all linked tasks are done).")
 
-            item_text = item_path.read_text(encoding="utf-8")
+            item_text = _strip_mermaid_blocks(item_path.read_text(encoding="utf-8"))
             for request_ref in sorted(_extract_refs(item_text, REF_PREFIXES["request"])):
                 if request_ref in processed_request_refs:
                     continue
@@ -183,7 +183,7 @@ def cmd_close(args: argparse.Namespace) -> None:
 def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
     issues: list[str] = []
     task_ref = task_path.stem
-    task_text = task_path.read_text(encoding="utf-8")
+    task_text = _strip_mermaid_blocks(task_path.read_text(encoding="utf-8"))
     item_refs = sorted(_extract_refs(task_text, REF_PREFIXES["backlog"]))
 
     if not item_refs:
@@ -198,7 +198,7 @@ def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
         if not _is_doc_done(item_path, DOC_KINDS["backlog"]):
             issues.append(f"linked backlog item `{item_ref}` is not closed after finishing task `{task_ref}`")
 
-        item_text = item_path.read_text(encoding="utf-8")
+        item_text = _strip_mermaid_blocks(item_path.read_text(encoding="utf-8"))
         request_refs = sorted(_extract_refs(item_text, REF_PREFIXES["request"]))
         if not request_refs:
             issues.append(f"linked backlog item `{item_ref}` has no request reference")
@@ -225,7 +225,7 @@ def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
 
 def _record_finished_task_follow_up(repo_root: Path, task_path: Path, dry_run: bool) -> None:
     task_ref = task_path.stem
-    task_text = task_path.read_text(encoding="utf-8")
+    task_text = _strip_mermaid_blocks(task_path.read_text(encoding="utf-8"))
     item_refs = sorted(_extract_refs(task_text, REF_PREFIXES["backlog"]))
     request_refs: set[str] = set()
 
@@ -233,7 +233,7 @@ def _record_finished_task_follow_up(repo_root: Path, task_path: Path, dry_run: b
         item_path = _resolve_doc_path(repo_root, DOC_KINDS["backlog"], item_ref)
         if item_path is None:
             continue
-        item_text = item_path.read_text(encoding="utf-8")
+        item_text = _strip_mermaid_blocks(item_path.read_text(encoding="utf-8"))
         request_refs.update(_extract_refs(item_text, REF_PREFIXES["request"]))
         _append_section_bullets(
             item_path,
