@@ -5,12 +5,15 @@ description: Triage raw ideas into the Logics flow. Use when a user drops an uns
 
 # Triage → Request
 
+Examples use `python ...` as the canonical cross-platform launcher.
+If your environment only exposes `python3` or `py -3`, substitute that launcher.
+
 ## Do
 
 - Ask 3–7 clarifying questions (user, problem, constraints, success signal, urgency).
 - Decide whether this is a request, a bug report, or an architecture note.
 - Create a request doc using `logics-flow-manager`:
-  - `python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "..."`.
+  - `python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "..."`.
 - Fill `# Needs` with 1–5 bullet needs.
 - Fill `# Context` with constraints, references, and any relevant links.
 - Set `Understanding` and `Confidence` realistically; keep them updated as you learn.
@@ -19,4 +22,3 @@ description: Triage raw ideas into the Logics flow. Use when a user drops an uns
 
 - Writing tasks before the request is clear.
 - Mixing multiple unrelated needs in a single request (split if needed).
-

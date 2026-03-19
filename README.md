@@ -60,16 +60,19 @@ If your shell only exposes `python3` (common on macOS/Linux) or `py -3` (common 
 
 In a new project repo:
 
-```bash
-mkdir -p logics
-git submodule add -b main git@github.com:AlexAgo83/cdx-logics-kit.git logics/skills
-git submodule update --init --recursive
-```
+Create a `logics/` folder first if it does not already exist. Use your shell or file explorer; the exact command depends on the shell (`mkdir logics` in PowerShell or `mkdir -p logics` in POSIX shells).
 
-HTTPS variant:
+Preferred cross-platform submodule path:
 
 ```bash
 git submodule add -b main https://github.com/AlexAgo83/cdx-logics-kit.git logics/skills
+git submodule update --init --recursive
+```
+
+SSH variant (only if your environment is already configured for Git-over-SSH):
+
+```bash
+git submodule add -b main git@github.com:AlexAgo83/cdx-logics-kit.git logics/skills
 git submodule update --init --recursive
 ```
 
@@ -100,10 +103,7 @@ python logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title
 For backlog/task docs, `logics_flow.py` now evaluates product and architecture signals and writes a `# Decision framing` section. The detection is advisory by default and can auto-create companion docs when the signal is strong:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog \
-  --title "Checkout auth migration" \
-  --auto-create-product-brief \
-  --auto-create-adr
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "Checkout auth migration" --auto-create-product-brief --auto-create-adr
 ```
 
 Create a product brief in `logics/product` when the subject needs a non-technical framing artifact:
@@ -115,11 +115,7 @@ python logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --
 You can attach the primary linked workflow docs at creation time:
 
 ```bash
-python logics/skills/logics-product-brief-writer/scripts/new_product_brief.py \
-  --title "Guest checkout framing" \
-  --request req_001_guest_checkout \
-  --backlog item_002_guest_checkout \
-  --architecture adr_004_checkout_strategy
+python logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing" --request req_001_guest_checkout --backlog item_002_guest_checkout --architecture adr_004_checkout_strategy
 ```
 
 Create an architecture decision in `logics/architecture` when the subject needs a structural technical decision:
@@ -131,11 +127,7 @@ python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --ti
 You can attach the linked primary-flow docs at creation time:
 
 ```bash
-python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py \
-  --title "Choose cache strategy" \
-  --request req_001_guest_checkout \
-  --backlog item_002_guest_checkout \
-  --task task_003_checkout_cache
+python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy" --request req_001_guest_checkout --backlog item_002_guest_checkout --task task_003_checkout_cache
 ```
 
 Create a functional spec in `logics/specs`:

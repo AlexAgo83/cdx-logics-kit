@@ -5,6 +5,9 @@ description: Break down a Logics backlog item into executable tasks. Use when Co
 
 # Backlog → Tasks
 
+Examples use `python ...` as the canonical cross-platform launcher.
+If your environment only exposes `python3` or `py -3`, substitute that launcher.
+
 ## Do
 
 - Start from the backlog item’s acceptance criteria; group work by deliverable.
@@ -15,8 +18,8 @@ description: Break down a Logics backlog item into executable tasks. Use when Co
   - A `# Validation` section using relevant commands (`npm run lint`, `npm run tests`, `npm run typecheck`, `npm run build`).
   - A short `# Report` updated as work progresses.
 - Generate tasks:
-  - `python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/<item_file>.md`
-  - Or `python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "..."`
+  - `python logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/<item_file>.md`
+  - Or `python logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "..."`
 
 ## Avoid
 

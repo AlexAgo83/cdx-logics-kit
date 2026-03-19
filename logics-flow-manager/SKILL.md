@@ -32,43 +32,43 @@ description: Manage this repository's Logics workflow (logics/request → logics
 
 If unsure, open `logics/instructions.md` and follow the workflow described there.
 
+Command examples below use `python ...` as the canonical cross-platform launcher.
+If your environment only exposes `python3` or `py -3`, substitute that launcher.
+
 ## Create a new doc (recommended)
 
 Use the generator script (picks the next available ID, creates a file from templates):
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "Offline recap UI"
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "Offline recap UI"
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement offline recap UI"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "Offline recap UI"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "Offline recap UI"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement offline recap UI"
 ```
 
 After creation, run **logics-confidence-booster** to raise Understanding/Confidence above 90%:
 
 ```bash
-python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
-python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/backlog/item_002_example.md
-python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/tasks/task_003_example.md
+python logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
+python logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/backlog/item_002_example.md
+python logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/tasks/task_003_example.md
 ```
 
 When a request or backlog item surfaces a structuring product choice, create a product brief before or alongside promotion:
 
 ```bash
-python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing" --out-dir logics/product
+python logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing" --out-dir logics/product
 ```
 
 When a backlog item surfaces a structuring technical choice, create an ADR/DAT:
 
 ```bash
-python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy" --out-dir logics/architecture
+python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy" --out-dir logics/architecture
 ```
 
 For backlog/task creation or promotion, the script now auto-detects product and architecture signals and writes a `# Decision framing` section in generated docs. It stays advisory by default and can auto-create the companion docs when you opt in:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog \
-  --title "Checkout auth migration" \
-  --auto-create-product-brief \
-  --auto-create-adr
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "Checkout auth migration" --auto-create-product-brief --auto-create-adr
 ```
 
 Optional flags:
@@ -87,8 +87,8 @@ Optional flags:
 Create the next-stage doc and link back to the source:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_offline_recap_ui.md
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_offline_recap_ui.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_offline_recap_ui.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_offline_recap_ui.md
 ```
 
 The promotion flow seeds more of the next-stage document automatically:
@@ -101,22 +101,22 @@ The promotion flow seeds more of the next-stage document automatically:
 Split a broad request/backlog item into several executable children:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_example.md --title "Slice A" --title "Slice B"
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_example.md --title "Task A" --title "Task B"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_example.md --title "Slice A" --title "Slice B"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_example.md --title "Task A" --title "Task B"
 ```
 
 Close docs with automatic transition propagation:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_example.md
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_example.md
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_example.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_example.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_example.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_example.md
 ```
 
 When a task is actually finished, prefer the kit-native guarded flow instead of editing indicators manually:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_example.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_example.md
 ```
 
 `finish task` closes the task, propagates closure to linked backlog/request docs when eligible, verifies that the linked chain stayed synchronized, appends finish/report evidence to the task, and leaves a completion note in linked backlog items. Use `close` only when you explicitly want the lower-level primitive.
@@ -124,14 +124,14 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task log
 Run workflow coherence audit:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --stale-days 30
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_example
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --stale-days 30
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_example
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
 ```
 
 After promotion:

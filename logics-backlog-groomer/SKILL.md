@@ -5,6 +5,9 @@ description: Groom and promote a Logics request into a backlog item. Use when a 
 
 # Request → Backlog
 
+Examples use `python ...` as the canonical cross-platform launcher.
+If your environment only exposes `python3` or `py -3`, substitute that launcher.
+
 ## Do
 
 - Read the source request and extract: problem, users impacted, constraints, and success signal.
@@ -12,10 +15,9 @@ description: Groom and promote a Logics request into a backlog item. Use when a 
 - Write objective `# Acceptance criteria` (testable checks).
 - Set `# Priority` (Impact/Urgency) and add dependencies/risks in `# Notes`.
 - Create the backlog doc:
-  - `python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/<req_file>.md`
-  - Or `python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "..."`
+  - `python logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/<req_file>.md`
+  - Or `python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "..."`
 
 ## Outcome
 
 A backlog item is “ready” when an engineer could implement it without guessing the intended behavior.
-
