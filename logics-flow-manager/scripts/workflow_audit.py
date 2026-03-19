@@ -113,6 +113,7 @@ def _parse_semver(value: str | None) -> tuple[int, int, int] | None:
 
 
 def _extract_refs(text: str, prefix: str) -> set[str]:
+    text = re.sub(r"```mermaid\s*\n.*?\n```", "", text, flags=re.DOTALL)
     pattern = re.compile(rf"\b{re.escape(prefix)}_\d{{3}}_[a-z0-9_]+\b")
     return {m.group(0) for m in pattern.finditer(text)}
 
