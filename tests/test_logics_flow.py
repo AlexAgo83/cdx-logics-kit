@@ -251,6 +251,72 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("- Product brief(s): `prod_000_checkout_auth_migration`", backlog_text)
             self.assertIn("- Architecture decision(s): `adr_000_checkout_auth_migration`", backlog_text)
 
+    def test_new_request_recreates_missing_request_directory(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir()
+            self.assertFalse((repo / "logics" / "request").exists())
+
+            result = subprocess.run(
+                [sys.executable, str(script), "new", "request", "--title", "Recovered request directory"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            request_files = sorted((repo / "logics" / "request").glob("req_*.md"))
+            self.assertEqual(len(request_files), 1)
+            self.assertTrue(request_files[0].is_file())
+
+    def test_new_backlog_recreates_missing_backlog_directory(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir()
+            self.assertFalse((repo / "logics" / "backlog").exists())
+
+            result = subprocess.run(
+                [sys.executable, str(script), "new", "backlog", "--title", "Recovered backlog directory"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            backlog_files = sorted((repo / "logics" / "backlog").glob("item_*.md"))
+            self.assertEqual(len(backlog_files), 1)
+            self.assertTrue(backlog_files[0].is_file())
+
+    def test_new_task_recreates_missing_task_directory(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir()
+            self.assertFalse((repo / "logics" / "tasks").exists())
+
+            result = subprocess.run(
+                [sys.executable, str(script), "new", "task", "--title", "Recovered task directory"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            task_files = sorted((repo / "logics" / "tasks").glob("task_*.md"))
+            self.assertEqual(len(task_files), 1)
+            self.assertTrue(task_files[0].is_file())
+
     def test_request_to_backlog_updates_request_companion_section(self) -> None:
         script = self._script()
 

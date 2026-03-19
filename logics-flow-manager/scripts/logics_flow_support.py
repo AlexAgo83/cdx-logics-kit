@@ -107,6 +107,8 @@ def _next_id(directory: Path, prefix: str) -> int:
 
 def _reserve_doc(directory: Path, prefix: str, title: str, dry_run: bool) -> PlannedDoc:
     slug = _slugify(title)
+    # Treat missing workflow stage directories as an intentional self-healing case
+    # for partially bootstrapped repos where the kit and flow manager are present.
     directory.mkdir(parents=True, exist_ok=True)
 
     for _ in range(50):
