@@ -22,14 +22,22 @@ Keep contributions aligned with that purpose:
 
 Run the checks that match the area you changed:
 
+Canonical examples use `python ...` as the cross-platform launcher.
+If your environment only exposes `python3` or `py -3`, substitute that launcher.
+
 ```bash
-python3 -m unittest discover -s tests -p "test_*.py" -v
-python3 tests/run_cli_smoke_checks.py
-python3 logics-version-changelog-manager/scripts/generate_version_changelog.py --out /tmp/CHANGELOGS_PREVIEW.md --overwrite
-python3 logics-version-release-manager/scripts/publish_version_release.py --dry-run
+python -m unittest discover -s tests -p "test_*.py" -v
+python tests/run_cli_smoke_checks.py
+python logics-version-changelog-manager/scripts/generate_version_changelog.py --out changelogs/CHANGELOGS_PREVIEW.md --overwrite
+python logics-version-release-manager/scripts/publish_version_release.py --dry-run
 ```
 
 If you modify a specific connector or helper, also run a targeted smoke check for that script.
+
+Line endings:
+
+- Let Git handle `CRLF`/`LF` conversion through the repository attributes instead of manually rewriting generated Markdown or YAML files on Windows.
+- Prefer repository-relative temp or preview paths in docs and examples when the exact OS temp directory is not important.
 
 ## Documentation expectations
 

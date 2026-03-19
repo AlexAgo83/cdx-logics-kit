@@ -49,7 +49,7 @@ class VersionReleaseManagerTest(unittest.TestCase):
     def test_build_release_commands(self) -> None:
         commands = self.module.build_release_commands(
             version="1.0.1",
-            notes_file=Path("/tmp/CHANGELOGS_1_0_1.md"),
+            notes_file=Path("changelogs/CHANGELOGS_1_0_1.md"),
             title="Stable v1.0.1",
             create_tag=True,
             push=True,
