@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 from __future__ import annotations
 
 import argparse
@@ -233,10 +233,10 @@ def _render_report(repo_root: Path, docs: list[DocInfo]) -> str:
 
     lines.append("## Suggested commands")
     lines.append("")
-    lines.append("- `python3 logics/skills/logics-doc-linter/scripts/logics_lint.py`")
-    lines.append("- `python3 logics/skills/logics-indexer/scripts/generate_index.py --out logics/INDEX.md`")
-    lines.append("- `python3 logics/skills/logics-relationship-linker/scripts/link_relations.py --out logics/RELATIONSHIPS.md`")
-    lines.append("- `python3 logics/skills/logics-duplicate-detector/scripts/find_duplicates.py --min-score 0.55`")
+    lines.append("- `python logics/skills/logics-doc-linter/scripts/logics_lint.py`")
+    lines.append("- `python logics/skills/logics-indexer/scripts/generate_index.py --out logics/INDEX.md`")
+    lines.append("- `python logics/skills/logics-relationship-linker/scripts/link_relations.py --out logics/RELATIONSHIPS.md`")
+    lines.append("- `python logics/skills/logics-duplicate-detector/scripts/find_duplicates.py --min-score 0.55`")
     lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

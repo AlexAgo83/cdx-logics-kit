@@ -50,8 +50,11 @@ Related project (VS Code extension for Logics): `https://github.com/AlexAgo83/cd
 
 ## Prerequisites
 
-- `python3` (scripts are stdlib-based except explicit optional tools such as mockup generation)
+- Python 3 available on your `PATH`
 - `git`
+
+Canonical examples below use `python ...` as the cross-platform entrypoint.
+If your shell only exposes `python3` (common on macOS/Linux) or `py -3` (common on Windows), substitute that launcher.
 
 ## Install (recommended: submodule)
 
@@ -73,25 +76,31 @@ git submodule update --init --recursive
 Then bootstrap the Logics tree (creates missing folders + `.gitkeep`, and a default `logics/instructions.md` if missing):
 
 ```bash
-python3 logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py
+python logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py
 ```
 
 ## Usage (inside the project repo)
+
+The same launcher rule applies throughout:
+
+- preferred documented form: `python ...`
+- substitute `python3 ...` if your Unix environment does not expose `python`
+- substitute `py -3 ...` on Windows if that is the installed Python launcher
 
 ### Create workflow docs
 
 Create a request, backlog item, or task with auto-incremented IDs:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "My first need"
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "My first need"
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement my first need"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "My first need"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "My first need"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement my first need"
 ```
 
 For backlog/task docs, `logics_flow.py` now evaluates product and architecture signals and writes a `# Decision framing` section. The detection is advisory by default and can auto-create companion docs when the signal is strong:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog \
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog \
   --title "Checkout auth migration" \
   --auto-create-product-brief \
   --auto-create-adr
@@ -100,13 +109,13 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog \
 Create a product brief in `logics/product` when the subject needs a non-technical framing artifact:
 
 ```bash
-python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing"
+python logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing"
 ```
 
 You can attach the primary linked workflow docs at creation time:
 
 ```bash
-python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py \
+python logics/skills/logics-product-brief-writer/scripts/new_product_brief.py \
   --title "Guest checkout framing" \
   --request req_001_guest_checkout \
   --backlog item_002_guest_checkout \
@@ -116,13 +125,13 @@ python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py \
 Create an architecture decision in `logics/architecture` when the subject needs a structural technical decision:
 
 ```bash
-python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy"
+python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy"
 ```
 
 You can attach the linked primary-flow docs at creation time:
 
 ```bash
-python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py \
+python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py \
   --title "Choose cache strategy" \
   --request req_001_guest_checkout \
   --backlog item_002_guest_checkout \
@@ -132,7 +141,7 @@ python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py \
 Create a functional spec in `logics/specs`:
 
 ```bash
-python3 logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.3
+python logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.3
 ```
 
 Status model used by generated docs:
@@ -156,8 +165,8 @@ Metadata contract for normalized workflow docs:
 ### Promote between stages
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_my_first_need.md
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_my_first_need.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_my_first_need.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_my_first_need.md
 ```
 
 Promotion now carries forward more of the source doc instead of leaving mostly empty templates:
@@ -173,8 +182,8 @@ Promotion now carries forward more of the source doc instead of leaving mostly e
 Use `split` when one source doc should produce several executable children instead of one oversized backlog item or task:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_my_first_need.md --title "Delivery slice A" --title "Delivery slice B"
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_my_first_need.md --title "Implementation slice A" --title "Implementation slice B"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_my_first_need.md --title "Delivery slice A" --title "Delivery slice B"
+python logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_my_first_need.md --title "Implementation slice A" --title "Implementation slice B"
 ```
 
 ### Finish and close docs
@@ -182,7 +191,7 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog l
 When a task is actually completed, use the guarded finish flow:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_implement_my_first_need.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_implement_my_first_need.md
 ```
 
 `finish task` is the recommended path because it closes the task, propagates closure to linked backlog/request docs when eligible, verifies the linked chain, appends finish/report evidence to the task, and leaves a completion note on linked backlog items.
@@ -190,15 +199,15 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py finish task log
 Lower-level close commands are still available when you explicitly want the primitive transition commands:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_implement_my_first_need.md
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_my_first_need.md
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_my_first_need.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_implement_my_first_need.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_my_first_need.md
+python logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_my_first_need.md
 ```
 
 ### Sync workflow state
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-eligible-requests
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-eligible-requests
 ```
 
 ### Audit workflow coherence
@@ -206,13 +215,13 @@ python3 logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-elig
 Audit closure consistency, orphan items, stale pending docs, acceptance-criteria traceability, and DoR/DoD gates:
 
 ```bash
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_my_first_need
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
-python3 logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_my_first_need
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
 ```
 
 Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
@@ -222,7 +231,7 @@ Note: request → backlog promotion should keep cross‑references in sync (back
 Check Logics conventions:
 
 ```bash
-python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
+python logics/skills/logics-doc-linter/scripts/logics_lint.py
 ```
 
 ### Run kit tests
@@ -230,13 +239,13 @@ python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
 Run Python tests for the kit:
 
 ```bash
-python3 -m unittest discover -s logics/skills/tests -p "test_*.py" -v
+python -m unittest discover -s logics/skills/tests -p "test_*.py" -v
 ```
 
 Run CLI smoke checks against a temporary imported-project fixture:
 
 ```bash
-python3 logics/skills/tests/run_cli_smoke_checks.py
+python logics/skills/tests/run_cli_smoke_checks.py
 ```
 
 ## Versioning and releases
@@ -253,13 +262,13 @@ Versioned release notes live in [`changelogs/`](changelogs/):
 Generate or refresh the changelog for the current version:
 
 ```bash
-python3 logics/skills/logics-version-changelog-manager/scripts/generate_version_changelog.py
+python logics/skills/logics-version-changelog-manager/scripts/generate_version_changelog.py
 ```
 
 Dry-run the GitHub release flow from the current `VERSION` and matching `changelogs/` entry:
 
 ```bash
-python3 logics/skills/logics-version-release-manager/scripts/publish_version_release.py --dry-run
+python logics/skills/logics-version-release-manager/scripts/publish_version_release.py --dry-run
 ```
 
 ## Indicators
@@ -297,13 +306,13 @@ Prereqs: `LINEAR_API_KEY` (and optionally `LINEAR_API_URL`, `LINEAR_API_TEAM_ID`
 List issues:
 
 ```bash
-python3 logics/skills/logics-connector-linear/scripts/linear_list_issues.py --team-id "$LINEAR_API_TEAM_ID"
+python logics/skills/logics-connector-linear/scripts/linear_list_issues.py --team-id "$LINEAR_API_TEAM_ID"
 ```
 
 Import an issue as a backlog item:
 
 ```bash
-python3 logics/skills/logics-connector-linear/scripts/linear_to_backlog.py --issue "CIR-42"
+python logics/skills/logics-connector-linear/scripts/linear_to_backlog.py --issue "CIR-42"
 ```
 
 ### Figma connector (nodes → export / Logics backlog)
@@ -313,13 +322,13 @@ Prereqs: `FIGMA_TOKEN_PAT` (header `X-Figma-Token`) and a `FIGMA_FILE_KEY`.
 List pages:
 
 ```bash
-python3 logics/skills/logics-connector-figma/scripts/figma_list_pages.py --file-key "$FIGMA_FILE_KEY"
+python logics/skills/logics-connector-figma/scripts/figma_list_pages.py --file-key "$FIGMA_FILE_KEY"
 ```
 
 Export a node as PNG:
 
 ```bash
-python3 logics/skills/logics-connector-figma/scripts/figma_export_node.py \
+python logics/skills/logics-connector-figma/scripts/figma_export_node.py \
   --file-key "$FIGMA_FILE_KEY" --node-id "1744:4185" --format png --scale 2 \
   --out "output/figma/weekly.png"
 ```
@@ -327,7 +336,7 @@ python3 logics/skills/logics-connector-figma/scripts/figma_export_node.py \
 Import a node reference as a backlog item:
 
 ```bash
-python3 logics/skills/logics-connector-figma/scripts/figma_to_backlog.py \
+python logics/skills/logics-connector-figma/scripts/figma_to_backlog.py \
   --file-key "$FIGMA_FILE_KEY" --node-id "1744:4185" --export
 ```
 
@@ -338,14 +347,14 @@ Prereqs: `CONFLUENCE_DOMAIN` (preferred, `CONFLUENCE_DOMAINE` legacy alias is al
 Search pages (CQL):
 
 ```bash
-python3 logics/skills/logics-connector-confluence/scripts/confluence_search_pages.py \
+python logics/skills/logics-connector-confluence/scripts/confluence_search_pages.py \
   --cql "space=dt AND text~\\\"flotauto\\\"" --limit 10
 ```
 
 Import a page as a request (stores Confluence HTML as context):
 
 ```bash
-python3 logics/skills/logics-connector-confluence/scripts/confluence_to_request.py --page-id 234913873
+python logics/skills/logics-connector-confluence/scripts/confluence_to_request.py --page-id 234913873
 ```
 
 ### Jira connector (issues → Logics backlog)
@@ -355,14 +364,14 @@ Prereqs: `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`.
 Search issues (JQL):
 
 ```bash
-python3 logics/skills/logics-connector-jira/scripts/jira_search_issues.py \
+python logics/skills/logics-connector-jira/scripts/jira_search_issues.py \
   --jql "project = CIR ORDER BY created DESC" --limit 20
 ```
 
 Import an issue as a backlog item:
 
 ```bash
-python3 logics/skills/logics-connector-jira/scripts/jira_to_backlog.py --issue "CIR-123"
+python logics/skills/logics-connector-jira/scripts/jira_to_backlog.py --issue "CIR-123"
 ```
 
 ### Render connector (services/deploys/plans → Logics backlog)
@@ -372,29 +381,29 @@ Prereqs: `RENDER_API_KEY` (Bearer API key). Optional: `RENDER_API_BASE_URL`, `RE
 List services:
 
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_list_services.py --limit 100
+python logics/skills/logics-connector-render/scripts/render_list_services.py --limit 100
 ```
 
 List deploys for a service:
 
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_list_deploys.py --service-id srv-xxxxxxxx --limit 20
+python logics/skills/logics-connector-render/scripts/render_list_deploys.py --service-id srv-xxxxxxxx --limit 20
 ```
 
 Manage deployment plans:
 
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py show-plans
-python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py snapshot \
+python logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py show-plans
+python logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py snapshot \
   --out logics/external/render/render_deployment_plan.snapshot.json
-python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py apply \
+python logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py apply \
   --plan-file logics/external/render/render_deployment_plan.snapshot.json --validate-only
 ```
 
 Import a Render service context as a backlog item:
 
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_to_backlog.py --service-id srv-xxxxxxxx
+python logics/skills/logics-connector-render/scripts/render_to_backlog.py --service-id srv-xxxxxxxx
 ```
 
 ## MCP
@@ -496,7 +505,7 @@ logics/skills/logics-ui-steering/SKILL.md
 Generate quick PNG UI mockups under `logics/external/mockup/`:
 
 ```bash
-python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+python logics/skills/logics-mockup-generator/scripts/mockup.py \
   --out logics/external/mockup/dashboard-mock.png
 ```
 
@@ -505,7 +514,7 @@ python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
 Raise Understanding/Confidence by asking clarifying questions and updating indicators:
 
 ```bash
-python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
+python logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
 ```
 
 ## Doc fixer
@@ -513,6 +522,6 @@ python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logi
 Validate + repair structure, indicators, and request/backlog/task/product/architecture references:
 
 ```bash
-python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py
-python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py --write
+python logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py
+python logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py --write
 ```

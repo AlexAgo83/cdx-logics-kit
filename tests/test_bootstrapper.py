@@ -30,6 +30,9 @@ class BootstrapperTest(unittest.TestCase):
             self.assertIn("* `logics/product`: Product briefs and product decision framing docs.", instructions)
             self.assertIn("Use the following indicators in product briefs:", instructions)
             self.assertIn("Use the following indicators in architecture docs:", instructions)
+            self.assertIn("Canonical examples use `python ...`;", instructions)
+            self.assertIn("`python logics/skills/logics-flow-manager/scripts/logics_flow.py`", instructions)
+            self.assertNotIn("python3 logics/skills/", instructions)
 
 
 if __name__ == "__main__":
