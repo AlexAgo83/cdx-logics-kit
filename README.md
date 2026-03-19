@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
-  <img src="https://img.shields.io/badge/version-v1.0.3-4C8BF5" alt="Version" />
+  <img src="https://img.shields.io/badge/version-v1.0.4-4C8BF5" alt="Version" />
   <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/workflow-request--backlog--task--spec-2EA44F" alt="Workflow" />
   <img src="https://img.shields.io/badge/AI-context%20memory-FFB000" alt="AI Context Memory" />
@@ -133,7 +133,7 @@ python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --ti
 Create a functional spec in `logics/specs`:
 
 ```bash
-python logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.3
+python logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "My first spec" --from-version 1.0.4
 ```
 
 Status model used by generated docs:
@@ -246,6 +246,7 @@ The canonical kit version lives in [`VERSION`](VERSION).
 
 Versioned release notes live in [`changelogs/`](changelogs/):
 
+- [`changelogs/CHANGELOGS_1_0_4.md`](changelogs/CHANGELOGS_1_0_4.md)
 - [`changelogs/CHANGELOGS_1_0_3.md`](changelogs/CHANGELOGS_1_0_3.md)
 - [`changelogs/CHANGELOGS_1_0_2.md`](changelogs/CHANGELOGS_1_0_2.md)
 - [`changelogs/CHANGELOGS_1_0_1.md`](changelogs/CHANGELOGS_1_0_1.md)
@@ -468,10 +469,10 @@ Pin to a tag (recommended if you want controlled upgrades):
 ```bash
 cd logics/skills
 git fetch --tags
-git checkout v1.0.3
+git checkout v1.0.4
 cd -
 git add logics/skills
-git commit -m "Pin Logics kit to v1.0.3"
+git commit -m "Pin Logics kit to v1.0.4"
 ```
 
 ## Notes
