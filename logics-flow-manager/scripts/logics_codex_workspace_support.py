@@ -494,7 +494,12 @@ def status_for_repo(repo_root: Path) -> dict[str, Any]:
 
     status = "healthy"
     if issues:
-        status = "broken" if manifest is None else "stale"
+        if manifest is None and not overlay_root.exists():
+            status = "missing"
+        elif manifest is None:
+            status = "broken"
+        else:
+            status = "stale"
     elif warnings:
         status = "warning"
 
@@ -505,6 +510,7 @@ def status_for_repo(repo_root: Path) -> dict[str, Any]:
         "overlay_root": identity.overlay_root,
         "codex_home": identity.codex_home,
         "status": status,
+        "publication_mode": manifest.get("publication_mode") if isinstance(manifest, dict) else None,
         "issues": issues,
         "warnings": warnings,
         "repo_skill_names": repo_skill_names,
@@ -538,6 +544,7 @@ def status_for_registry_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "overlay_root": str(overlay_root),
         "codex_home": str(entry.get("codex_home", overlay_root)),
         "status": status,
+        "publication_mode": manifest.get("publication_mode") if isinstance(manifest, dict) else None,
         "issues": issues,
         "warnings": warnings,
         "manifest_present": manifest is not None,
@@ -665,4 +672,3 @@ def ensure_command_payload(command: Sequence[str]) -> list[str]:
 def fail_if_windows_junction_requested_on_non_windows(mode: str) -> None:
     if mode == "junction" and os.name != "nt":
         raise SystemExit("`junction` publication mode is only supported on Windows.")
-

@@ -213,6 +213,104 @@ class CodexWorkspaceOverlayTest(unittest.TestCase):
             self.assertEqual(skill_a.read_text(encoding="utf-8"), "# repo a skill\n")
             self.assertEqual(skill_b.read_text(encoding="utf-8"), "# repo b skill\n")
 
+    def test_copy_mode_reports_stale_overlay_when_repo_skill_changes(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            repo = tmp_root / "repo-copy"
+            repo.mkdir()
+            self._init_repo(repo, "# first copy\n", skill_name="copy-skill")
+            global_home = tmp_root / "codex-home"
+            workspaces_home = tmp_root / "codex-workspaces"
+            env = self._env(global_home, workspaces_home)
+
+            synced = subprocess.run(
+                [sys.executable, str(script), "sync", "--repo", str(repo), "--publication-mode", "copy", "--json"],
+                cwd=repo,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(synced.returncode, 0, synced.stderr)
+            payload = json.loads(synced.stdout)
+            self.assertEqual(payload["publication_mode"], "copy")
+
+            skill_path = repo / "logics" / "skills" / "copy-skill" / "SKILL.md"
+            skill_path.write_text("# updated copy\n", encoding="utf-8")
+
+            status = subprocess.run(
+                [sys.executable, str(script), "status", "--repo", str(repo), "--json"],
+                cwd=repo,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(status.returncode, 0, status.stderr)
+            status_payload = json.loads(status.stdout)
+            self.assertEqual(status_payload["status"], "stale")
+            self.assertTrue(any("stale" in issue.lower() for issue in status_payload["issues"]))
+
+    def test_status_all_reports_stale_registry_entry_after_repo_move(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            repo = tmp_root / "repo-move"
+            repo.mkdir()
+            self._init_repo(repo, "# move skill\n", skill_name="move-skill")
+            global_home = tmp_root / "codex-home"
+            workspaces_home = tmp_root / "codex-workspaces"
+            env = self._env(global_home, workspaces_home)
+
+            synced = subprocess.run(
+                [sys.executable, str(script), "sync", "--repo", str(repo), "--json"],
+                cwd=repo,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(synced.returncode, 0, synced.stderr)
+            payload = json.loads(synced.stdout)
+            old_workspace_id = payload["workspace_id"]
+
+            moved_repo = tmp_root / "repo-move-renamed"
+            repo.rename(moved_repo)
+
+            all_status = subprocess.run(
+                [sys.executable, str(script), "status", "--all", "--json"],
+                cwd=tmp_root,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(all_status.returncode, 0, all_status.stderr)
+            statuses = json.loads(all_status.stdout)
+            stale_entry = next(entry for entry in statuses if entry["workspace_id"] == old_workspace_id)
+            self.assertEqual(stale_entry["status"], "stale")
+            self.assertTrue(any("no longer exists" in issue.lower() for issue in stale_entry["issues"]))
+
+            resynced = subprocess.run(
+                [sys.executable, str(script), "sync", "--repo", str(moved_repo), "--json"],
+                cwd=moved_repo,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(resynced.returncode, 0, resynced.stderr)
+            new_payload = json.loads(resynced.stdout)
+            self.assertNotEqual(old_workspace_id, new_payload["workspace_id"])
+
 
 if __name__ == "__main__":
     unittest.main()
