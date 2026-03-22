@@ -202,6 +202,34 @@ python logics/skills/logics-flow-manager/scripts/logics_flow.py close request lo
 python logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-eligible-requests
 ```
 
+### Manage multi-project Codex overlays
+
+Use the workspace manager when you want Codex to see the Logics skills from the current repository without publishing them into the single global `~/.codex/skills` pool:
+
+```bash
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py register
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py sync
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py status
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py doctor --fix
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py run -- codex
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py clean
+```
+
+Overlay contract:
+
+- `logics/skills/` stays the canonical source of truth inside the repository.
+- each repository gets its own workspace-specific `CODEX_HOME` under `~/.codex-workspaces/<repo-id>/`.
+- repo-local Logics skills win over same-named global skills.
+- global shared assets such as `auth.json`, `config.toml`, and `skills/.system` are referenced into the overlay when present.
+- if the repository moves, a new overlay is created for the new real path and the old one becomes a cleanable stale workspace.
+
+Supported materialization modes:
+
+- `--publication-mode auto` prefers links and falls back to copies when needed.
+- `--publication-mode symlink` forces symlink publication.
+- `--publication-mode junction` targets Windows directory junctions.
+- `--publication-mode copy` forces a copy-based overlay and lets `status` / `doctor` detect stale copies later.
+
 ### Audit workflow coherence
 
 Audit closure consistency, orphan items, stale pending docs, acceptance-criteria traceability, and DoR/DoD gates:

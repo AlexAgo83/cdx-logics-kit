@@ -134,6 +134,19 @@ python logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logic
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
 ```
 
+Manage per-repository Codex overlays when several repos expose Logics skills concurrently:
+
+```bash
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py register
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py sync
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py status
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py doctor --fix
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py run -- codex
+python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py clean
+```
+
+The overlay manager keeps `logics/skills/` canonical in the repo, projects repo-local skills into `~/.codex-workspaces/<repo-id>/`, lets repo-local skills shadow same-named global skills, and keeps shared user assets such as `auth.json`, `config.toml`, and `skills/.system` referenced from the primary `~/.codex/` home when available.
+
 After promotion:
 
 - Ensure the backlog item has clear acceptance criteria + priority.
