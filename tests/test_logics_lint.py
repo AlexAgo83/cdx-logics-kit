@@ -192,6 +192,72 @@ class LogicsLintTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("Logics lint: OK", result.stdout)
 
+    def test_mermaid_signature_only_refresh_does_not_require_indicator_updates(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._init_git_repo(repo)
+            (repo / "logics" / "request").mkdir(parents=True)
+            request = repo / "logics" / "request" / "req_000_demo_ui.md"
+            request.write_text(
+                "\n".join(
+                    [
+                        "## req_000_demo_ui - Demo UI",
+                        "> From version: 1.0.0",
+                        "> Status: Ready",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "",
+                        "# Needs",
+                        "- Demo need",
+                        "",
+                        "# Context",
+                        "- Demo context",
+                        "",
+                        "# Acceptance criteria",
+                        "- AC1: Demo acceptance",
+                        "",
+                        "```mermaid",
+                        "%% logics-kind: request",
+                        "%% logics-signature: request|stale|signature",
+                        "flowchart LR",
+                        "    A[Need] --> B[Outcome]",
+                        "```",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "seed"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            request.write_text(
+                request.read_text(encoding="utf-8").replace(
+                    "%% logics-signature: request|stale|signature",
+                    "%% logics-signature: request|demo-ui|demo-need|ac1-demo-acceptance",
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script), "--require-status"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Logics lint: OK", result.stdout)
+
     def test_untracked_workflow_doc_fails_on_critical_placeholder_indicators(self) -> None:
         script = self._script()
 

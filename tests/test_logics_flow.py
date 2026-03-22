@@ -843,6 +843,102 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("- Related request(s): `req_000_demo_request`", task_text)
             self.assertIn("- Task `task_000_demo_task` was finished via `logics_flow.py finish task` on ", backlog_text)
 
+    def test_sync_refresh_mermaid_signatures_updates_stale_workflow_docs(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_demo_request.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_demo_request - Demo request",
+                    "> From version: 1.0.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Keep signatures aligned",
+                    "",
+                    "# Context",
+                    "- Operators edit docs manually",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: Signatures can be refreshed safely",
+                    "",
+                    "```mermaid",
+                    "%% logics-kind: request",
+                    "%% logics-signature: request|stale|signature",
+                    "flowchart LR",
+                    "    A[Edit] --> B[Refresh]",
+                    "```",
+                ],
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script), "sync", "refresh-mermaid-signatures"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Refreshed Mermaid signatures in 1 workflow doc(s).", result.stdout)
+            refreshed = request.read_text(encoding="utf-8")
+            self.assertIn(
+                "%% logics-signature: request|demo-request|keep-signatures-aligned|ac1-signatures-can-be-refreshed-safely",
+                refreshed,
+            )
+            self.assertNotIn("%% logics-signature: request|stale|signature", refreshed)
+
+    def test_promoted_task_includes_wave_checkpoint_guidance(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+            backlog = repo / "logics" / "backlog" / "item_000_demo_backlog.md"
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_demo_backlog - Demo backlog",
+                    "> From version: 1.0.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Problem",
+                    "- Demo problem",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The task carries delivery checkpoints",
+                    "",
+                    "# Links",
+                    "- Request: `req_000_demo_request`",
+                ],
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script), "promote", "backlog-to-task", str(backlog)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            created_task = next((repo / "logics" / "tasks").glob("task_*.md"))
+            task_text = created_task.read_text(encoding="utf-8")
+            self.assertIn("# Delivery checkpoints", task_text)
+            self.assertIn("commit-ready state", task_text)
+            self.assertIn("CHECKPOINT: leave the current wave commit-ready", task_text)
+            self.assertIn("Each completed wave left a commit-ready checkpoint", task_text)
+
 
 if __name__ == "__main__":
     unittest.main()

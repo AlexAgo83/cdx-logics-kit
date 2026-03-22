@@ -121,6 +121,12 @@ python logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logi
 
 `finish task` closes the task, propagates closure to linked backlog/request docs when eligible, verifies that the linked chain stayed synchronized, appends finish/report evidence to the task, and leaves a completion note in linked backlog items. Use `close` only when you explicitly want the lower-level primitive.
 
+Generated tasks now include explicit wave checkpoints:
+
+- each completed wave should leave the repository in a coherent, commit-ready state;
+- linked Logics docs should be updated during the wave that changes the behavior;
+- prefer one reviewed commit checkpoint per meaningful wave rather than several undocumented partial states.
+
 Run workflow coherence audit:
 
 ```bash
@@ -132,6 +138,7 @@ python logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_example
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-mermaid-signatures
 ```
 
 Manage per-repository Codex overlays when several repos expose Logics skills concurrently:

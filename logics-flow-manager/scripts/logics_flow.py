@@ -134,6 +134,26 @@ def cmd_sync_close_eligible_requests(args: argparse.Namespace) -> None:
     print(f"Scanned {scanned} requests, auto-closed {closed}.")
 
 
+def cmd_sync_refresh_mermaid_signatures(args: argparse.Namespace) -> None:
+    repo_root = _find_repo_root(Path.cwd())
+    refreshed: list[Path] = []
+    for kind_name in ("request", "backlog", "task"):
+        kind = DOC_KINDS[kind_name]
+        directory = repo_root / kind.directory
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob(f"{kind.prefix}_*.md")):
+            if refresh_workflow_mermaid_signature_file(path, kind_name, args.dry_run):
+                refreshed.append(path.relative_to(repo_root))
+
+    if args.dry_run:
+        print(f"Dry run: {len(refreshed)} Mermaid signature update(s) would be applied.")
+    else:
+        print(f"Refreshed Mermaid signatures in {len(refreshed)} workflow doc(s).")
+    for path in refreshed:
+        print(f"- {path}")
+
+
 def cmd_close(args: argparse.Namespace) -> None:
     repo_root = _find_repo_root(Path.cwd())
     kind = DOC_KINDS[args.kind]
@@ -370,6 +390,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     close_eligible.add_argument("--dry-run", action="store_true")
     close_eligible.set_defaults(func=cmd_sync_close_eligible_requests)
+
+    refresh_mermaid = sync_sub.add_parser(
+        "refresh-mermaid-signatures",
+        help="Refresh stale workflow Mermaid signatures without rewriting the full diagram body.",
+    )
+    refresh_mermaid.add_argument("--dry-run", action="store_true")
+    refresh_mermaid.set_defaults(func=cmd_sync_refresh_mermaid_signatures)
 
     return parser
 

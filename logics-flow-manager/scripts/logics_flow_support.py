@@ -72,6 +72,8 @@ MERMAID_FALLBACKS = {
     "backlog_task": "Execution task",
     "task_report": "Done report",
 }
+MERMAID_BLOCK_PATTERN = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
+MERMAID_SIGNATURE_PATTERN = re.compile(r"^\s*%%\s*logics-signature:\s*(.+?)\s*$", re.MULTILINE)
 
 @dataclass(frozen=True)
 class PlannedDoc:
@@ -254,6 +256,7 @@ def _render_bullet_block(items: Iterable[str], fallback: str) -> str:
 
 def _render_plan_block(steps: list[str]) -> str:
     rendered = [f"- [ ] {idx}. {step}" for idx, step in enumerate(steps, start=1)]
+    rendered.append("- [ ] CHECKPOINT: leave the current wave commit-ready and update the linked Logics docs before continuing.")
     rendered.append("- [ ] FINAL: Update related Logics docs")
     return "\n".join(rendered)
 
@@ -455,6 +458,92 @@ def _render_workflow_mermaid(kind_name: str, title: str, values: dict[str, str])
     raise ValueError(f"Unsupported Mermaid workflow kind: {kind_name}")
 
 
+def _extract_title(lines: list[str]) -> str:
+    for line in lines:
+        if line.startswith("## "):
+            match = re.match(r"^##\s+\S+\s*-\s*(.+?)\s*$", line)
+            if match:
+                return match.group(1).strip()
+            return line.removeprefix("## ").strip()
+    return ""
+
+
+def expected_workflow_mermaid_signature(kind_name: str, lines: list[str]) -> str:
+    text = "\n".join(lines)
+    title = _extract_title(lines)
+    if kind_name == "request":
+        need_items = _rendered_list_items("\n".join(_section_lines(text, "Needs")))
+        context_items = _rendered_list_items("\n".join(_section_lines(text, "Context")))
+        acceptance_items = _rendered_list_items("\n".join(_section_lines(text, "Acceptance criteria")))
+        need_label = _pick_mermaid_summary([*need_items, *context_items, title], "Need scope")
+        outcome_label = _pick_mermaid_summary([*acceptance_items, *context_items], "Acceptance target")
+        return _compose_mermaid_signature("request", title, need_label, outcome_label)
+
+    if kind_name == "backlog":
+        request_refs = sorted(_extract_refs(text, REF_PREFIXES["request"]))
+        problem_items = _rendered_list_items("\n".join(_section_lines(text, "Problem")))
+        acceptance_items = _rendered_list_items("\n".join(_section_lines(text, "Acceptance criteria")))
+        source_label = _pick_mermaid_summary([*request_refs, title], "Request source")
+        problem_label = _pick_mermaid_summary([*problem_items, title], "Problem scope")
+        acceptance_label = _pick_mermaid_summary(acceptance_items, "Acceptance check")
+        return _compose_mermaid_signature("backlog", title, source_label, problem_label, acceptance_label)
+
+    if kind_name == "task":
+        backlog_refs = sorted(_extract_refs(text, REF_PREFIXES["backlog"]))
+        plan_items = [
+            item
+            for item in _rendered_list_items("\n".join(_section_lines(text, "Plan")))
+            if not item.lower().startswith("final:")
+        ]
+        validation_items = _rendered_list_items("\n".join(_section_lines(text, "Validation")))
+        source_label = _pick_mermaid_summary([*backlog_refs, title], "Backlog source")
+        step_one = _pick_mermaid_summary(plan_items[:1], "Confirm scope")
+        validation_label = _pick_mermaid_summary(validation_items, "Validation")
+        return _compose_mermaid_signature("task", title, source_label, step_one, validation_label)
+
+    return ""
+
+
+def refresh_workflow_mermaid_signature_text(text: str, kind_name: str) -> tuple[str, bool]:
+    match = MERMAID_BLOCK_PATTERN.search(text)
+    if match is None:
+        return text, False
+
+    block = match.group(1)
+    lines = text.splitlines()
+    expected_signature = expected_workflow_mermaid_signature(kind_name, lines)
+    if not expected_signature:
+        return text, False
+
+    signature_match = MERMAID_SIGNATURE_PATTERN.search(block)
+    if signature_match is not None and signature_match.group(1).strip() == expected_signature:
+        return text, False
+
+    if signature_match is not None:
+        refreshed_block = MERMAID_SIGNATURE_PATTERN.sub(
+            f"%% logics-signature: {expected_signature}",
+            block,
+            count=1,
+        )
+    else:
+        block_lines = block.splitlines()
+        insert_at = 1 if block_lines and block_lines[0].lstrip().startswith("%% logics-kind:") else 0
+        block_lines.insert(insert_at, f"%% logics-signature: {expected_signature}")
+        refreshed_block = "\n".join(block_lines)
+
+    refreshed_text = text[: match.start(1)] + refreshed_block + text[match.end(1) :]
+    return refreshed_text, True
+
+
+def refresh_workflow_mermaid_signature_file(path: Path, kind_name: str, dry_run: bool) -> bool:
+    original = path.read_text(encoding="utf-8")
+    refreshed, changed = refresh_workflow_mermaid_signature_text(original, kind_name)
+    if not changed:
+        return False
+    _write(path, refreshed.rstrip() + "\n", dry_run)
+    return True
+
+
 def _render_ac_traceability_block(ac_entries: Iterable[tuple[str, str]], fallback: str) -> str:
     rendered = [
         f"- {ac_id} -> Scope: {summary}. Proof: TODO."
@@ -532,8 +621,8 @@ def _seed_task_from_backlog(
     values["PLAN_BLOCK"] = _render_plan_block(
         [
             "Confirm scope, dependencies, and linked acceptance criteria.",
-            "Implement the scoped changes from the backlog item.",
-            "Validate the result and update the linked Logics docs.",
+            "Implement the next coherent delivery wave from the backlog item.",
+            "Checkpoint the wave in a commit-ready state, validate it, and update the linked Logics docs.",
         ]
     )
     values["AC_TRACEABILITY_PLACEHOLDER"] = _render_ac_traceability_block(
@@ -544,6 +633,7 @@ def _seed_task_from_backlog(
         [
             "Run the relevant automated tests for the changed surface.",
             "Run the relevant lint or quality checks.",
+            "Confirm the completed wave leaves the repository in a commit-ready state.",
         ]
     )
 
@@ -898,11 +988,21 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
         "STEP_2": "Second implementation step",
         "STEP_3": "Third implementation step",
         "PLAN_BLOCK": _render_plan_block(
-            ["First implementation step", "Second implementation step", "Third implementation step"]
+            [
+                "Confirm scope, dependencies, and linked acceptance criteria.",
+                "Implement the next coherent delivery wave.",
+                "Checkpoint the wave in a commit-ready state, validate it, and update the linked Logics docs.",
+            ]
         ),
-        "VALIDATION_1": "npm run tests",
-        "VALIDATION_2": "npm run lint",
-        "VALIDATION_BLOCK": _render_validation_block(["npm run tests", "npm run lint"]),
+        "VALIDATION_1": "Run the relevant automated tests for the changed surface.",
+        "VALIDATION_2": "Run the relevant lint or quality checks.",
+        "VALIDATION_BLOCK": _render_validation_block(
+            [
+                "Run the relevant automated tests for the changed surface.",
+                "Run the relevant lint or quality checks.",
+                "Confirm the completed wave leaves the repository in a commit-ready state.",
+            ]
+        ),
         "REPORT_PLACEHOLDER": "",
         "REFERENCES_SECTION": "",
         "MERMAID_BLOCK": "",

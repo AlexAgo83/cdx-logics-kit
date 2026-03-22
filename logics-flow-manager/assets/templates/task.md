@@ -16,6 +16,11 @@
 # Plan
 {{PLAN_BLOCK}}
 
+# Delivery checkpoints
+- Each completed wave should leave the repository in a coherent, commit-ready state.
+- Update the linked Logics docs during the wave that changes the behavior, not only at final closure.
+- Prefer a reviewed commit checkpoint at the end of each meaningful wave instead of accumulating several undocumented partial states.
+
 # AC Traceability
 {{AC_TRACEABILITY_PLACEHOLDER}}
 
@@ -41,7 +46,8 @@
 # Definition of Done (DoD)
 - [ ] Scope implemented and acceptance criteria covered.
 - [ ] Validation commands executed and results captured.
-- [ ] Linked request/backlog/task docs updated.
+- [ ] Linked request/backlog/task docs updated during completed waves and at closure.
+- [ ] Each completed wave left a commit-ready checkpoint or an explicit exception is documented.
 - [ ] Status is `Done` and progress is `100%`.
 
 # Report

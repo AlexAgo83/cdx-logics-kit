@@ -188,6 +188,12 @@ python logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logi
 
 `finish task` is the recommended path because it closes the task, propagates closure to linked backlog/request docs when eligible, verifies the linked chain, appends finish/report evidence to the task, and leaves a completion note on linked backlog items.
 
+Generated tasks now include explicit wave checkpoints:
+
+- each completed wave should leave the repository in a coherent, commit-ready state;
+- linked Logics docs should be updated during the wave that changes the behavior;
+- the preferred habit is one reviewed commit checkpoint per meaningful wave rather than several undocumented partial states.
+
 Lower-level close commands are still available when you explicitly want the primitive transition commands:
 
 ```bash
@@ -200,6 +206,7 @@ python logics/skills/logics-flow-manager/scripts/logics_flow.py close request lo
 
 ```bash
 python logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-eligible-requests
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-mermaid-signatures
 ```
 
 ### Manage multi-project Codex overlays

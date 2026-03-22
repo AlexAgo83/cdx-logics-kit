@@ -9,6 +9,12 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+FLOW_MANAGER_SCRIPTS = Path(__file__).resolve().parents[2] / "logics-flow-manager" / "scripts"
+if str(FLOW_MANAGER_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(FLOW_MANAGER_SCRIPTS))
+
+from logics_flow_support import expected_workflow_mermaid_signature
+
 
 @dataclass(frozen=True)
 class Kind:
@@ -223,39 +229,7 @@ def _compose_mermaid_signature(kind_name: str, *parts: str) -> str:
 
 
 def _expected_mermaid_signature(kind_name: str, lines: list[str]) -> str:
-    text = "\n".join(lines)
-    title = _extract_title(lines)
-    if kind_name == "request":
-        need_items = _rendered_list_items("\n".join(_section_lines(lines, "Needs")))
-        context_items = _rendered_list_items("\n".join(_section_lines(lines, "Context")))
-        acceptance_items = _rendered_list_items("\n".join(_section_lines(lines, "Acceptance criteria")))
-        need_label = _pick_mermaid_summary([*need_items, *context_items, title], "Need scope")
-        outcome_label = _pick_mermaid_summary([*acceptance_items, *context_items], "Acceptance target")
-        return _compose_mermaid_signature("request", title, need_label, outcome_label)
-
-    if kind_name == "backlog":
-        request_refs = _extract_refs(text, "req")
-        problem_items = _rendered_list_items("\n".join(_section_lines(lines, "Problem")))
-        acceptance_items = _rendered_list_items("\n".join(_section_lines(lines, "Acceptance criteria")))
-        source_label = _pick_mermaid_summary([*request_refs, title], "Request source")
-        problem_label = _pick_mermaid_summary([*problem_items, title], "Problem scope")
-        acceptance_label = _pick_mermaid_summary(acceptance_items, "Acceptance check")
-        return _compose_mermaid_signature("backlog", title, source_label, problem_label, acceptance_label)
-
-    if kind_name == "task":
-        backlog_refs = _extract_refs(text, "item")
-        plan_items = [
-            item
-            for item in _rendered_list_items("\n".join(_section_lines(lines, "Plan")))
-            if not item.lower().startswith("final:")
-        ]
-        validation_items = _rendered_list_items("\n".join(_section_lines(lines, "Validation")))
-        source_label = _pick_mermaid_summary([*backlog_refs, title], "Backlog source")
-        step_one = _pick_mermaid_summary(plan_items[:1], "Confirm scope")
-        validation_label = _pick_mermaid_summary(validation_items, "Validation")
-        return _compose_mermaid_signature("task", title, source_label, step_one, validation_label)
-
-    return ""
+    return expected_workflow_mermaid_signature(kind_name, lines)
 
 
 def _mermaid_warnings(kind_name: str, lines: list[str]) -> list[str]:
@@ -372,6 +346,31 @@ def _diff_is_status_only_normalization(repo_root: Path, rel_path: Path) -> bool:
     return saw_change
 
 
+def _diff_is_mermaid_signature_only(repo_root: Path, rel_path: Path) -> bool:
+    diff = _run_git(repo_root, ["diff", "--unified=0", "--", str(rel_path)])
+    diff += _run_git(repo_root, ["diff", "--cached", "--unified=0", "--", str(rel_path)])
+    if not diff:
+        return False
+
+    saw_change = False
+    for line in diff.splitlines():
+        if not line.startswith(("+", "-")):
+            continue
+        if line.startswith(("+++ ", "--- ")):
+            continue
+
+        changed = line[1:].strip()
+        if not changed:
+            continue
+
+        saw_change = True
+        if changed.startswith("%% logics-signature:"):
+            continue
+        return False
+
+    return saw_change
+
+
 def _lint_file(path: Path, kind_name: str, kind: Kind, require_status: bool, check_changed_doc_rules: bool) -> tuple[list[str], list[str]]:
     issues: list[str] = []
     warnings: list[str] = []
@@ -465,6 +464,7 @@ def main(argv: list[str]) -> int:
                 if (
                     not _diff_has_indicator_changes(repo_root, rel_path, required)
                     and not _diff_is_status_only_normalization(repo_root, rel_path)
+                    and not _diff_is_mermaid_signature_only(repo_root, rel_path)
                 ):
                     issues.append(
                         "modified without updating indicators: "
