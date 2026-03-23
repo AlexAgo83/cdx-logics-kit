@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from logics_flow_registry import CURRENT_WORKFLOW_SCHEMA_VERSION, GOVERNANCE_PROFILES, WORKFLOW_CONVENTIONS
+from logics_flow_support import refresh_ai_context_text
+
 
 @dataclass(frozen=True)
 class DocKind:
@@ -343,6 +346,102 @@ def _has_ac_with_proof(text: str, ac_id: str) -> bool:
     return (ac_id in text.upper()) and ("proof:" in text.lower())
 
 
+def _canonical_status(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = _status_normalized(value)
+    for allowed in WORKFLOW_CONVENTIONS["statuses"]:
+        if normalized == allowed.lower():
+            return allowed
+    return value
+
+
+def _upsert_indicator(lines: list[str], key: str, value: str) -> None:
+    pattern = re.compile(rf"^\s*>\s*{re.escape(key)}\s*:\s*(.+)\s*$")
+    heading_idx = next((idx for idx, line in enumerate(lines) if line.startswith("## ")), None)
+    if heading_idx is None:
+        return
+    for idx, line in enumerate(lines):
+        if pattern.match(line):
+            lines[idx] = f"> {key}: {value}"
+            return
+    insert_at = heading_idx + 1
+    while insert_at < len(lines) and lines[insert_at].lstrip().startswith(">"):
+        insert_at += 1
+    lines.insert(insert_at, f"> {key}: {value}")
+
+
+def _insert_section(lines: list[str], heading: str, body: list[str]) -> None:
+    bounds = _extract_section_bounds(lines, heading)
+    if bounds is not None:
+        start_idx, end_idx = bounds
+        lines[start_idx:end_idx] = [f"# {heading}", *body]
+        return
+
+    insert_at = len(lines)
+    lines.append("")
+    lines.extend([f"# {heading}", *body])
+
+
+def _autofix_structure(path: Path, doc_kind: str) -> bool:
+    original = path.read_text(encoding="utf-8")
+    lines = original.splitlines()
+    modified = False
+
+    status_value = _indicator_value(lines, "Status")
+    canonical_status = _canonical_status(status_value)
+    if canonical_status and canonical_status != status_value:
+        _upsert_indicator(lines, "Status", canonical_status)
+        modified = True
+
+    schema_value = _indicator_value(lines, "Schema version")
+    if schema_value != CURRENT_WORKFLOW_SCHEMA_VERSION:
+        _upsert_indicator(lines, "Schema version", CURRENT_WORKFLOW_SCHEMA_VERSION)
+        modified = True
+
+    text = "\n".join(lines).rstrip() + "\n"
+    refreshed_text, ai_changed = refresh_ai_context_text(text, doc_kind)
+    if ai_changed:
+        text = refreshed_text
+        lines = text.splitlines()
+        modified = True
+
+    if doc_kind == "request":
+        dor = _extract_checkboxes(_extract_section_lines(text, "Definition of Ready (DoR)"))
+        if not dor:
+            _insert_section(
+                lines,
+                "Definition of Ready (DoR)",
+                [
+                    "- [ ] Problem statement is explicit and user impact is clear.",
+                    "- [ ] Scope boundaries (in/out) are explicit.",
+                    "- [ ] Acceptance criteria are testable.",
+                    "- [ ] Dependencies and known risks are listed.",
+                ],
+            )
+            modified = True
+    if doc_kind == "task":
+        dod = _extract_checkboxes(_extract_section_lines(text, "Definition of Done (DoD)"))
+        if not dod:
+            _insert_section(
+                lines,
+                "Definition of Done (DoD)",
+                [
+                    "- [ ] Scope implemented and acceptance criteria covered.",
+                    "- [ ] Validation commands executed and results captured.",
+                    "- [ ] Linked request/backlog/task docs updated during completed waves and at closure.",
+                    "- [ ] Each completed wave left a commit-ready checkpoint or an explicit exception is documented.",
+                    "- [ ] Status is `Done` and progress is `100%`.",
+                ],
+            )
+            modified = True
+
+    if not modified:
+        return False
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return True
+
+
 def _autofix_ac_traceability(path: Path, ac_ids: set[str]) -> bool:
     if not ac_ids:
         return False
@@ -536,11 +635,31 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable compact AI context and verbosity checks for workflow docs.",
     )
+    parser.add_argument(
+        "--autofix-structure",
+        action="store_true",
+        help="Deterministically repair missing schema metadata, AI Context, and missing gate sections.",
+    )
+    parser.add_argument(
+        "--governance-profile",
+        choices=tuple(GOVERNANCE_PROFILES),
+        default="standard",
+        help="Apply a named governance profile when resolving default audit strictness.",
+    )
     return parser
 
 
 def main(argv: list[str]) -> int:
     args = build_parser().parse_args(argv)
+    profile = GOVERNANCE_PROFILES[args.governance_profile]
+    if args.stale_days == 45:
+        args.stale_days = int(profile["stale_days"])
+    if not args.token_hygiene and profile["token_hygiene"]:
+        args.token_hygiene = True
+    if profile["require_gates"] is False:
+        args.skip_gates = True
+    if profile["require_ac_traceability"] is False:
+        args.skip_ac_traceability = True
     cutoff = _parse_semver(args.legacy_cutoff_version)
     if args.legacy_cutoff_version and cutoff is None:
         raise SystemExit(
@@ -946,6 +1065,34 @@ def main(argv: list[str]) -> int:
                                 message=f"`{ac_id}` missing task-level traceability with proof",
                             )
                         )
+
+    if args.autofix_structure:
+        for doc in docs.values():
+            if doc.kind.kind not in {"request", "backlog", "task"}:
+                continue
+            if _autofix_structure(doc.path, doc.kind.kind):
+                autofix_modified.append(doc.path)
+
+        if autofix_modified:
+            all_docs = _collect_docs(repo_root)
+            docs = _apply_scope(all_docs, repo_root, args.paths, args.refs, scope_since)
+            issues = []
+
+            return main(
+                [
+                    *([f"--stale-days={args.stale_days}"] if args.stale_days >= 0 else []),
+                    *([] if not args.skip_ac_traceability else ["--skip-ac-traceability"]),
+                    *([] if not args.skip_gates else ["--skip-gates"]),
+                    *([f"--legacy-cutoff-version={args.legacy_cutoff_version}"] if args.legacy_cutoff_version else []),
+                    *([f"--format={args.format}"]),
+                    *(["--group-by-doc"] if args.group_by_doc else []),
+                    *(["--token-hygiene"] if args.token_hygiene else []),
+                    *(["--governance-profile", args.governance_profile] if args.governance_profile else []),
+                    *(["--paths", *args.paths] if args.paths else []),
+                    *(["--refs", *args.refs] if args.refs else []),
+                    *(["--since-version", args.since_version] if args.since_version else []),
+                ]
+            )
 
     sorted_issues = _sorted_issues(issues, repo_root)
 

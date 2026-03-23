@@ -51,6 +51,19 @@ Line endings:
 - keep generated document structure consistent with the rest of the kit
 - avoid introducing breaking filename or section format changes unless they are deliberate and documented
 - preserve clear stdout/stderr messages because the VS Code extension and agent workflows depend on actionable feedback
+- prefer shared flow-manager helpers or canonical parse/normalize models over duplicating ad hoc workflow logic in each connector
+
+## Skill extension contract
+
+Skills should satisfy a lightweight package contract so kit tooling can validate and benchmark them consistently:
+
+- provide a `SKILL.md` with valid frontmatter and a non-empty `description`
+- provide `agents/openai.yaml` with an `interface:` mapping that explains the skill boundary
+- keep optional `scripts/`, `assets/`, and `tests/` directories predictable so capability discovery remains machine-readable
+- add reusable fixture input when a skill introduces a new package shape or parsing contract
+- keep lightweight benchmark or smoke-check expectations deterministic enough for CI
+
+Fixture examples used by the kit test suite live under [`tests/fixtures`](/Users/alexandreagostini/Documents/cdx-logics-vscode/logics/skills/tests/fixtures).
 
 ## Pull requests
 

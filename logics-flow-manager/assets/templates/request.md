@@ -1,5 +1,6 @@
 ## {{DOC_REF}} - {{TITLE}}
 > From version: {{FROM_VERSION}}
+> Schema version: {{SCHEMA_VERSION}}
 > Status: {{STATUS}}
 > Understanding: {{UNDERSTANDING}}
 > Confidence: {{CONFIDENCE}}

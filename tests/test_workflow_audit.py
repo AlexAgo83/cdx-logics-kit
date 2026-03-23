@@ -272,6 +272,104 @@ class WorkflowAuditTest(unittest.TestCase):
             self.assertIn("token_hygiene_missing_ai_context", payload["counts"]["by_code"])
             self.assertIn("token_hygiene_section_too_long", payload["counts"]["by_code"])
 
+    def test_governance_profile_strict_enables_token_hygiene_by_default(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "workflow_audit.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._write_fixture_repo(repo)
+            request = repo / "logics" / "request" / "req_000_demo_request.md"
+            request.write_text(
+                request.read_text(encoding="utf-8").replace(
+                    "# Acceptance criteria",
+                    "# Context\n"
+                    + "\n".join(f"- Verbose line {idx}" for idx in range(1, 28))
+                    + "\n\n# Acceptance criteria",
+                ),
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json", "--governance-profile", "strict"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 1, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertIn("token_hygiene_missing_ai_context", payload["counts"]["by_code"])
+            self.assertIn("token_hygiene_section_too_long", payload["counts"]["by_code"])
+
+    def test_structural_autofix_adds_schema_ai_context_and_gate_sections(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "workflow_audit.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / "request").mkdir(parents=True)
+            (repo / "logics" / "tasks").mkdir(parents=True)
+
+            request = repo / "logics" / "request" / "req_000_structure_fix.md"
+            request.write_text(
+                "\n".join(
+                    [
+                        "## req_000_structure_fix - Structure fix",
+                        "> From version: 1.0.0",
+                        "> Status: Draft",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "",
+                        "# Needs",
+                        "- Normalize workflow metadata",
+                        "",
+                        "# Context",
+                        "- This request was created before schema and AI Context support.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            task = repo / "logics" / "tasks" / "task_000_structure_fix.md"
+            task.write_text(
+                "\n".join(
+                    [
+                        "## task_000_structure_fix - Structure fix task",
+                        "> From version: 1.0.0",
+                        "> Status: Draft",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "> Progress: 0%",
+                        "",
+                        "# Context",
+                        "- Normalize delivery metadata as well.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json", "--autofix-structure"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            request_text = request.read_text(encoding="utf-8")
+            task_text = task.read_text(encoding="utf-8")
+            self.assertIn("> Schema version: 1.0", request_text)
+            self.assertIn("# AI Context", request_text)
+            self.assertIn("# Definition of Ready (DoR)", request_text)
+            self.assertIn("> Schema version: 1.0", task_text)
+            self.assertIn("# AI Context", task_text)
+            self.assertIn("# Definition of Done (DoD)", task_text)
+
 
 if __name__ == "__main__":
     unittest.main()

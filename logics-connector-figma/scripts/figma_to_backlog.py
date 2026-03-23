@@ -10,16 +10,20 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+FLOW_MANAGER_SCRIPTS = Path(__file__).resolve().parents[2] / "logics-flow-manager" / "scripts"
+if str(FLOW_MANAGER_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(FLOW_MANAGER_SCRIPTS))
+
+from logics_flow_support import (  # noqa: E402
+    _render_workflow_mermaid,
+    build_workflow_doc_values,
+    find_repo_root,
+    plan_workflow_doc,
+    render_workflow_template,
+    write_workflow_doc,
+)
 
 DEFAULT_API_URL = "https://api.figma.com/v1"
-
-
-def _find_repo_root(start: Path) -> Path:
-    current = start.resolve()
-    for candidate in [current, *current.parents]:
-        if (candidate / "logics").is_dir():
-            return candidate
-    raise SystemExit("Could not locate repo root (missing 'logics/' directory). Run from inside the repo.")
 
 
 def _token() -> str:
@@ -44,47 +48,6 @@ def _download(url: str, out_path: Path) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(data)
 
-
-def _slugify(value: str) -> str:
-    value = value.strip().lower()
-    value = re.sub(r"[^a-z0-9]+", "_", value)
-    value = re.sub(r"_+", "_", value).strip("_")
-    return value or "untitled"
-
-
-def _next_id(directory: Path, prefix: str) -> int:
-    pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)_.*\.md$")
-    max_id = -1
-    for file_path in directory.glob(f"{prefix}_*.md"):
-        match = pattern.match(file_path.name)
-        if not match:
-            continue
-        max_id = max(max_id, int(match.group(1)))
-    return max_id + 1
-
-
-def _template_path(script_path: Path, template_name: str) -> Path:
-    kit_root = script_path.resolve().parents[2]  # .../logics/skills
-    return kit_root / "logics-flow-manager" / "assets" / "templates" / template_name
-
-
-def _render_template(template_text: str, values: dict[str, str]) -> str:
-    def repl(match: re.Match[str]) -> str:
-        key = match.group(1)
-        return values.get(key, match.group(0))
-
-    return re.sub(r"\{\{([A-Z0-9_]+)\}\}", repl, template_text)
-
-
-def _write(path: Path, content: str, dry_run: bool) -> None:
-    if dry_run:
-        preview = content if len(content) <= 2000 else content[:2000] + "\n...\n"
-        print(f"[dry-run] would write: {path}")
-        print(preview)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    print(f"Wrote {path}")
 
 
 def _figma_url(file_key: str, node_id: str) -> str:
@@ -133,7 +96,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    repo_root = _find_repo_root(Path.cwd())
+    repo_root = find_repo_root(Path.cwd())
     if not args.file_key:
         raise SystemExit("Missing --file-key (or set FIGMA_FILE_KEY).")
 
@@ -141,19 +104,12 @@ def main(argv: list[str]) -> int:
     title = args.title or node_name or f"Figma node {args.node_id}"
     figma_url = _figma_url(args.file_key, args.node_id)
 
-    backlog_dir = repo_root / "logics" / "backlog"
-    doc_id = _next_id(backlog_dir, "item")
-    slug = _slugify(title)
-    filename = f"item_{doc_id:03d}_{slug}.md"
-    doc_ref = f"item_{doc_id:03d}_{slug}"
-    output_path = backlog_dir / filename
-    if output_path.exists():
-        raise SystemExit(f"Refusing to overwrite: {output_path}")
+    planned = plan_workflow_doc(repo_root, "backlog", title, dry_run=args.dry_run)
 
     exported_path: Path | None = None
     if args.export:
         image_dir = Path(args.image_out_dir)
-        exported_path = image_dir / f"{doc_ref}_{args.node_id.replace(':','_')}.png"
+        exported_path = image_dir / f"{planned.ref}_{args.node_id.replace(':', '_')}.png"
         if args.dry_run:
             print(f"[dry-run] would export PNG: {exported_path}")
         else:
@@ -177,42 +133,33 @@ def main(argv: list[str]) -> int:
     if exported_path is not None:
         notes_lines.append(f"- Export: `{exported_path}`")
 
-    template = _template_path(Path(__file__), "backlog.md").read_text(encoding="utf-8")
-    values = {
-        "DOC_REF": doc_ref,
-        "TITLE": title,
-        "FROM_VERSION": args.from_version,
-        "STATUS": "Ready",
-        "UNDERSTANDING": args.understanding,
-        "CONFIDENCE": args.confidence,
-        "PROGRESS": args.progress,
-        "PROBLEM_PLACEHOLDER": "\n".join(problem_lines),
-        "ACCEPTANCE_PLACEHOLDER": "Define acceptance criteria",
-        "ACCEPTANCE_BLOCK": "- AC1: Define acceptance criteria from the imported Figma design.",
-        "AC_TRACEABILITY_PLACEHOLDER": "- AC1 -> Scope: Review imported design intent and define proof. Proof: TODO.",
-        "PRODUCT_FRAMING_STATUS": "Required",
-        "PRODUCT_FRAMING_SIGNALS": "imported design artifact",
-        "PRODUCT_FRAMING_ACTION": "Create or link a product brief that captures the design intent before implementation.",
-        "ARCHITECTURE_FRAMING_STATUS": "Consider",
-        "ARCHITECTURE_FRAMING_SIGNALS": "implementation impact review required",
-        "ARCHITECTURE_FRAMING_ACTION": "Review whether a linked ADR is needed before implementation details diverge from the design.",
-        "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
-        "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
-        "REQUEST_LINK_PLACEHOLDER": "(none yet)",
-        "TASK_LINK_PLACEHOLDER": "(none yet)",
-        "AI_SUMMARY_PLACEHOLDER": f"Imported Figma design for {title}; capture intent, behavior, and proof before build-out.",
-        "AI_KEYWORDS_PLACEHOLDER": "figma, design, backlog, ui",
-        "AI_USE_WHEN_PLACEHOLDER": "Use when translating the imported design into product-ready delivery scope.",
-        "AI_SKIP_WHEN_PLACEHOLDER": "Skip when the implementation no longer depends on this Figma artifact.",
-        "REFERENCES_SECTION": f"# References\n- `{figma_url}`",
-        "MERMAID_BLOCK": "",
-        "COMPLEXITY": "Medium",
-        "THEME": "UI",
-        "NOTES_PLACEHOLDER": "\n".join(notes_lines),
-    }
-
-    content = _render_template(template, values).rstrip() + "\n"
-    _write(output_path, content, args.dry_run)
+    values = build_workflow_doc_values(
+        "backlog",
+        doc_ref=planned.ref,
+        title=title,
+        from_version=args.from_version,
+        status="Ready",
+        understanding=args.understanding,
+        confidence=args.confidence,
+        progress=args.progress,
+        complexity="Medium",
+        theme="UI",
+    )
+    values["PROBLEM_PLACEHOLDER"] = "\n".join(problem_lines)
+    values["ACCEPTANCE_PLACEHOLDER"] = "Define acceptance criteria"
+    values["ACCEPTANCE_BLOCK"] = "- AC1: Define acceptance criteria from the imported Figma design."
+    values["AC_TRACEABILITY_PLACEHOLDER"] = "- AC1 -> Scope: Review imported design intent and define proof. Proof: TODO."
+    values["PRODUCT_FRAMING_STATUS"] = "Required"
+    values["PRODUCT_FRAMING_SIGNALS"] = "imported design artifact"
+    values["PRODUCT_FRAMING_ACTION"] = "Create or link a product brief that captures the design intent before implementation."
+    values["ARCHITECTURE_FRAMING_STATUS"] = "Consider"
+    values["ARCHITECTURE_FRAMING_SIGNALS"] = "implementation impact review required"
+    values["ARCHITECTURE_FRAMING_ACTION"] = "Review whether a linked ADR is needed before implementation details diverge from the design."
+    values["REFERENCES_SECTION"] = f"# References\n- `{figma_url}`"
+    values["NOTES_PLACEHOLDER"] = "\n".join(notes_lines)
+    values["MERMAID_BLOCK"] = _render_workflow_mermaid("backlog", title, values)
+    content = render_workflow_template("backlog", values)
+    write_workflow_doc(planned.path, content, args.dry_run)
     return 0
 
 

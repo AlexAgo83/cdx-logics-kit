@@ -9,16 +9,20 @@ import sys
 import urllib.request
 from pathlib import Path
 
+FLOW_MANAGER_SCRIPTS = Path(__file__).resolve().parents[2] / "logics-flow-manager" / "scripts"
+if str(FLOW_MANAGER_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(FLOW_MANAGER_SCRIPTS))
+
+from logics_flow_support import (  # noqa: E402
+    _render_workflow_mermaid,
+    build_workflow_doc_values,
+    find_repo_root,
+    plan_workflow_doc,
+    render_workflow_template,
+    write_workflow_doc,
+)
 
 DEFAULT_API_URL = "https://api.linear.app/graphql"
-
-
-def _find_repo_root(start: Path) -> Path:
-    current = start.resolve()
-    for candidate in [current, *current.parents]:
-        if (candidate / "logics").is_dir():
-            return candidate
-    raise SystemExit("Could not locate repo root (missing 'logics/' directory). Run from inside the repo.")
 
 
 def _api_url() -> str:
@@ -44,47 +48,6 @@ def _gql(query: str, variables: dict[str, object] | None = None) -> dict[str, ob
         raise SystemExit(data["errors"][0].get("message", str(data["errors"][0])))
     return data["data"]
 
-
-def _slugify(value: str) -> str:
-    value = value.strip().lower()
-    value = re.sub(r"[^a-z0-9]+", "_", value)
-    value = re.sub(r"_+", "_", value).strip("_")
-    return value or "untitled"
-
-
-def _next_id(directory: Path, prefix: str) -> int:
-    pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)_.*\.md$")
-    max_id = -1
-    for file_path in directory.glob(f"{prefix}_*.md"):
-        match = pattern.match(file_path.name)
-        if not match:
-            continue
-        max_id = max(max_id, int(match.group(1)))
-    return max_id + 1
-
-
-def _template_path(script_path: Path, template_name: str) -> Path:
-    kit_root = script_path.resolve().parents[2]  # .../logics/skills
-    return kit_root / "logics-flow-manager" / "assets" / "templates" / template_name
-
-
-def _render_template(template_text: str, values: dict[str, str]) -> str:
-    def repl(match: re.Match[str]) -> str:
-        key = match.group(1)
-        return values.get(key, match.group(0))
-
-    return re.sub(r"\{\{([A-Z0-9_]+)\}\}", repl, template_text)
-
-
-def _write(path: Path, content: str, dry_run: bool) -> None:
-    if dry_run:
-        preview = content if len(content) <= 2000 else content[:2000] + "\n...\n"
-        print(f"[dry-run] would write: {path}")
-        print(preview)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    print(f"Wrote {path}")
 
 
 ISSUE_SEARCH = """
@@ -133,7 +96,6 @@ def fetch_issue(issue_ref: str) -> dict[str, object]:
 
 def build_backlog_content(
     *,
-    repo_root: Path,
     title: str,
     doc_ref: str,
     from_version: str,
@@ -143,40 +105,31 @@ def build_backlog_content(
     problem: str,
     notes: str,
 ) -> str:
-    template = _template_path(Path(__file__), "backlog.md").read_text(encoding="utf-8")
-    values = {
-        "DOC_REF": doc_ref,
-        "TITLE": title,
-        "FROM_VERSION": from_version,
-        "STATUS": "Ready",
-        "UNDERSTANDING": understanding,
-        "CONFIDENCE": confidence,
-        "PROGRESS": progress,
-        "PROBLEM_PLACEHOLDER": problem.strip(),
-        "ACCEPTANCE_PLACEHOLDER": "Define acceptance criteria (see Linear description)",
-        "ACCEPTANCE_BLOCK": "- AC1: Define acceptance criteria (see Linear description).",
-        "AC_TRACEABILITY_PLACEHOLDER": "- AC1 -> Scope: Review imported Linear scope and define proof. Proof: TODO.",
-        "PRODUCT_FRAMING_STATUS": "Consider",
-        "PRODUCT_FRAMING_SIGNALS": "imported issue scope review required",
-        "PRODUCT_FRAMING_ACTION": "Review whether the imported Linear scope needs a linked product brief before delivery.",
-        "ARCHITECTURE_FRAMING_STATUS": "Consider",
-        "ARCHITECTURE_FRAMING_SIGNALS": "imported issue technical impact review required",
-        "ARCHITECTURE_FRAMING_ACTION": "Review whether the imported Linear issue needs a linked ADR before implementation.",
-        "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
-        "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
-        "REQUEST_LINK_PLACEHOLDER": "(none yet)",
-        "TASK_LINK_PLACEHOLDER": "(none yet)",
-        "AI_SUMMARY_PLACEHOLDER": f"Imported Linear issue for {title} with scope review still required.",
-        "AI_KEYWORDS_PLACEHOLDER": "linear, import, backlog",
-        "AI_USE_WHEN_PLACEHOLDER": "Use when triaging the imported Linear issue into a delivery-ready backlog slice.",
-        "AI_SKIP_WHEN_PLACEHOLDER": "Skip when the work is no longer driven by this Linear issue.",
-        "REFERENCES_SECTION": "",
-        "MERMAID_BLOCK": "",
-        "COMPLEXITY": "Medium",
-        "THEME": "General",
-        "NOTES_PLACEHOLDER": notes.rstrip(),
-    }
-    return _render_template(template, values).rstrip() + "\n"
+    values = build_workflow_doc_values(
+        "backlog",
+        doc_ref=doc_ref,
+        title=title,
+        from_version=from_version,
+        status="Ready",
+        understanding=understanding,
+        confidence=confidence,
+        progress=progress,
+        complexity="Medium",
+        theme="General",
+    )
+    values["PROBLEM_PLACEHOLDER"] = problem.strip()
+    values["ACCEPTANCE_PLACEHOLDER"] = "Define acceptance criteria (see Linear description)"
+    values["ACCEPTANCE_BLOCK"] = "- AC1: Define acceptance criteria (see Linear description)."
+    values["AC_TRACEABILITY_PLACEHOLDER"] = "- AC1 -> Scope: Review imported Linear scope and define proof. Proof: TODO."
+    values["PRODUCT_FRAMING_STATUS"] = "Consider"
+    values["PRODUCT_FRAMING_SIGNALS"] = "imported issue scope review required"
+    values["PRODUCT_FRAMING_ACTION"] = "Review whether the imported Linear scope needs a linked product brief before delivery."
+    values["ARCHITECTURE_FRAMING_STATUS"] = "Consider"
+    values["ARCHITECTURE_FRAMING_SIGNALS"] = "imported issue technical impact review required"
+    values["ARCHITECTURE_FRAMING_ACTION"] = "Review whether the imported Linear issue needs a linked ADR before implementation."
+    values["NOTES_PLACEHOLDER"] = notes.rstrip()
+    values["MERMAID_BLOCK"] = _render_workflow_mermaid("backlog", title, values)
+    return render_workflow_template("backlog", values)
 
 
 def main(argv: list[str]) -> int:
@@ -190,8 +143,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    repo_root = _find_repo_root(Path.cwd())
-    backlog_dir = repo_root / "logics" / "backlog"
+    repo_root = find_repo_root(Path.cwd())
     if args.team_id:
         os.environ["LINEAR_API_TEAM_ID"] = args.team_id
     issue = fetch_issue(args.issue)
@@ -205,13 +157,7 @@ def main(argv: list[str]) -> int:
     labels = [n.get("name") for n in ((issue.get("labels") or {}).get("nodes") or []) if n.get("name")]
     description = (issue.get("description") or "").rstrip()
 
-    doc_id = _next_id(backlog_dir, "item")
-    slug = _slugify(title or identifier)
-    filename = f"item_{doc_id:03d}_{slug}.md"
-    doc_ref = f"item_{doc_id:03d}_{slug}"
-    output_path = backlog_dir / filename
-    if output_path.exists():
-        raise SystemExit(f"Refusing to overwrite: {output_path}")
+    planned = plan_workflow_doc(repo_root, "backlog", title or str(identifier), dry_run=args.dry_run)
 
     meta_lines = [
         f"Imported from Linear `{identifier}` [{state}].",
@@ -233,9 +179,8 @@ def main(argv: list[str]) -> int:
     notes = "\n\n".join(notes_parts)
 
     content = build_backlog_content(
-        repo_root=repo_root,
         title=title or str(identifier),
-        doc_ref=doc_ref,
+        doc_ref=planned.ref,
         from_version=args.from_version,
         understanding=args.understanding,
         confidence=args.confidence,
@@ -244,7 +189,7 @@ def main(argv: list[str]) -> int:
         notes=notes,
     )
 
-    _write(output_path, content, args.dry_run)
+    write_workflow_doc(planned.path, content, args.dry_run)
     return 0
 
 

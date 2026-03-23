@@ -19,6 +19,7 @@ from logics_flow_decision_support import (
     _render_product_brief,
     _signals_display,
 )
+from logics_flow_registry import CURRENT_WORKFLOW_SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
@@ -679,6 +680,8 @@ def _copy_indicator_defaults(values: dict[str, str], source_text: str) -> None:
     indicators = _indicator_map(source_text.splitlines())
     if indicators.get("From version"):
         values["FROM_VERSION"] = indicators["From version"]
+    if indicators.get("Schema version"):
+        values["SCHEMA_VERSION"] = indicators["Schema version"]
     if indicators.get("Understanding"):
         values["UNDERSTANDING"] = indicators["Understanding"]
     if indicators.get("Confidence"):
@@ -1109,6 +1112,7 @@ def _build_template_values(
         "DOC_REF": doc_ref,
         "TITLE": title,
         "FROM_VERSION": args.from_version,
+        "SCHEMA_VERSION": CURRENT_WORKFLOW_SCHEMA_VERSION,
         "STATUS": _normalize_status(args.status),
         "UNDERSTANDING": args.understanding,
         "CONFIDENCE": args.confidence,
@@ -1167,6 +1171,147 @@ def _build_template_values(
         values["PROGRESS"] = ""
 
     return values
+
+
+def build_workflow_doc_values(
+    kind_name: str,
+    *,
+    doc_ref: str,
+    title: str,
+    from_version: str = "X.X.X",
+    status: str | None = None,
+    understanding: str = "??%",
+    confidence: str = "??%",
+    progress: str = "0%",
+    complexity: str = "Medium",
+    theme: str = "General",
+) -> dict[str, str]:
+    kind = DOC_KINDS[kind_name]
+    args = argparse.Namespace(
+        from_version=from_version,
+        understanding=understanding,
+        confidence=confidence,
+        status=status or STATUS_BY_KIND_DEFAULT[kind_name],
+        progress=progress if kind.include_progress else "",
+        complexity=complexity,
+        theme=theme,
+        auto_create_product_brief=False,
+        auto_create_adr=False,
+        dry_run=False,
+    )
+    return _build_template_values(args, doc_ref, title, kind.include_progress, kind_name)
+
+
+def plan_workflow_doc(repo_root: Path, kind_name: str, title: str, dry_run: bool = False) -> PlannedDoc:
+    kind = DOC_KINDS[kind_name]
+    return _plan_doc(repo_root, kind.directory, kind.prefix, title, dry_run=dry_run)
+
+
+def find_repo_root(start: Path) -> Path:
+    return _find_repo_root(start)
+
+
+def render_workflow_template(kind_name: str, values: dict[str, str]) -> str:
+    kind = DOC_KINDS[kind_name]
+    template_text = _template_path(Path(__file__), kind.template_name).read_text(encoding="utf-8")
+    return _render_template(template_text, values).rstrip() + "\n"
+
+
+def write_workflow_doc(path: Path, content: str, dry_run: bool) -> None:
+    _write(path, content, dry_run)
+
+
+def _ai_context_inputs_for_kind(kind_name: str, text: str) -> tuple[list[str], list[str]]:
+    if kind_name == "request":
+        return (_list_items_from_section(text, "Needs") + _acceptance_items(text), _clean_section_lines(_section_lines(text, "Context")))
+    if kind_name == "backlog":
+        return (_list_items_from_section(text, "Problem") + _acceptance_items(text), _clean_section_lines(_section_lines(text, "Notes")))
+    if kind_name == "task":
+        return (_clean_section_lines(_section_lines(text, "Context")) + _clean_section_lines(_section_lines(text, "Validation")), _clean_section_lines(_section_lines(text, "Plan")))
+    return ([], [])
+
+
+def _render_ai_context_section(values: dict[str, str]) -> list[str]:
+    return [
+        "# AI Context",
+        f"- Summary: {values['AI_SUMMARY_PLACEHOLDER']}",
+        f"- Keywords: {values['AI_KEYWORDS_PLACEHOLDER']}",
+        f"- Use when: {values['AI_USE_WHEN_PLACEHOLDER']}",
+        f"- Skip when: {values['AI_SKIP_WHEN_PLACEHOLDER']}",
+    ]
+
+
+def _section_bounds(lines: list[str], heading: str) -> tuple[int | None, int | None]:
+    start_idx = None
+    target = heading.strip().lower()
+    for idx, line in enumerate(lines):
+        if line.startswith("# ") and line[2:].strip().lower() == target:
+            start_idx = idx
+            break
+    if start_idx is None:
+        return None, None
+    end_idx = len(lines)
+    for idx in range(start_idx + 1, len(lines)):
+        if lines[idx].startswith("# "):
+            end_idx = idx
+            break
+    return start_idx, end_idx
+
+
+def _preferred_ai_context_anchor(kind_name: str) -> list[str]:
+    if kind_name == "request":
+        return ["References", "Backlog"]
+    if kind_name == "backlog":
+        return ["References", "Priority", "Notes"]
+    if kind_name == "task":
+        return ["References", "Validation", "Definition of Done (DoD)"]
+    return []
+
+
+def refresh_ai_context_text(text: str, kind_name: str) -> tuple[str, bool]:
+    lines = text.splitlines()
+    title = _extract_title(lines) or "Untitled"
+    values = build_workflow_doc_values(kind_name, doc_ref="placeholder", title=title)
+    primary_items, secondary_items = _ai_context_inputs_for_kind(kind_name, text)
+    _apply_ai_context_values(
+        values,
+        doc_kind=kind_name,
+        title=title,
+        source_text=text,
+        primary_items=primary_items,
+        secondary_items=secondary_items,
+    )
+    new_section = _render_ai_context_section(values)
+
+    start_idx, end_idx = _section_bounds(lines, "AI Context")
+    if start_idx is not None and end_idx is not None:
+        updated_lines = lines[:start_idx] + new_section + lines[end_idx:]
+    else:
+        insert_at = len(lines)
+        for anchor in _preferred_ai_context_anchor(kind_name):
+            anchor_start, _anchor_end = _section_bounds(lines, anchor)
+            if anchor_start is not None:
+                insert_at = anchor_start
+                break
+        updated_lines = lines[:insert_at]
+        if updated_lines and updated_lines[-1].strip():
+            updated_lines.append("")
+        updated_lines.extend(new_section)
+        if insert_at < len(lines):
+            updated_lines.append("")
+        updated_lines.extend(lines[insert_at:])
+
+    refreshed = "\n".join(updated_lines).rstrip() + "\n"
+    return refreshed, refreshed != text
+
+
+def refresh_ai_context_file(path: Path, kind_name: str, dry_run: bool) -> bool:
+    original = path.read_text(encoding="utf-8")
+    refreshed, changed = refresh_ai_context_text(original, kind_name)
+    if not changed:
+        return False
+    _write(path, refreshed, dry_run)
+    return True
 
 
 def _auto_create_companion_docs(

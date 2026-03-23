@@ -11,16 +11,20 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+FLOW_MANAGER_SCRIPTS = Path(__file__).resolve().parents[2] / "logics-flow-manager" / "scripts"
+if str(FLOW_MANAGER_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(FLOW_MANAGER_SCRIPTS))
+
+from logics_flow_support import (  # noqa: E402
+    _render_workflow_mermaid,
+    build_workflow_doc_values,
+    find_repo_root,
+    plan_workflow_doc,
+    render_workflow_template,
+    write_workflow_doc,
+)
 
 MAX_HTML_CHARS = 20000
-
-
-def _find_repo_root(start: Path) -> Path:
-    current = start.resolve()
-    for candidate in [current, *current.parents]:
-        if (candidate / "logics").is_dir():
-            return candidate
-    raise SystemExit("Could not locate repo root (missing 'logics/' directory). Run from inside the repo.")
 
 
 def _confluence_domain() -> str:
@@ -53,47 +57,6 @@ def _get_json(url: str) -> dict[str, object]:
     return json.loads(raw)
 
 
-def _slugify(value: str) -> str:
-    value = value.strip().lower()
-    value = re.sub(r"[^a-z0-9]+", "_", value)
-    value = re.sub(r"_+", "_", value).strip("_")
-    return value or "untitled"
-
-
-def _next_id(directory: Path, prefix: str) -> int:
-    pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)_.*\.md$")
-    max_id = -1
-    for file_path in directory.glob(f"{prefix}_*.md"):
-        match = pattern.match(file_path.name)
-        if not match:
-            continue
-        max_id = max(max_id, int(match.group(1)))
-    return max_id + 1
-
-
-def _template_path(script_path: Path, template_name: str) -> Path:
-    kit_root = script_path.resolve().parents[2]  # .../logics/skills
-    return kit_root / "logics-flow-manager" / "assets" / "templates" / template_name
-
-
-def _render_template(template_text: str, values: dict[str, str]) -> str:
-    def repl(match: re.Match[str]) -> str:
-        key = match.group(1)
-        return values.get(key, match.group(0))
-
-    return re.sub(r"\{\{([A-Z0-9_]+)\}\}", repl, template_text)
-
-
-def _write(path: Path, content: str, dry_run: bool) -> None:
-    if dry_run:
-        preview = content if len(content) <= 2000 else content[:2000] + "\n...\n"
-        print(f"[dry-run] would write: {path}")
-        print(preview)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    print(f"Wrote {path}")
-
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Import a Confluence page into logics/request as a new req_### doc.")
@@ -105,8 +68,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    repo_root = _find_repo_root(Path.cwd())
-    request_dir = repo_root / "logics" / "request"
+    repo_root = find_repo_root(Path.cwd())
 
     page_id = str(args.page_id).strip()
     if not page_id.isdigit():
@@ -117,8 +79,6 @@ def main(argv: list[str]) -> int:
 
     page_title = (data.get("title") or "").strip()
     title = (args.title or page_title or f"Confluence page {page_id}").strip()
-    slug = _slugify(title)
-
     links = data.get("_links") or {}
     webui = links.get("webui") if isinstance(links, dict) else None
     page_url = f"{_confluence_domain()}{webui}" if webui else ""
@@ -130,12 +90,7 @@ def main(argv: list[str]) -> int:
     if len(html) > MAX_HTML_CHARS:
         html = html[:MAX_HTML_CHARS] + "\n<!-- truncated -->\n"
 
-    doc_id = _next_id(request_dir, "req")
-    filename = f"req_{doc_id:03d}_{slug}.md"
-    doc_ref = f"req_{doc_id:03d}_{slug}"
-    output_path = request_dir / filename
-    if output_path.exists():
-        raise SystemExit(f"Refusing to overwrite: {output_path}")
+    planned = plan_workflow_doc(repo_root, "request", title, dry_run=args.dry_run)
 
     context_parts = [
         f"Imported from Confluence page `{page_id}`.",
@@ -150,31 +105,24 @@ def main(argv: list[str]) -> int:
         context_parts.append("```")
     context = "\n".join(context_parts)
 
-    template = _template_path(Path(__file__), "request.md").read_text(encoding="utf-8")
-    values = {
-        "DOC_REF": doc_ref,
-        "TITLE": title,
-        "FROM_VERSION": args.from_version,
-        "STATUS": "Draft",
-        "UNDERSTANDING": args.understanding,
-        "CONFIDENCE": args.confidence,
-        "NEEDS_PLACEHOLDER": "Describe the need",
-        "CONTEXT_PLACEHOLDER": context,
-        "ACCEPTANCE_PLACEHOLDER": "AC1: Define an objective acceptance check",
-        "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
-        "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
-        "BACKLOG_PLACEHOLDER": "- (none yet)",
-        "AI_SUMMARY_PLACEHOLDER": f"Imported request from Confluence for {title}.",
-        "AI_KEYWORDS_PLACEHOLDER": "confluence, import, request",
-        "AI_USE_WHEN_PLACEHOLDER": "Use when framing the imported request and trimming source context.",
-        "AI_SKIP_WHEN_PLACEHOLDER": "Skip when the work targets another product area or a deeper delivery stage.",
-        "REFERENCES_SECTION": f"# References\n- `{page_url}`" if page_url else "",
-        "MERMAID_BLOCK": "",
-        "COMPLEXITY": "Medium",
-        "THEME": "General",
-    }
-    content = _render_template(template, values).rstrip() + "\n"
-    _write(output_path, content, args.dry_run)
+    values = build_workflow_doc_values(
+        "request",
+        doc_ref=planned.ref,
+        title=title,
+        from_version=args.from_version,
+        status="Draft",
+        understanding=args.understanding,
+        confidence=args.confidence,
+        complexity="Medium",
+        theme="General",
+    )
+    values["NEEDS_PLACEHOLDER"] = f"Frame the imported Confluence source and turn it into an actionable request for {title}."
+    values["CONTEXT_PLACEHOLDER"] = context
+    values["ACCEPTANCE_PLACEHOLDER"] = "AC1: Define an objective acceptance check from the imported Confluence source."
+    values["REFERENCES_SECTION"] = f"# References\n- `{page_url}`" if page_url else ""
+    values["MERMAID_BLOCK"] = _render_workflow_mermaid("request", title, values)
+    content = render_workflow_template("request", values)
+    write_workflow_doc(planned.path, content, args.dry_run)
     return 0
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +16,9 @@ class LogicsFlowTest(unittest.TestCase):
     def _flow_manager_root(self) -> Path:
         return Path(__file__).resolve().parents[1] / "logics-flow-manager"
 
+    def _fixtures_root(self) -> Path:
+        return Path(__file__).resolve().parent / "fixtures"
+
     def _write_doc(self, path: Path, lines: list[str]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -26,6 +31,13 @@ class LogicsFlowTest(unittest.TestCase):
             target = target_root / "assets" / "templates" / template_name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+    def _install_skill_fixture(self, repo: Path, fixture_name: str, skill_name: str) -> Path:
+        source = self._fixtures_root() / fixture_name
+        target = repo / "logics" / "skills" / skill_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, target)
+        return target
 
     def _status(self, path: Path) -> str | None:
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -943,6 +955,394 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("Each completed wave left a commit-ready checkpoint", task_text)
             self.assertIn("# AI Context", task_text)
             self.assertIn("- Use when: Use when executing the current implementation wave for Demo backlog.", task_text)
+
+    def test_new_request_json_output_includes_machine_readable_payload(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir()
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "new",
+                    "request",
+                    "--title",
+                    "JSON request",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["command"], "new")
+            self.assertEqual(payload["kind"], "request")
+            self.assertEqual(payload["ref"], "req_000_json_request")
+            self.assertEqual(payload["path"], "logics/request/req_000_json_request.md")
+            self.assertTrue((repo / payload["path"]).is_file())
+            self.assertTrue(any("Wrote" in line for line in payload["logs"]))
+
+    def test_sync_migrate_schema_preview_and_apply_support_json_output(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_schema_gap.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_schema_gap - Schema gap",
+                    "> From version: 1.0.0",
+                    "> Status: Draft",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Backfill compact AI context",
+                    "",
+                    "# Context",
+                    "- This doc predates the explicit schema version indicator.",
+                ],
+            )
+
+            preview = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "migrate-schema",
+                    "req_000_schema_gap",
+                    "--refresh-ai-context",
+                    "--preview",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(preview.returncode, 0, preview.stderr)
+            preview_payload = json.loads(preview.stdout)
+            self.assertTrue(preview_payload["ok"])
+            self.assertTrue(preview_payload["preview"])
+            self.assertEqual(len(preview_payload["modified_files"]), 1)
+            self.assertEqual(preview_payload["modified_files"][0]["reason"], "migrate workflow schema")
+            self.assertIn("> From version: 1.0.0", request.read_text(encoding="utf-8"))
+            self.assertNotIn("> Schema version:", request.read_text(encoding="utf-8"))
+
+            apply = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "migrate-schema",
+                    "req_000_schema_gap",
+                    "--refresh-ai-context",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(apply.returncode, 0, apply.stderr)
+            applied_payload = json.loads(apply.stdout)
+            self.assertTrue(applied_payload["ok"])
+            migrated_text = request.read_text(encoding="utf-8")
+            self.assertIn("> Schema version: 1.0", migrated_text)
+            self.assertIn("# AI Context", migrated_text)
+
+            status = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "schema-status",
+                    "req_000_schema_gap",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(status.returncode, 0, status.stderr)
+            status_payload = json.loads(status.stdout)
+            self.assertEqual(status_payload["current_schema_version"], "1.0")
+            self.assertEqual(status_payload["counts"]["1.0"], 1)
+            self.assertFalse(status_payload["missing"])
+
+    def test_sync_context_pack_and_export_graph_support_json_output(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_context_seed.md"
+            backlog = repo / "logics" / "backlog" / "item_000_context_seed.md"
+            task = repo / "logics" / "tasks" / "task_000_context_seed.md"
+
+            self._write_doc(
+                request,
+                [
+                    "## req_000_context_seed - Context seed",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Keep context packs compact",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: include direct workflow neighbors",
+                    "",
+                    "# AI Context",
+                    "- Summary: Keep context packs compact and deterministic.",
+                    "- Keywords: context-pack, workflow, kit",
+                    "- Use when: Use when building a compact handoff for the seeded request.",
+                    "- Skip when: Skip when another workflow ref is the active entrypoint.",
+                    "",
+                    "# Backlog",
+                    "- `item_000_context_seed`",
+                ],
+            )
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_context_seed - Context seed backlog",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Problem",
+                    "- Keep kit-native context-pack output stable.",
+                    "",
+                    "# AI Context",
+                    "- Summary: Backlog slice for the context-pack output.",
+                    "- Keywords: backlog, context-pack, kit",
+                    "- Use when: Use when executing the compact context-pack backlog slice.",
+                    "- Skip when: Skip when another backlog item is active.",
+                    "",
+                    "# Links",
+                    "- Request: `req_000_context_seed`",
+                    "- Task(s): `task_000_context_seed`",
+                ],
+            )
+            self._write_doc(
+                task,
+                [
+                    "## task_000_context_seed - Context seed task",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Context",
+                    "- Implement the context-pack output contract.",
+                    "",
+                    "# AI Context",
+                    "- Summary: Task slice for the context-pack output contract.",
+                    "- Keywords: task, context-pack, output",
+                    "- Use when: Use when executing the context-pack task slice.",
+                    "- Skip when: Skip when another task is active.",
+                    "",
+                    "# Links",
+                    "- Backlog item: `item_000_context_seed`",
+                ],
+            )
+
+            pack = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "context-pack",
+                    "req_000_context_seed",
+                    "--mode",
+                    "summary-only",
+                    "--profile",
+                    "tiny",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(pack.returncode, 0, pack.stderr)
+            pack_payload = json.loads(pack.stdout)
+            self.assertEqual(pack_payload["sync_kind"], "context-pack")
+            self.assertEqual(pack_payload["budgets"]["max_docs"], 2)
+            self.assertEqual(pack_payload["estimates"]["doc_count"], 2)
+            self.assertEqual(pack_payload["docs"][0]["ref"], "req_000_context_seed")
+            self.assertEqual(pack_payload["docs"][1]["ref"], "item_000_context_seed")
+
+            graph = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "export-graph",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(graph.returncode, 0, graph.stderr)
+            graph_payload = json.loads(graph.stdout)
+            node_refs = {node["ref"] for node in graph_payload["nodes"]}
+            edges = {(edge["from"], edge["to"]) for edge in graph_payload["edges"]}
+            self.assertEqual(node_refs, {"req_000_context_seed", "item_000_context_seed", "task_000_context_seed"})
+            self.assertIn(("req_000_context_seed", "item_000_context_seed"), edges)
+            self.assertIn(("item_000_context_seed", "req_000_context_seed"), edges)
+            self.assertIn(("item_000_context_seed", "task_000_context_seed"), edges)
+
+    def test_sync_skill_registry_doctor_and_benchmark_support_json_output(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            for directory in ("logics/request", "logics/backlog", "logics/tasks", "logics/skills", "logics/skills/changelogs"):
+                (repo / directory).mkdir(parents=True, exist_ok=True)
+
+            self._write_doc(
+                repo / "logics" / "request" / "req_000_doctor_check.md",
+                [
+                    "## req_000_doctor_check - Doctor check",
+                    "> From version: 1.0.0",
+                    "> Status: Draft",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Trigger schema diagnostics",
+                ],
+            )
+            self._install_skill_fixture(repo, "skill_package_valid", "fixture-valid-skill")
+            self._install_skill_fixture(repo, "skill_package_invalid", "fixture-invalid-skill")
+            (repo / "logics" / "skills" / "changelogs" / "CHANGELOGS_1_2_3.md").write_text(
+                "# Changelog\n- Added registry export\n- Added doctor diagnostics\n",
+                encoding="utf-8",
+            )
+
+            validate = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "validate-skills",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(validate.returncode, 0, validate.stderr)
+            validate_payload = json.loads(validate.stdout)
+            self.assertEqual(validate_payload["skill_count"], 2)
+            self.assertFalse(validate_payload["ok"])
+            self.assertEqual(validate_payload["issues"][0]["skill"], "fixture-invalid-skill")
+
+            doctor = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "doctor",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(doctor.returncode, 0, doctor.stderr)
+            doctor_payload = json.loads(doctor.stdout)
+            doctor_codes = {issue["code"] for issue in doctor_payload["issues"]}
+            self.assertIn("invalid_skill_package", doctor_codes)
+            self.assertIn("missing_schema_version", doctor_codes)
+
+            registry = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "export-registry",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(registry.returncode, 0, registry.stderr)
+            registry_payload = json.loads(registry.stdout)
+            self.assertEqual(registry_payload["schema_version"], "1.0")
+            self.assertEqual(registry_payload["releases"][0]["version"], "1.2.3")
+            self.assertEqual(len(registry_payload["skills"]), 2)
+
+            benchmark = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "benchmark-skills",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(benchmark.returncode, 0, benchmark.stderr)
+            benchmark_payload = json.loads(benchmark.stdout)
+            self.assertEqual(benchmark_payload["skill_count"], 2)
+            self.assertGreaterEqual(benchmark_payload["duration_ms"], 0.0)
 
 
 if __name__ == "__main__":

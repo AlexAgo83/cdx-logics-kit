@@ -3,59 +3,28 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 from _render_api import (
     extract_service_plan,
     extract_service_runtime,
-    find_repo_root,
     get_service,
     list_deploys,
 )
 
+FLOW_MANAGER_SCRIPTS = Path(__file__).resolve().parents[2] / "logics-flow-manager" / "scripts"
+if str(FLOW_MANAGER_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(FLOW_MANAGER_SCRIPTS))
 
-def _slugify(value: str) -> str:
-    value = value.strip().lower()
-    value = re.sub(r"[^a-z0-9]+", "_", value)
-    value = re.sub(r"_+", "_", value).strip("_")
-    return value or "untitled"
-
-
-def _next_id(directory: Path, prefix: str) -> int:
-    pattern = re.compile(rf"^{re.escape(prefix)}_(\d+)_.*\.md$")
-    max_id = -1
-    for file_path in directory.glob(f"{prefix}_*.md"):
-        match = pattern.match(file_path.name)
-        if not match:
-            continue
-        max_id = max(max_id, int(match.group(1)))
-    return max_id + 1
-
-
-def _template_path(script_path: Path, template_name: str) -> Path:
-    kit_root = script_path.resolve().parents[2]  # .../logics/skills
-    return kit_root / "logics-flow-manager" / "assets" / "templates" / template_name
-
-
-def _render_template(template_text: str, values: dict[str, str]) -> str:
-    def repl(match: re.Match[str]) -> str:
-        key = match.group(1)
-        return values.get(key, match.group(0))
-
-    return re.sub(r"\{\{([A-Z0-9_]+)\}\}", repl, template_text)
-
-
-def _write(path: Path, content: str, dry_run: bool) -> None:
-    if dry_run:
-        preview = content if len(content) <= 2000 else content[:2000] + "\n...\n"
-        print(f"[dry-run] would write: {path}")
-        print(preview)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    print(f"Wrote {path}")
+from logics_flow_support import (  # noqa: E402
+    _render_workflow_mermaid,
+    build_workflow_doc_values,
+    find_repo_root,
+    plan_workflow_doc,
+    render_workflow_template,
+    write_workflow_doc,
+)
 
 
 def _format_deploy_lines(deploys: list[dict[str, object]]) -> str:
@@ -89,40 +58,31 @@ def build_backlog_content(
     problem: str,
     notes: str,
 ) -> str:
-    template = _template_path(Path(__file__), "backlog.md").read_text(encoding="utf-8")
-    values = {
-        "DOC_REF": doc_ref,
-        "TITLE": title,
-        "FROM_VERSION": from_version,
-        "STATUS": "Ready",
-        "UNDERSTANDING": understanding,
-        "CONFIDENCE": confidence,
-        "PROGRESS": progress,
-        "PROBLEM_PLACEHOLDER": problem.strip(),
-        "ACCEPTANCE_PLACEHOLDER": "Define acceptance criteria (see Render context and deploy history).",
-        "ACCEPTANCE_BLOCK": "- AC1: Define acceptance criteria from the imported Render context and deploy history.",
-        "AC_TRACEABILITY_PLACEHOLDER": "- AC1 -> Scope: Review imported Render context and define proof. Proof: TODO.",
-        "PRODUCT_FRAMING_STATUS": "Not needed",
-        "PRODUCT_FRAMING_SIGNALS": "(none detected)",
-        "PRODUCT_FRAMING_ACTION": "No product brief follow-up is expected from this imported Render context.",
-        "ARCHITECTURE_FRAMING_STATUS": "Required",
-        "ARCHITECTURE_FRAMING_SIGNALS": "runtime and deployment context imported from Render",
-        "ARCHITECTURE_FRAMING_ACTION": "Create or link an ADR before irreversible infrastructure changes start.",
-        "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
-        "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
-        "REQUEST_LINK_PLACEHOLDER": "(none yet)",
-        "TASK_LINK_PLACEHOLDER": "(none yet)",
-        "AI_SUMMARY_PLACEHOLDER": f"Imported Render service context for {title} with deployment history and runtime signals.",
-        "AI_KEYWORDS_PLACEHOLDER": "render, deploy, infrastructure, backlog",
-        "AI_USE_WHEN_PLACEHOLDER": "Use when turning imported Render runtime context into an actionable backlog slice.",
-        "AI_SKIP_WHEN_PLACEHOLDER": "Skip when the work no longer depends on this Render service context.",
-        "REFERENCES_SECTION": "",
-        "MERMAID_BLOCK": "",
-        "COMPLEXITY": "Medium",
-        "THEME": "Infrastructure",
-        "NOTES_PLACEHOLDER": notes.rstrip(),
-    }
-    return _render_template(template, values).rstrip() + "\n"
+    values = build_workflow_doc_values(
+        "backlog",
+        doc_ref=doc_ref,
+        title=title,
+        from_version=from_version,
+        status="Ready",
+        understanding=understanding,
+        confidence=confidence,
+        progress=progress,
+        complexity="Medium",
+        theme="Infrastructure",
+    )
+    values["PROBLEM_PLACEHOLDER"] = problem.strip()
+    values["ACCEPTANCE_PLACEHOLDER"] = "Define acceptance criteria (see Render context and deploy history)."
+    values["ACCEPTANCE_BLOCK"] = "- AC1: Define acceptance criteria from the imported Render context and deploy history."
+    values["AC_TRACEABILITY_PLACEHOLDER"] = "- AC1 -> Scope: Review imported Render context and define proof. Proof: TODO."
+    values["PRODUCT_FRAMING_STATUS"] = "Not needed"
+    values["PRODUCT_FRAMING_SIGNALS"] = "(none detected)"
+    values["PRODUCT_FRAMING_ACTION"] = "No product brief follow-up is expected from this imported Render context."
+    values["ARCHITECTURE_FRAMING_STATUS"] = "Required"
+    values["ARCHITECTURE_FRAMING_SIGNALS"] = "runtime and deployment context imported from Render"
+    values["ARCHITECTURE_FRAMING_ACTION"] = "Create or link an ADR before irreversible infrastructure changes start."
+    values["NOTES_PLACEHOLDER"] = notes.rstrip()
+    values["MERMAID_BLOCK"] = _render_workflow_mermaid("backlog", title, values)
+    return render_workflow_template("backlog", values)
 
 
 def main(argv: list[str]) -> int:
@@ -137,7 +97,6 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     repo_root = find_repo_root(Path.cwd())
-    backlog_dir = repo_root / "logics" / "backlog"
 
     if args.deploy_limit <= 0:
         raise SystemExit("--deploy-limit must be > 0")
@@ -152,13 +111,8 @@ def main(argv: list[str]) -> int:
     runtime = extract_service_runtime(service) or "-"
     plan = extract_service_plan(service) or "-"
 
-    doc_id = _next_id(backlog_dir, "item")
-    slug = _slugify(f"{service_name}_render_service_follow_up")
-    filename = f"item_{doc_id:03d}_{slug}.md"
-    doc_ref = f"item_{doc_id:03d}_{slug}"
-    output_path = backlog_dir / filename
-    if output_path.exists():
-        raise SystemExit(f"Refusing to overwrite: {output_path}")
+    title = f"Render follow-up: {service_name}"
+    planned = plan_workflow_doc(repo_root, "backlog", title, dry_run=args.dry_run)
 
     problem = "\n".join(
         [
@@ -196,8 +150,8 @@ def main(argv: list[str]) -> int:
     notes = "\n".join(notes_parts)
 
     content = build_backlog_content(
-        title=f"Render follow-up: {service_name}",
-        doc_ref=doc_ref,
+        title=title,
+        doc_ref=planned.ref,
         from_version=args.from_version,
         understanding=args.understanding,
         confidence=args.confidence,
@@ -205,7 +159,7 @@ def main(argv: list[str]) -> int:
         problem=problem,
         notes=notes,
     )
-    _write(output_path, content, args.dry_run)
+    write_workflow_doc(planned.path, content, args.dry_run)
     return 0
 
 

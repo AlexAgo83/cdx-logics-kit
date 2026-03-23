@@ -2,11 +2,314 @@
 from __future__ import annotations
 
 import argparse
+import io
+import json
+import subprocess
 import sys
+import time
+from contextlib import redirect_stdout
 from datetime import date
 from pathlib import Path
 
 from logics_flow_support import *  # noqa: F401,F403
+from logics_flow_models import WorkflowDocModel, iter_skill_packages, parse_workflow_doc
+from logics_flow_mutations import apply_mutation, build_planned_mutation
+from logics_flow_registry import (
+    CURRENT_WORKFLOW_SCHEMA_VERSION,
+    GOVERNANCE_PROFILES,
+    WORKFLOW_CONVENTIONS,
+    build_release_metadata,
+)
+
+
+def _rel(repo_root: Path, path: Path) -> str:
+    return path.relative_to(repo_root).as_posix()
+
+
+def _load_workflow_docs(repo_root: Path) -> dict[str, WorkflowDocModel]:
+    docs: dict[str, WorkflowDocModel] = {}
+    for kind_name, kind in DOC_KINDS.items():
+        directory = repo_root / kind.directory
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob(f"{kind.prefix}_*.md")):
+            model = parse_workflow_doc(path, repo_root=repo_root)
+            docs[model.ref] = model
+    return docs
+
+
+def _resolve_target_docs(repo_root: Path, sources: list[str]) -> list[tuple[str, Path]]:
+    if not sources:
+        targets: list[tuple[str, Path]] = []
+        for kind_name, kind in DOC_KINDS.items():
+            directory = repo_root / kind.directory
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.glob(f"{kind.prefix}_*.md")):
+                targets.append((kind_name, path))
+        return targets
+
+    resolved: list[tuple[str, Path]] = []
+    for source in sources:
+        candidate = (repo_root / source).resolve()
+        if candidate.is_file():
+            for kind_name, kind in DOC_KINDS.items():
+                if candidate.parent == (repo_root / kind.directory).resolve():
+                    resolved.append((kind_name, candidate))
+                    break
+            continue
+        for kind_name, kind in DOC_KINDS.items():
+            path = repo_root / kind.directory / f"{source}.md"
+            if path.is_file():
+                resolved.append((kind_name, path))
+                break
+        else:
+            raise SystemExit(f"Could not resolve workflow doc target `{source}`.")
+    return resolved
+
+
+def _git_changed_paths(repo_root: Path) -> list[str]:
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--relative=."],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _context_profile_limit(profile: str) -> int:
+    return {"tiny": 2, "normal": 4, "deep": 8}[profile]
+
+
+def _workflow_neighborhood(seed: WorkflowDocModel, docs: dict[str, WorkflowDocModel]) -> list[WorkflowDocModel]:
+    ordered: list[WorkflowDocModel] = [seed]
+    seen = {seed.ref}
+    linked_refs = []
+    for values in seed.refs.values():
+        linked_refs.extend(values)
+    for ref in linked_refs:
+        candidate = docs.get(ref)
+        if candidate is None or candidate.ref in seen:
+            continue
+        ordered.append(candidate)
+        seen.add(candidate.ref)
+    for candidate in docs.values():
+        if candidate.ref in seen:
+            continue
+        if seed.ref in sum(candidate.refs.values(), []):
+            ordered.append(candidate)
+            seen.add(candidate.ref)
+    return ordered
+
+
+def _context_pack_doc_entry(doc: WorkflowDocModel, mode: str) -> dict[str, object]:
+    entry = {
+        "ref": doc.ref,
+        "kind": doc.kind,
+        "path": doc.path,
+        "title": doc.title,
+        "status": doc.indicators.get("Status", ""),
+        "schema_version": doc.schema_version,
+        "ai_context": doc.ai_context,
+        "linked_refs": {prefix: refs for prefix, refs in doc.refs.items() if refs},
+    }
+    if mode == "summary-only":
+        return entry
+
+    section_names = {
+        "request": ["Needs", "Acceptance criteria"],
+        "backlog": ["Problem", "Acceptance criteria"],
+        "task": ["Context", "Validation"],
+    }.get(doc.kind, [])
+    entry["sections"] = {
+        heading: [line for line in doc.sections.get(heading, []) if line.strip()][:6]
+        for heading in section_names
+    }
+    return entry
+
+
+def _build_context_pack(repo_root: Path, seed_ref: str, *, mode: str, profile: str) -> dict[str, object]:
+    docs = _load_workflow_docs(repo_root)
+    seed = docs.get(seed_ref)
+    if seed is None:
+        raise SystemExit(f"Unknown workflow ref `{seed_ref}`.")
+    ordered = _workflow_neighborhood(seed, docs)[: _context_profile_limit(profile)]
+    pack_docs = [_context_pack_doc_entry(doc, mode) for doc in ordered]
+    changed_paths = _git_changed_paths(repo_root) if mode == "diff-first" else []
+    return {
+        "ref": seed_ref,
+        "mode": mode,
+        "profile": profile,
+        "budgets": {
+            "max_docs": _context_profile_limit(profile),
+        },
+        "changed_paths": changed_paths,
+        "docs": pack_docs,
+        "estimates": {
+            "doc_count": len(pack_docs),
+            "char_count": sum(len(json.dumps(entry, sort_keys=True)) for entry in pack_docs),
+        },
+    }
+
+
+def _schema_status(repo_root: Path, targets: list[str]) -> dict[str, object]:
+    docs = [parse_workflow_doc(path, repo_root=repo_root) for _kind, path in _resolve_target_docs(repo_root, targets)]
+    counts: dict[str, int] = {}
+    outdated: list[str] = []
+    missing: list[str] = []
+    for doc in docs:
+        schema_version = doc.indicators.get("Schema version", "")
+        if not schema_version:
+            missing.append(doc.path)
+            schema_version = "(missing)"
+        counts[schema_version] = counts.get(schema_version, 0) + 1
+        if schema_version not in {"(missing)", CURRENT_WORKFLOW_SCHEMA_VERSION}:
+            outdated.append(doc.path)
+    return {
+        "current_schema_version": CURRENT_WORKFLOW_SCHEMA_VERSION,
+        "counts": dict(sorted(counts.items())),
+        "missing": missing,
+        "outdated": outdated,
+        "doc_count": len(docs),
+    }
+
+
+def _ensure_schema_version_text(text: str) -> tuple[str, bool]:
+    lines = text.splitlines()
+    heading_idx = next((idx for idx, line in enumerate(lines) if line.startswith("## ")), None)
+    if heading_idx is None:
+        return text, False
+    existing_idx, existing_value = _parse_indicator(lines, "Schema version")
+    rendered = f"> Schema version: {CURRENT_WORKFLOW_SCHEMA_VERSION}"
+    if existing_idx is not None:
+        if existing_value == CURRENT_WORKFLOW_SCHEMA_VERSION:
+            return text, False
+        lines[existing_idx] = rendered
+    else:
+        insert_at = heading_idx + 1
+        while insert_at < len(lines) and lines[insert_at].lstrip().startswith(">"):
+            insert_at += 1
+        lines.insert(insert_at, rendered)
+    refreshed = "\n".join(lines).rstrip() + "\n"
+    return refreshed, refreshed != text
+
+
+def _graph_payload(repo_root: Path) -> dict[str, object]:
+    docs = _load_workflow_docs(repo_root)
+    nodes = []
+    edges = []
+    for doc in docs.values():
+        nodes.append(
+            {
+                "ref": doc.ref,
+                "kind": doc.kind,
+                "title": doc.title,
+                "path": doc.path,
+                "status": doc.indicators.get("Status", ""),
+            }
+        )
+        for refs in doc.refs.values():
+            for ref in refs:
+                if ref in docs:
+                    edges.append({"from": doc.ref, "to": ref})
+    return {"nodes": nodes, "edges": edges}
+
+
+def _skill_packages(repo_root: Path) -> list[dict[str, object]]:
+    skills_root = repo_root / "logics" / "skills"
+    return [package.to_dict() for package in iter_skill_packages(skills_root, repo_root=repo_root)]
+
+
+def _validate_skills_payload(repo_root: Path) -> dict[str, object]:
+    packages = _skill_packages(repo_root)
+    issues = [
+        {
+            "skill": package["name"],
+            "path": package["path"],
+            "issues": package["issues"],
+        }
+        for package in packages
+        if package["issues"]
+    ]
+    return {
+        "skill_count": len(packages),
+        "packages": packages,
+        "issues": issues,
+        "ok": not issues,
+    }
+
+
+def _export_registry_payload(repo_root: Path) -> dict[str, object]:
+    skills_root = repo_root / "logics" / "skills"
+    return {
+        "schema_version": CURRENT_WORKFLOW_SCHEMA_VERSION,
+        "conventions": WORKFLOW_CONVENTIONS,
+        "governance_profiles": GOVERNANCE_PROFILES,
+        "skills": _skill_packages(repo_root),
+        "releases": [release.__dict__ for release in build_release_metadata(skills_root)],
+    }
+
+
+def _doctor_payload(repo_root: Path) -> dict[str, object]:
+    issues: list[dict[str, str]] = []
+    for directory in ("logics/request", "logics/backlog", "logics/tasks", "logics/skills"):
+        path = repo_root / directory
+        if not path.exists():
+            issues.append(
+                {
+                    "code": "missing_directory",
+                    "path": directory,
+                    "message": f"Missing required directory `{directory}`.",
+                    "remediation": f"Create `{directory}` or run the bootstrap flow before using the kit.",
+                }
+            )
+
+    validation = _validate_skills_payload(repo_root)
+    for issue in validation["issues"]:
+        issues.append(
+            {
+                "code": "invalid_skill_package",
+                "path": issue["path"],
+                "message": "; ".join(issue["issues"]),
+                "remediation": "Repair SKILL.md frontmatter and agents/openai.yaml so the skill package matches the kit contract.",
+            }
+        )
+
+    schema = _schema_status(repo_root, [])
+    for path in schema["missing"]:
+        issues.append(
+            {
+                "code": "missing_schema_version",
+                "path": path,
+                "message": "Workflow doc is missing a schema version indicator.",
+                "remediation": "Run `logics_flow.py sync migrate-schema` to normalize the workflow corpus.",
+            }
+        )
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "skill_validation": validation,
+        "schema_status": schema,
+    }
+
+
+def _benchmark_payload(repo_root: Path) -> dict[str, object]:
+    started = time.perf_counter()
+    packages = _skill_packages(repo_root)
+    duration_ms = round((time.perf_counter() - started) * 1000, 3)
+    return {
+        "skill_count": len(packages),
+        "duration_ms": duration_ms,
+        "average_ms_per_skill": round(duration_ms / len(packages), 3) if packages else 0.0,
+    }
 
 def cmd_new(args: argparse.Namespace) -> None:
     doc_kind = DOC_KINDS[args.kind]
@@ -42,6 +345,13 @@ def cmd_new(args: argparse.Namespace) -> None:
     _write(planned.path, content, args.dry_run)
     if doc_kind.kind in {"backlog", "task"}:
         _print_decision_summary(planned.ref, assessment, product_refs, architecture_refs)
+    return {
+        "command": "new",
+        "kind": doc_kind.kind,
+        "ref": planned.ref,
+        "path": _rel(repo_root, planned.path),
+        "dry_run": args.dry_run,
+    }
 
 
 def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
@@ -51,7 +361,15 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
 
     title = _parse_title_from_source(source_path) or "Promoted backlog item"
     repo_root = _find_repo_root(Path.cwd())
-    _create_backlog_from_request(repo_root, source_path, title, args)
+    planned = _create_backlog_from_request(repo_root, source_path, title, args)
+    return {
+        "command": "promote",
+        "promotion": "request-to-backlog",
+        "source": _rel(repo_root, source_path),
+        "created_ref": planned.ref,
+        "created_path": _rel(repo_root, planned.path),
+        "dry_run": args.dry_run,
+    }
 
 
 def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
@@ -61,7 +379,15 @@ def cmd_promote_backlog_to_task(args: argparse.Namespace) -> None:
 
     title = _parse_title_from_source(source_path) or "Implementation task"
     repo_root = _find_repo_root(Path.cwd())
-    _create_task_from_backlog(repo_root, source_path, title, args)
+    planned = _create_task_from_backlog(repo_root, source_path, title, args)
+    return {
+        "command": "promote",
+        "promotion": "backlog-to-task",
+        "source": _rel(repo_root, source_path),
+        "created_ref": planned.ref,
+        "created_path": _rel(repo_root, planned.path),
+        "dry_run": args.dry_run,
+    }
 
 
 def cmd_split_request(args: argparse.Namespace) -> None:
@@ -77,6 +403,13 @@ def cmd_split_request(args: argparse.Namespace) -> None:
         created_refs.append(planned.ref)
 
     print(f"Split request into {len(created_refs)} backlog item(s): {', '.join(created_refs)}")
+    return {
+        "command": "split",
+        "kind": "request",
+        "source": _rel(repo_root, source_path),
+        "created_refs": created_refs,
+        "dry_run": args.dry_run,
+    }
 
 
 def cmd_split_backlog(args: argparse.Namespace) -> None:
@@ -92,6 +425,13 @@ def cmd_split_backlog(args: argparse.Namespace) -> None:
         created_refs.append(planned.ref)
 
     print(f"Split backlog item into {len(created_refs)} task(s): {', '.join(created_refs)}")
+    return {
+        "command": "split",
+        "kind": "backlog",
+        "source": _rel(repo_root, source_path),
+        "created_refs": created_refs,
+        "dry_run": args.dry_run,
+    }
 
 
 def _maybe_close_request_chain(repo_root: Path, request_ref: str, dry_run: bool) -> None:
@@ -132,6 +472,7 @@ def cmd_sync_close_eligible_requests(args: argparse.Namespace) -> None:
     repo_root = _find_repo_root(Path.cwd())
     scanned, closed = _sync_close_eligible_requests(repo_root, args.dry_run)
     print(f"Scanned {scanned} requests, auto-closed {closed}.")
+    return {"command": "sync", "sync_kind": "close-eligible-requests", "scanned": scanned, "closed": closed, "dry_run": args.dry_run}
 
 
 def cmd_sync_refresh_mermaid_signatures(args: argparse.Namespace) -> None:
@@ -152,6 +493,153 @@ def cmd_sync_refresh_mermaid_signatures(args: argparse.Namespace) -> None:
         print(f"Refreshed Mermaid signatures in {len(refreshed)} workflow doc(s).")
     for path in refreshed:
         print(f"- {path}")
+    return {
+        "command": "sync",
+        "sync_kind": "refresh-mermaid-signatures",
+        "modified_files": [path.as_posix() for path in refreshed],
+        "dry_run": args.dry_run,
+    }
+
+
+def cmd_sync_refresh_ai_context(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    modified: list[dict[str, object]] = []
+    for kind_name, path in _resolve_target_docs(repo_root, args.sources):
+        original = path.read_text(encoding="utf-8")
+        refreshed, changed = refresh_ai_context_text(original, kind_name)
+        if not changed:
+            continue
+        mutation = build_planned_mutation(path, before=original, after=refreshed, reason="refresh AI Context", repo_root=repo_root)
+        modified.append(mutation.to_dict())
+        if args.preview:
+            continue
+        _write(path, refreshed, args.dry_run)
+    if args.preview:
+        print(f"Previewed AI Context refresh for {len(modified)} workflow doc(s).")
+    else:
+        print(f"Refreshed AI Context in {len(modified)} workflow doc(s).")
+    for mutation in modified:
+        print(f"- {mutation['path']}")
+    return {
+        "command": "sync",
+        "sync_kind": "refresh-ai-context",
+        "preview": args.preview,
+        "dry_run": args.dry_run,
+        "modified_files": modified,
+    }
+
+
+def cmd_sync_context_pack(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _build_context_pack(repo_root, args.ref, mode=args.mode, profile=args.profile)
+    if args.out:
+        out_path = (repo_root / args.out).resolve()
+        serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        _write(out_path, serialized, args.dry_run)
+        print(f"Wrote {out_path.relative_to(repo_root)}")
+        payload["output_path"] = _rel(repo_root, out_path)
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return {"command": "sync", "sync_kind": "context-pack", **payload}
+
+
+def cmd_sync_schema_status(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _schema_status(repo_root, args.sources)
+    print(f"Schema status: {payload['doc_count']} workflow doc(s) scanned.")
+    for version, count in payload["counts"].items():
+        print(f"- {version}: {count}")
+    return {"command": "sync", "sync_kind": "schema-status", **payload}
+
+
+def cmd_sync_migrate_schema(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    modified: list[dict[str, object]] = []
+    for kind_name, path in _resolve_target_docs(repo_root, args.sources):
+        original = path.read_text(encoding="utf-8")
+        refreshed, changed = _ensure_schema_version_text(original)
+        if args.refresh_ai_context:
+            refreshed, ai_changed = refresh_ai_context_text(refreshed, kind_name)
+            changed = changed or ai_changed
+        if not changed:
+            continue
+        mutation = build_planned_mutation(path, before=original, after=refreshed, reason="migrate workflow schema", repo_root=repo_root)
+        modified.append(mutation.to_dict())
+        if args.preview:
+            continue
+        _write(path, refreshed, args.dry_run)
+    if args.preview:
+        print(f"Previewed schema migration for {len(modified)} workflow doc(s).")
+    else:
+        print(f"Migrated schema for {len(modified)} workflow doc(s).")
+    for mutation in modified:
+        print(f"- {mutation['path']}")
+    return {
+        "command": "sync",
+        "sync_kind": "migrate-schema",
+        "preview": args.preview,
+        "dry_run": args.dry_run,
+        "refresh_ai_context": args.refresh_ai_context,
+        "modified_files": modified,
+    }
+
+
+def cmd_sync_export_graph(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _graph_payload(repo_root)
+    if args.out:
+        out_path = (repo_root / args.out).resolve()
+        _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
+        print(f"Wrote {out_path.relative_to(repo_root)}")
+        payload["output_path"] = _rel(repo_root, out_path)
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return {"command": "sync", "sync_kind": "export-graph", **payload}
+
+
+def cmd_sync_validate_skills(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _validate_skills_payload(repo_root)
+    print(f"Validated {payload['skill_count']} skill package(s).")
+    if payload["issues"]:
+        for issue in payload["issues"]:
+            print(f"- {issue['path']}: {'; '.join(issue['issues'])}")
+    else:
+        print("- No skill package issues detected.")
+    return {"command": "sync", "sync_kind": "validate-skills", **payload}
+
+
+def cmd_sync_export_registry(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _export_registry_payload(repo_root)
+    if args.out:
+        out_path = (repo_root / args.out).resolve()
+        _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
+        print(f"Wrote {out_path.relative_to(repo_root)}")
+        payload["output_path"] = _rel(repo_root, out_path)
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return {"command": "sync", "sync_kind": "export-registry", **payload}
+
+
+def cmd_sync_doctor(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _doctor_payload(repo_root)
+    if payload["ok"]:
+        print("Kit doctor: OK")
+    else:
+        print("Kit doctor: FAILED")
+        for issue in payload["issues"]:
+            print(f"- [{issue['code']}] {issue['path']}: {issue['message']}")
+            print(f"  remediation: {issue['remediation']}")
+    return {"command": "sync", "sync_kind": "doctor", **payload}
+
+
+def cmd_sync_benchmark_skills(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _benchmark_payload(repo_root)
+    print(f"Benchmarked {payload['skill_count']} skill package(s) in {payload['duration_ms']} ms.")
+    return {"command": "sync", "sync_kind": "benchmark-skills", **payload}
 
 
 def cmd_close(args: argparse.Namespace) -> None:
@@ -198,6 +686,12 @@ def cmd_close(args: argparse.Namespace) -> None:
     if kind.kind == "request":
         request_ref = source_path.stem
         _maybe_close_request_chain(repo_root, request_ref, args.dry_run)
+    return {
+        "command": "close",
+        "kind": kind.kind,
+        "source": _rel(repo_root, source_path),
+        "dry_run": args.dry_run,
+    }
 
 
 def _verify_finished_task_chain(repo_root: Path, task_path: Path) -> list[str]:
@@ -298,6 +792,12 @@ def cmd_finish_task(args: argparse.Namespace) -> None:
         raise SystemExit(f"Finish verification failed:\n{details}")
 
     print(f"Finish verification: OK for {source_path.relative_to(repo_root)}")
+    return {
+        "command": "finish",
+        "kind": "task",
+        "source": _rel(repo_root, source_path),
+        "dry_run": args.dry_run,
+    }
 
 
 def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
@@ -314,6 +814,7 @@ def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
     if kind in {"backlog", "task"}:
         parser.add_argument("--auto-create-product-brief", action="store_true")
         parser.add_argument("--auto-create-adr", action="store_true")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--dry-run", action="store_true")
 
 
@@ -366,6 +867,7 @@ def build_parser() -> argparse.ArgumentParser:
     for kind in DOC_KINDS:
         close_kind = close_sub.add_parser(kind, help=f"Close a {kind} doc.")
         close_kind.add_argument("source")
+        close_kind.add_argument("--format", choices=("text", "json"), default="text")
         close_kind.add_argument("--dry-run", action="store_true")
         close_kind.set_defaults(func=cmd_close)
 
@@ -379,6 +881,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Close a task, propagate task -> backlog -> request transitions, and verify the linked chain.",
     )
     finish_task.add_argument("source")
+    finish_task.add_argument("--format", choices=("text", "json"), default="text")
     finish_task.add_argument("--dry-run", action="store_true")
     finish_task.set_defaults(func=cmd_finish_task)
 
@@ -388,6 +891,7 @@ def build_parser() -> argparse.ArgumentParser:
         "close-eligible-requests",
         help="Auto-close requests when all linked backlog items are done.",
     )
+    close_eligible.add_argument("--format", choices=("text", "json"), default="text")
     close_eligible.add_argument("--dry-run", action="store_true")
     close_eligible.set_defaults(func=cmd_sync_close_eligible_requests)
 
@@ -395,16 +899,125 @@ def build_parser() -> argparse.ArgumentParser:
         "refresh-mermaid-signatures",
         help="Refresh stale workflow Mermaid signatures without rewriting the full diagram body.",
     )
+    refresh_mermaid.add_argument("--format", choices=("text", "json"), default="text")
     refresh_mermaid.add_argument("--dry-run", action="store_true")
     refresh_mermaid.set_defaults(func=cmd_sync_refresh_mermaid_signatures)
 
+    refresh_ai = sync_sub.add_parser(
+        "refresh-ai-context",
+        help="Backfill or refresh compact AI Context sections for managed workflow docs.",
+    )
+    refresh_ai.add_argument("sources", nargs="*", help="Optional workflow refs or paths to limit the refresh.")
+    refresh_ai.add_argument("--preview", action="store_true", help="Preview the mutation plan without writing files.")
+    refresh_ai.add_argument("--format", choices=("text", "json"), default="text")
+    refresh_ai.add_argument("--dry-run", action="store_true")
+    refresh_ai.set_defaults(func=cmd_sync_refresh_ai_context)
+
+    context_pack = sync_sub.add_parser(
+        "context-pack",
+        help="Build a kit-native compact context-pack artifact from workflow docs.",
+    )
+    context_pack.add_argument("ref", help="Seed workflow ref for the context pack.")
+    context_pack.add_argument("--mode", choices=("summary-only", "diff-first", "full"), default="summary-only")
+    context_pack.add_argument("--profile", choices=("tiny", "normal", "deep"), default="normal")
+    context_pack.add_argument("--out", help="Write the JSON artifact to this relative path.")
+    context_pack.add_argument("--format", choices=("text", "json"), default="text")
+    context_pack.add_argument("--dry-run", action="store_true")
+    context_pack.set_defaults(func=cmd_sync_context_pack)
+
+    schema_status = sync_sub.add_parser(
+        "schema-status",
+        help="Report schema-version coverage for workflow docs.",
+    )
+    schema_status.add_argument("sources", nargs="*", help="Optional workflow refs or paths to scope the scan.")
+    schema_status.add_argument("--format", choices=("text", "json"), default="text")
+    schema_status.set_defaults(func=cmd_sync_schema_status)
+
+    migrate_schema = sync_sub.add_parser(
+        "migrate-schema",
+        help="Normalize workflow docs to the current schema version.",
+    )
+    migrate_schema.add_argument("sources", nargs="*", help="Optional workflow refs or paths to limit the migration.")
+    migrate_schema.add_argument("--refresh-ai-context", action="store_true", help="Refresh AI Context while migrating schema.")
+    migrate_schema.add_argument("--preview", action="store_true", help="Preview the mutation plan without writing files.")
+    migrate_schema.add_argument("--format", choices=("text", "json"), default="text")
+    migrate_schema.add_argument("--dry-run", action="store_true")
+    migrate_schema.set_defaults(func=cmd_sync_migrate_schema)
+
+    export_graph = sync_sub.add_parser(
+        "export-graph",
+        help="Export workflow relationships as a machine-readable graph.",
+    )
+    export_graph.add_argument("--out", help="Write the JSON graph to this relative path.")
+    export_graph.add_argument("--format", choices=("text", "json"), default="text")
+    export_graph.add_argument("--dry-run", action="store_true")
+    export_graph.set_defaults(func=cmd_sync_export_graph)
+
+    validate_skills = sync_sub.add_parser(
+        "validate-skills",
+        help="Validate skill packages against the kit contract.",
+    )
+    validate_skills.add_argument("--format", choices=("text", "json"), default="text")
+    validate_skills.set_defaults(func=cmd_sync_validate_skills)
+
+    export_registry = sync_sub.add_parser(
+        "export-registry",
+        help="Export conventions, governance profiles, capability metadata, and release metadata.",
+    )
+    export_registry.add_argument("--out", help="Write the JSON registry to this relative path.")
+    export_registry.add_argument("--format", choices=("text", "json"), default="text")
+    export_registry.add_argument("--dry-run", action="store_true")
+    export_registry.set_defaults(func=cmd_sync_export_registry)
+
+    doctor = sync_sub.add_parser(
+        "doctor",
+        help="Diagnose common Logics kit setup, schema, and skill-package issues.",
+    )
+    doctor.add_argument("--format", choices=("text", "json"), default="text")
+    doctor.set_defaults(func=cmd_sync_doctor)
+
+    benchmark = sync_sub.add_parser(
+        "benchmark-skills",
+        help="Run a lightweight benchmark over skill-package discovery and validation.",
+    )
+    benchmark.add_argument("--format", choices=("text", "json"), default="text")
+    benchmark.set_defaults(func=cmd_sync_benchmark_skills)
+
     return parser
+
+
+def _run_json_command(args: argparse.Namespace) -> int:
+    stdout_buffer = io.StringIO()
+    payload: dict[str, object]
+    exit_code = 0
+
+    with redirect_stdout(stdout_buffer):
+        try:
+            result = args.func(args)
+            payload = result if isinstance(result, dict) else {"result": result}
+            payload.setdefault("ok", True)
+        except SystemExit as exc:
+            exit_code = exc.code if isinstance(exc.code, int) else 1
+            payload = {
+                "ok": False,
+                "error": exc.code if isinstance(exc.code, str) else "command failed",
+            }
+
+    logs = [line for line in stdout_buffer.getvalue().splitlines() if line.strip()]
+    if logs:
+        payload["logs"] = logs
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return exit_code
 
 
 def main(argv: list[str]) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    args.func(args)
+    if getattr(args, "format", "text") == "json":
+        return _run_json_command(args)
+    result = args.func(args)
+    if isinstance(result, dict) and result.get("ok") is False:
+        return 1
     return 0
 
 
