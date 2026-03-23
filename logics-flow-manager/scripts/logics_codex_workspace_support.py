@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -191,7 +192,22 @@ def _remove_path(target: Path) -> None:
     if target.is_symlink() or target.is_file():
         target.unlink()
         return
+    if _is_windows_reparse_directory(target):
+        target.rmdir()
+        return
     shutil.rmtree(target)
+
+
+def _is_windows_reparse_directory(target: Path) -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        metadata = target.lstat()
+    except OSError:
+        return False
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    return bool(attributes & reparse_flag) and target.is_dir()
 
 
 def _link_directory(source: Path, destination: Path, mode: str) -> str:
