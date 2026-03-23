@@ -1,6 +1,6 @@
 ---
 name: logics-connector-render
-description: Connect Render (Public API) to the Logics workflow: list services/deploys, snapshot/apply deployment plan changes, and import a Render service context into `logics/backlog/`.
+description: "Connect Render (Public API) to the Logics workflow: list services/deploys, snapshot/apply deployment plan changes, and import a Render service context into `logics/backlog/`."
 ---
 
 # Render connector

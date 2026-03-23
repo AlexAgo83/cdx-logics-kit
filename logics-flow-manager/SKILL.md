@@ -1,6 +1,6 @@
 ---
 name: logics-flow-manager
-description: Manage this repository's Logics workflow (logics/request → logics/backlog → logics/tasks) and keep companion product or architecture refs aligned: create new request/backlog/task docs, promote between stages, keep From version/Understanding/Confidence/Progress indicators consistent, and generate correctly-numbered filenames. Use when a user asks to triage an idea, write a request, promote it to a backlog item, or create an executable task plan.
+description: "Manage this repository's Logics workflow (logics/request → logics/backlog → logics/tasks) and keep companion product or architecture refs aligned: create new request/backlog/task docs, promote between stages, keep From version/Understanding/Confidence/Progress indicators consistent, and generate correctly-numbered filenames. Use when a user asks to triage an idea, write a request, promote it to a backlog item, or create an executable task plan."
 ---
 
 # Logics flow

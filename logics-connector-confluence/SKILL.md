@@ -1,6 +1,6 @@
 ---
 name: logics-connector-confluence
-description: Connect Confluence (Atlassian) to the Logics workflow: search pages via CQL and import a page into `logics/request/` as a new `req_###_*.md` with the page content as context.
+description: "Connect Confluence (Atlassian) to the Logics workflow: search pages via CQL and import a page into `logics/request/` as a new `req_###_*.md` with the page content as context."
 ---
 
 # Confluence connector
