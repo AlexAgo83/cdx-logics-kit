@@ -164,6 +164,12 @@ def main(argv: list[str]) -> int:
         "PRODUCT_LINK_PLACEHOLDER": "(none yet)",
         "ARCHITECTURE_LINK_PLACEHOLDER": "(none yet)",
         "BACKLOG_PLACEHOLDER": "- (none yet)",
+        "AI_SUMMARY_PLACEHOLDER": f"Imported request from Confluence for {title}.",
+        "AI_KEYWORDS_PLACEHOLDER": "confluence, import, request",
+        "AI_USE_WHEN_PLACEHOLDER": "Use when framing the imported request and trimming source context.",
+        "AI_SKIP_WHEN_PLACEHOLDER": "Skip when the work targets another product area or a deeper delivery stage.",
+        "REFERENCES_SECTION": f"# References\n- `{page_url}`" if page_url else "",
+        "MERMAID_BLOCK": "",
         "COMPLEXITY": "Medium",
         "THEME": "General",
     }

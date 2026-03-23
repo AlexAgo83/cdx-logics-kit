@@ -241,6 +241,37 @@ class WorkflowAuditTest(unittest.TestCase):
             self.assertTrue(any(path.endswith("req_000_demo_request.md") for path in issue_paths))
             self.assertFalse(any(path.endswith("req_999_unrelated.md") for path in issue_paths))
 
+    def test_token_hygiene_reports_missing_ai_context_and_verbose_sections(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "workflow_audit.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._write_fixture_repo(repo)
+            request = repo / "logics" / "request" / "req_000_demo_request.md"
+            request.write_text(
+                request.read_text(encoding="utf-8").replace(
+                    "# Acceptance criteria",
+                    "# Context\n"
+                    + "\n".join(f"- Extra context line {idx}" for idx in range(1, 30))
+                    + "\n\n# Acceptance criteria",
+                ),
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json", "--token-hygiene"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 1, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertIn("token_hygiene_missing_ai_context", payload["counts"]["by_code"])
+            self.assertIn("token_hygiene_section_too_long", payload["counts"]["by_code"])
+
 
 if __name__ == "__main__":
     unittest.main()

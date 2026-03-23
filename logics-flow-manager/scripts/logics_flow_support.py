@@ -74,6 +74,31 @@ MERMAID_FALLBACKS = {
 }
 MERMAID_BLOCK_PATTERN = re.compile(r"```mermaid\s*\n(.*?)\n```", re.DOTALL)
 MERMAID_SIGNATURE_PATTERN = re.compile(r"^\s*%%\s*logics-signature:\s*(.+?)\s*$", re.MULTILINE)
+AI_CONTEXT_FIELD_PATTERN = re.compile(r"^\s*-\s*([^:]+)\s*:\s*(.+?)\s*$")
+AI_KEYWORD_STOPWORDS = {
+    "about",
+    "after",
+    "before",
+    "being",
+    "between",
+    "define",
+    "deliver",
+    "delivery",
+    "focus",
+    "from",
+    "have",
+    "into",
+    "needs",
+    "review",
+    "scope",
+    "should",
+    "task",
+    "that",
+    "this",
+    "through",
+    "when",
+    "with",
+}
 
 @dataclass(frozen=True)
 class PlannedDoc:
@@ -197,6 +222,102 @@ def _acceptance_items(text: str) -> list[str]:
 
 def _reference_items(text: str) -> list[str]:
     return _list_items_from_section(text, "References")
+
+
+def _extract_ai_context_fields(text: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in _section_lines(text, "AI Context"):
+        match = AI_CONTEXT_FIELD_PATTERN.match(line.strip())
+        if match is None:
+            continue
+        label = match.group(1).strip().lower()
+        fields[label] = match.group(2).strip()
+    return fields
+
+
+def _plain_text_items(lines: Iterable[str]) -> list[str]:
+    items: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        stripped = re.sub(r"^\s*-\s*(\[[ xX]\]\s*)?", "", stripped)
+        stripped = re.sub(r"^#{1,6}\s+", "", stripped)
+        if stripped.startswith("```"):
+            continue
+        items.append(stripped.strip("` "))
+    return items
+
+
+def _truncate_summary(value: str, *, max_words: int = 18, max_chars: int = 160) -> str:
+    cleaned = " ".join(value.replace("`", "").split())
+    if not cleaned:
+        return cleaned
+    words = cleaned.split()
+    if len(words) > max_words:
+        cleaned = " ".join(words[:max_words]).rstrip(".,;:") + "..."
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[: max_chars - 3].rstrip(" ,.;:") + "..."
+    return cleaned
+
+
+def _keyword_tokens(*parts: str, limit: int = 8) -> list[str]:
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9_-]{2,}", " ".join(parts).lower())
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        if token in AI_KEYWORD_STOPWORDS or token in seen:
+            continue
+        if token.isdigit():
+            continue
+        seen.add(token)
+        keywords.append(token)
+        if len(keywords) >= limit:
+            break
+    return keywords
+
+
+def _default_ai_use_when(doc_kind: str, title: str) -> str:
+    if doc_kind == "request":
+        return f"Use when framing scope, context, and acceptance checks for {title}."
+    if doc_kind == "backlog":
+        return f"Use when implementing or reviewing the delivery slice for {title}."
+    return f"Use when executing the current implementation wave for {title}."
+
+
+def _default_ai_skip_when(doc_kind: str) -> str:
+    if doc_kind == "request":
+        return "Skip when the work targets another feature, repository, or workflow stage."
+    if doc_kind == "backlog":
+        return "Skip when the change is unrelated to this delivery slice or its linked request."
+    return "Skip when the work belongs to another backlog item or a different execution wave."
+
+
+def _apply_ai_context_values(
+    values: dict[str, str],
+    *,
+    doc_kind: str,
+    title: str,
+    source_text: str = "",
+    primary_items: Iterable[str] = (),
+    secondary_items: Iterable[str] = (),
+) -> None:
+    existing = _extract_ai_context_fields(source_text)
+    primary = _plain_text_items(primary_items)
+    secondary = _plain_text_items(secondary_items)
+    summary = existing.get("summary")
+    if not summary:
+        summary = next((item for item in [*primary, *secondary] if item), "")
+    if not summary:
+        summary = f"{title} scope, constraints, and expected outcome need a compact handoff."
+    keywords = existing.get("keywords")
+    if not keywords:
+        keyword_items = _keyword_tokens(title, " ".join(primary), " ".join(secondary))
+        keywords = ", ".join(keyword_items) if keyword_items else "logics, workflow"
+    values["AI_SUMMARY_PLACEHOLDER"] = _truncate_summary(summary)
+    values["AI_KEYWORDS_PLACEHOLDER"] = keywords
+    values["AI_USE_WHEN_PLACEHOLDER"] = existing.get("use when") or _default_ai_use_when(doc_kind, title)
+    values["AI_SKIP_WHEN_PLACEHOLDER"] = existing.get("skip when") or _default_ai_skip_when(doc_kind)
 
 
 def _normalize_reference_item(item: str) -> str:
@@ -568,7 +689,13 @@ def _copy_indicator_defaults(values: dict[str, str], source_text: str) -> None:
         values["THEME"] = indicators["Theme"]
 
 
-def _seed_backlog_from_request(values: dict[str, str], source_text: str, request_ref: str | None, source_rel: Path) -> None:
+def _seed_backlog_from_request(
+    values: dict[str, str],
+    title: str,
+    source_text: str,
+    request_ref: str | None,
+    source_rel: Path,
+) -> None:
     needs = _list_items_from_section(source_text, "Needs")
     context_lines = _clean_section_lines(_section_lines(source_text, "Context"))
     acceptance_items = _acceptance_items(source_text)
@@ -595,10 +722,19 @@ def _seed_backlog_from_request(values: dict[str, str], source_text: str, request
     if context_lines:
         notes.append(f"- Request context seeded into this backlog item from `{source_rel}`.")
     values["NOTES_PLACEHOLDER"] = "\n".join(notes)
+    _apply_ai_context_values(
+        values,
+        doc_kind="backlog",
+        title=title,
+        source_text=source_text,
+        primary_items=[*needs, *acceptance_items],
+        secondary_items=context_lines,
+    )
 
 
 def _seed_task_from_backlog(
     values: dict[str, str],
+    title: str,
     source_text: str,
     source_ref: str | None,
     source_rel: Path,
@@ -635,6 +771,14 @@ def _seed_task_from_backlog(
             "Run the relevant lint or quality checks.",
             "Confirm the completed wave leaves the repository in a commit-ready state.",
         ]
+    )
+    _apply_ai_context_values(
+        values,
+        doc_kind="task",
+        title=title,
+        source_text=source_text,
+        primary_items=[*problem_lines, *acceptance_items],
+        secondary_items=context_lines,
     )
 
 
@@ -954,7 +1098,13 @@ def _update_request_companion_links(
     _write(request_path, updated, dry_run)
 
 
-def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, include_progress: bool) -> dict[str, str]:
+def _build_template_values(
+    args: argparse.Namespace,
+    doc_ref: str,
+    title: str,
+    include_progress: bool,
+    doc_kind: str,
+) -> dict[str, str]:
     values: dict[str, str] = {
         "DOC_REF": doc_ref,
         "TITLE": title,
@@ -1004,9 +1154,14 @@ def _build_template_values(args: argparse.Namespace, doc_ref: str, title: str, i
             ]
         ),
         "REPORT_PLACEHOLDER": "",
+        "AI_SUMMARY_PLACEHOLDER": "",
+        "AI_KEYWORDS_PLACEHOLDER": "",
+        "AI_USE_WHEN_PLACEHOLDER": "",
+        "AI_SKIP_WHEN_PLACEHOLDER": "",
         "REFERENCES_SECTION": "",
         "MERMAID_BLOCK": "",
     }
+    _apply_ai_context_values(values, doc_kind=doc_kind, title=title, primary_items=[title])
 
     if not include_progress:
         values["PROGRESS"] = ""
@@ -1058,12 +1213,12 @@ def _create_backlog_from_request(
 ) -> PlannedDoc:
     planned = _reserve_doc(repo_root / DOC_KINDS["backlog"].directory, DOC_KINDS["backlog"].prefix, title, args.dry_run)
     template_text = _template_path(Path(__file__), DOC_KINDS["backlog"].template_name).read_text(encoding="utf-8")
-    values = _build_template_values(args, planned.ref, title, include_progress=True)
+    values = _build_template_values(args, planned.ref, title, include_progress=True, doc_kind="backlog")
     source_text = source_path.read_text(encoding="utf-8")
     source_ref = _doc_ref_from_path(source_path, DOC_KINDS["request"])
     source_rel = source_path.relative_to(repo_root)
     _copy_indicator_defaults(values, source_text)
-    _seed_backlog_from_request(values, source_text, source_ref, source_rel)
+    _seed_backlog_from_request(values, title, source_text, source_ref, source_rel)
     values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(title, source_text))
 
     ref_text = _strip_mermaid_blocks(source_text)
@@ -1112,7 +1267,7 @@ def _create_task_from_backlog(
 ) -> PlannedDoc:
     planned = _reserve_doc(repo_root / DOC_KINDS["task"].directory, DOC_KINDS["task"].prefix, title, args.dry_run)
     template_text = _template_path(Path(__file__), DOC_KINDS["task"].template_name).read_text(encoding="utf-8")
-    values = _build_template_values(args, planned.ref, title, include_progress=True)
+    values = _build_template_values(args, planned.ref, title, include_progress=True, doc_kind="task")
     source_text = source_path.read_text(encoding="utf-8")
     source_ref = _doc_ref_from_path(source_path, DOC_KINDS["backlog"])
     source_rel = source_path.relative_to(repo_root)
@@ -1136,7 +1291,7 @@ def _create_task_from_backlog(
         args=args,
     )
 
-    _seed_task_from_backlog(values, source_text, source_ref, source_rel, request_refs)
+    _seed_task_from_backlog(values, title, source_text, source_ref, source_rel, request_refs)
     values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(title, source_text))
     values["BACKLOG_LINK_PLACEHOLDER"] = f"`{source_ref}`" if source_ref is not None else f"`{source_rel}`"
     _apply_decision_assessment(values, assessment)

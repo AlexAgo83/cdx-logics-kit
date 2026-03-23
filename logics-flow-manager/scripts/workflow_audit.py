@@ -47,6 +47,16 @@ COMPANION_PLACEHOLDERS: dict[str, tuple[str, ...]] = {
         "Describe the rollout or migration step.",
     ),
 }
+TOKEN_HYGIENE_PLACEHOLDERS = (
+    "Summarize the need, scope, and expected outcome",
+    "logics, workflow",
+    "Use when framing scope, context, and acceptance checks",
+)
+TOKEN_HYGIENE_SECTION_LIMITS: dict[str, dict[str, int]] = {
+    "request": {"Context": 24},
+    "backlog": {"Problem": 16, "Notes": 24},
+    "task": {"Context": 16, "Report": 16},
+}
 
 
 @dataclass
@@ -186,6 +196,22 @@ def _extract_request_ac_ids(request: DocMeta) -> list[str]:
         for match in pattern.finditer(line):
             ids.add(match.group(1).upper())
     return sorted(ids)
+
+
+def _extract_ai_context_fields(text: str) -> dict[str, str]:
+    section = _extract_section_lines(text, "AI Context")
+    fields: dict[str, str] = {}
+    pattern = re.compile(r"^\s*-\s*([^:]+)\s*:\s*(.+?)\s*$")
+    for line in section:
+        match = pattern.match(line.strip())
+        if match is None:
+            continue
+        fields[match.group(1).strip().lower()] = match.group(2).strip()
+    return fields
+
+
+def _section_content_line_count(text: str, heading: str) -> int:
+    return sum(1 for line in _extract_section_lines(text, heading) if line.strip())
 
 
 def _is_done(doc: DocMeta) -> bool:
@@ -505,6 +531,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--since-version",
         help="Limit the audit to docs with `From version` >= this semantic version.",
     )
+    parser.add_argument(
+        "--token-hygiene",
+        action="store_true",
+        help="Enable compact AI context and verbosity checks for workflow docs.",
+    )
     return parser
 
 
@@ -813,6 +844,64 @@ def main(argv: list[str]) -> int:
                         message="DoD checklist contains unchecked items",
                     )
                 )
+
+    # 7) Token hygiene and compact AI context.
+    if args.token_hygiene:
+        for doc in docs.values():
+            if doc.kind.kind not in {"request", "backlog", "task"}:
+                continue
+
+            ai_fields = _extract_ai_context_fields(doc.text)
+            if not ai_fields:
+                issues.append(
+                    AuditIssue(
+                        code="token_hygiene_missing_ai_context",
+                        path=doc.path,
+                        message="missing `# AI Context` section for compact handoff metadata",
+                    )
+                )
+            else:
+                summary = ai_fields.get("summary", "")
+                if not summary or any(snippet.lower() in summary.lower() for snippet in TOKEN_HYGIENE_PLACEHOLDERS):
+                    issues.append(
+                        AuditIssue(
+                            code="token_hygiene_ai_summary_weak",
+                            path=doc.path,
+                            message="AI summary is missing or still contains placeholder text",
+                        )
+                    )
+                keywords = ai_fields.get("keywords", "")
+                keyword_count = len([part for part in re.split(r"[,;]", keywords) if part.strip()])
+                if keyword_count > 10:
+                    issues.append(
+                        AuditIssue(
+                            code="token_hygiene_ai_keywords_too_many",
+                            path=doc.path,
+                            message=f"AI keywords should stay compact (found {keyword_count}, limit 10)",
+                        )
+                    )
+                use_when = ai_fields.get("use when", "")
+                skip_when = ai_fields.get("skip when", "")
+                if not use_when or not skip_when:
+                    issues.append(
+                        AuditIssue(
+                            code="token_hygiene_ai_usage_incomplete",
+                            path=doc.path,
+                            message="AI Context must define both `Use when` and `Skip when` guidance",
+                        )
+                    )
+
+            section_limits = TOKEN_HYGIENE_SECTION_LIMITS.get(doc.kind.kind, {})
+            for heading, max_lines in section_limits.items():
+                line_count = _section_content_line_count(doc.text, heading)
+                if line_count > max_lines:
+                    issues.append(
+                        AuditIssue(
+                            code="token_hygiene_section_too_long",
+                            path=doc.path,
+                            message=f"`# {heading}` is too verbose for lean handoffs ({line_count} lines, limit {max_lines})",
+                        )
+                    )
 
     if args.autofix_ac_traceability and autofix_targets:
         for path, ac_ids in sorted(autofix_targets.items(), key=lambda pair: pair[0].as_posix()):

@@ -38,6 +38,12 @@
 - Backlog item: {{BACKLOG_LINK_PLACEHOLDER}}
 - Request(s): {{REQUEST_LINK_PLACEHOLDER}}
 
+# AI Context
+- Summary: {{AI_SUMMARY_PLACEHOLDER}}
+- Keywords: {{AI_KEYWORDS_PLACEHOLDER}}
+- Use when: {{AI_USE_WHEN_PLACEHOLDER}}
+- Skip when: {{AI_SKIP_WHEN_PLACEHOLDER}}
+
 {{REFERENCES_SECTION}}
 
 # Validation

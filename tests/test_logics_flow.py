@@ -508,6 +508,9 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("- AC1: promotion preserves useful indicators", backlog_text)
             self.assertIn("- AC1 -> Scope: promotion preserves useful indicators. Proof: TODO.", backlog_text)
             self.assertIn("- AC2 -> Scope: backlog AC traceability is seeded. Proof: TODO.", backlog_text)
+            self.assertIn("# AI Context", backlog_text)
+            self.assertIn("- Summary: Remove repetitive manual cleanup", backlog_text)
+            self.assertIn("- Use when: Use when implementing or reviewing the delivery slice for Seeded request.", backlog_text)
 
     def test_frontend_oriented_request_surfaces_ui_steering_reference_through_promotion(self) -> None:
         script = self._script()
@@ -938,6 +941,8 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("commit-ready state", task_text)
             self.assertIn("CHECKPOINT: leave the current wave commit-ready", task_text)
             self.assertIn("Each completed wave left a commit-ready checkpoint", task_text)
+            self.assertIn("# AI Context", task_text)
+            self.assertIn("- Use when: Use when executing the current implementation wave for Demo backlog.", task_text)
 
 
 if __name__ == "__main__":

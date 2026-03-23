@@ -28,6 +28,12 @@
 - Product brief(s): {{PRODUCT_LINK_PLACEHOLDER}}
 - Architecture decision(s): {{ARCHITECTURE_LINK_PLACEHOLDER}}
 
+# AI Context
+- Summary: {{AI_SUMMARY_PLACEHOLDER}}
+- Keywords: {{AI_KEYWORDS_PLACEHOLDER}}
+- Use when: {{AI_USE_WHEN_PLACEHOLDER}}
+- Skip when: {{AI_SKIP_WHEN_PLACEHOLDER}}
+
 {{REFERENCES_SECTION}}
 
 # Backlog
