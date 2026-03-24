@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-model="${1:-qwen3}"
+model="${1:-deepseek-coder-v2:16b}"
 dry="${DRY_RUN:-}"
 
 run() {
