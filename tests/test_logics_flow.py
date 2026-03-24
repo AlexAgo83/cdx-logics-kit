@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import http.server
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,9 @@ from pathlib import Path
 class LogicsFlowTest(unittest.TestCase):
     def _script(self) -> Path:
         return Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "logics_flow.py"
+
+    def _cli_script(self) -> Path:
+        return Path(__file__).resolve().parents[1] / "logics.py"
 
     def _flow_manager_root(self) -> Path:
         return Path(__file__).resolve().parents[1] / "logics-flow-manager"
@@ -1721,6 +1725,239 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["validated_decision"]["proposed_args"]["sync_kind"], "doctor")
             self.assertEqual(payload["transport"]["model"], "fake-dispatcher")
             self.assertIn("request_payload", payload["transport"])
+
+    def test_split_policy_uses_repo_config_and_allows_override(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+            (repo / "logics.yaml").write_text(
+                "\n".join(
+                    [
+                        "version: 1",
+                        "workflow:",
+                        "  split:",
+                        "    policy: minimal-coherent",
+                        "    max_children_without_override: 1",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            request = repo / "logics" / "request" / "req_000_split_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_split_seed - Split seed",
+                    "> From version: 1.2.0",
+                    "> Schema version: 1.2.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: keep splits coherent",
+                ],
+            )
+
+            blocked = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "split",
+                    "request",
+                    str(request),
+                    "--title",
+                    "Slice A",
+                    "--title",
+                    "Slice B",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(blocked.returncode, 1)
+            self.assertIn("minimal-coherent", blocked.stderr)
+
+            allowed = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "split",
+                    "request",
+                    str(request),
+                    "--title",
+                    "Slice A",
+                    "--title",
+                    "Slice B",
+                    "--allow-extra-slices",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(allowed.returncode, 0, allowed.stderr)
+            payload = json.loads(allowed.stdout)
+            self.assertEqual(payload["kind"], "request")
+            self.assertEqual(len(payload["created_refs"]), 2)
+
+    def test_sync_build_index_reuses_cached_entries(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir()
+            (repo / "logics.yaml").write_text(
+                "\n".join(
+                    [
+                        "version: 1",
+                        "index:",
+                        "  enabled: true",
+                        "  path: logics/.cache/runtime_index.json",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            request = repo / "logics" / "request" / "req_000_index_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_index_seed - Index seed",
+                    "> From version: 1.2.0",
+                    "> Schema version: 1.2.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                ],
+            )
+
+            first = subprocess.run(
+                [sys.executable, str(script), "sync", "build-index", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(first.returncode, 0, first.stderr)
+            first_payload = json.loads(first.stdout)
+            self.assertGreaterEqual(first_payload["stats"]["cache_misses"], 1)
+
+            second = subprocess.run(
+                [sys.executable, str(script), "sync", "build-index", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+            second_payload = json.loads(second.stdout)
+            self.assertGreaterEqual(second_payload["stats"]["cache_hits"], 1)
+            self.assertTrue((repo / "logics" / ".cache" / "runtime_index.json").is_file())
+
+    def test_transactional_migrate_schema_rolls_back_on_failure(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics.yaml").write_text(
+                "\n".join(
+                    [
+                        "version: 1",
+                        "mutations:",
+                        "  mode: transactional",
+                        "  audit_log: logics/mutation_audit.jsonl",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            request = repo / "logics" / "request" / "req_000_schema_seed.md"
+            backlog = repo / "logics" / "backlog" / "item_000_schema_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_schema_seed - Schema seed",
+                    "> From version: 1.2.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                ],
+            )
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_schema_seed - Schema seed",
+                    "> From version: 1.2.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                ],
+            )
+
+            env = dict(os.environ, LOGICS_MUTATION_FAIL_AFTER_WRITES="1")
+            failed = subprocess.run(
+                [sys.executable, str(script), "sync", "migrate-schema", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                check=False,
+            )
+            self.assertEqual(failed.returncode, 1)
+            payload = json.loads(failed.stdout)
+            self.assertFalse(payload["ok"])
+
+            self.assertNotIn("> Schema version:", request.read_text(encoding="utf-8"))
+            self.assertNotIn("> Schema version:", backlog.read_text(encoding="utf-8"))
+
+            audit_lines = (repo / "logics" / "mutation_audit.jsonl").read_text(encoding="utf-8").splitlines()
+            audit_record = json.loads(audit_lines[0])
+            self.assertEqual(audit_record["status"], "rolled_back")
+            self.assertTrue(audit_record["rolled_back"])
+
+    def test_unified_cli_routes_bootstrap_and_config_show(self) -> None:
+        script = self._cli_script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+
+            bootstrap = subprocess.run(
+                [sys.executable, str(script), "bootstrap", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(bootstrap.returncode, 0, bootstrap.stderr)
+            bootstrap_payload = json.loads(bootstrap.stdout)
+            self.assertTrue(bootstrap_payload["ok"])
+            self.assertTrue((repo / "logics.yaml").is_file())
+
+            config_show = subprocess.run(
+                [sys.executable, str(script), "config", "show", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(config_show.returncode, 0, config_show.stderr)
+            config_payload = json.loads(config_show.stdout)
+            self.assertEqual(config_payload["config"]["workflow"]["split"]["policy"], "minimal-coherent")
+            self.assertEqual(config_payload["config"]["mutations"]["mode"], "transactional")
 
 
 if __name__ == "__main__":

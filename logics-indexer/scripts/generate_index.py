@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+FLOW_MANAGER_SCRIPTS = Path(__file__).resolve().parents[2] / "logics-flow-manager" / "scripts"
+if str(FLOW_MANAGER_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(FLOW_MANAGER_SCRIPTS))
+
+from logics_flow_config import load_repo_config
+from logics_flow_index import load_runtime_index
 
 
 @dataclass(frozen=True)
@@ -47,11 +55,23 @@ def _parse_doc(path: Path) -> Entry:
     return Entry(path=path, doc_ref=doc_ref, title=title, progress=progress)
 
 
-def _collect(repo_root: Path, rel_dir: str) -> list[Entry]:
-    directory = repo_root / rel_dir
-    if not directory.is_dir():
-        return []
-    return [_parse_doc(p) for p in sorted(directory.glob("*.md"))]
+def _collect_from_paths(paths: list[Path]) -> list[Entry]:
+    return [_parse_doc(path) for path in sorted(paths)]
+
+
+def _collect(repo_root: Path, index_payload: dict[str, object], rel_dir: str) -> list[Entry]:
+    if rel_dir not in {"logics/request", "logics/backlog", "logics/tasks"}:
+        directory = repo_root / rel_dir
+        if not directory.is_dir():
+            return []
+        return _collect_from_paths(sorted(directory.glob("*.md")))
+    indexed = index_payload.get("workflow_docs", {})
+    paths = [
+        repo_root / rel_path
+        for rel_path in sorted(indexed.keys())
+        if rel_path.startswith(f"{rel_dir}/")
+    ]
+    return _collect_from_paths(paths)
 
 
 def _render_section(title: str, entries: list[Entry], show_progress: bool, out_dir: Path) -> str:
@@ -82,14 +102,18 @@ def _render_section(title: str, entries: list[Entry], show_progress: bool, out_d
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Generate logics/INDEX.md from Logics docs.")
     parser.add_argument("--out", default="logics/INDEX.md")
+    parser.add_argument("--force-reindex", action="store_true", help="Rebuild the runtime index instead of reusing unchanged entries.")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
 
     repo_root = _find_repo_root(Path.cwd())
-    architecture = _collect(repo_root, "logics/architecture")
-    product = _collect(repo_root, "logics/product")
-    requests = _collect(repo_root, "logics/request")
-    backlog = _collect(repo_root, "logics/backlog")
-    tasks = _collect(repo_root, "logics/tasks")
+    config, _config_path = load_repo_config(repo_root)
+    runtime_index = load_runtime_index(repo_root, config=config, force=args.force_reindex)
+    architecture = _collect(repo_root, runtime_index, "logics/architecture")
+    product = _collect(repo_root, runtime_index, "logics/product")
+    requests = _collect(repo_root, runtime_index, "logics/request")
+    backlog = _collect(repo_root, runtime_index, "logics/backlog")
+    tasks = _collect(repo_root, runtime_index, "logics/tasks")
     out_path = (repo_root / args.out).resolve()
     out_dir = out_path.parent
 
@@ -111,7 +135,22 @@ def main(argv: list[str]) -> int:
         printable = out_path.relative_to(repo_root)
     except ValueError:
         printable = out_path
-    print(f"Wrote {printable}")
+    payload = {
+        "ok": True,
+        "output_path": str(printable),
+        "counts": {
+            "architecture": len(architecture),
+            "product": len(product),
+            "request": len(requests),
+            "backlog": len(backlog),
+            "task": len(tasks),
+        },
+        "index_stats": runtime_index.get("stats", {}),
+    }
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"Wrote {printable}")
     return 0
 
 

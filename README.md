@@ -58,6 +58,7 @@ Related project (VS Code extension for Logics): `https://github.com/AlexAgo83/cd
 - `git`
 
 Canonical examples below use `python ...` as the cross-platform entrypoint.
+The preferred stable operator entrypoint is now `python logics/skills/logics.py ...`, which routes to the underlying kit scripts without requiring operators to memorize each script path.
 If your shell only exposes `python3` (common on macOS/Linux) or `py -3` (common on Windows), substitute that launcher.
 
 ## Install (recommended: submodule)
@@ -83,8 +84,10 @@ git submodule update --init --recursive
 Then bootstrap the Logics tree (creates missing folders + `.gitkeep`, and a default `logics/instructions.md` if missing):
 
 ```bash
-python logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py
+python logics/skills/logics.py bootstrap
 ```
+
+Bootstrap now also seeds a repo-native `logics.yaml` file with defaults for split policy, bulk-mutation mode, and the incremental runtime index path.
 
 ## Usage (inside the project repo)
 
@@ -99,15 +102,15 @@ The same launcher rule applies throughout:
 Create a request, backlog item, or task with auto-incremented IDs:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "My first need"
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "My first need"
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement my first need"
+python logics/skills/logics.py flow new request --title "My first need"
+python logics/skills/logics.py flow new backlog --title "My first need"
+python logics/skills/logics.py flow new task --title "Implement my first need"
 ```
 
 For backlog/task docs, `logics_flow.py` now evaluates product and architecture signals and writes a `# Decision framing` section. The detection is advisory by default and can auto-create companion docs when the signal is strong:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "Checkout auth migration" --auto-create-product-brief --auto-create-adr
+python logics/skills/logics.py flow new backlog --title "Checkout auth migration" --auto-create-product-brief --auto-create-adr
 ```
 
 Create a product brief in `logics/product` when the subject needs a non-technical framing artifact:
@@ -161,8 +164,8 @@ Metadata contract for normalized workflow docs:
 ### Promote between stages
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_my_first_need.md
-python logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_my_first_need.md
+python logics/skills/logics.py flow promote request-to-backlog logics/request/req_001_my_first_need.md
+python logics/skills/logics.py flow promote backlog-to-task logics/backlog/item_002_my_first_need.md
 ```
 
 Promotion now carries forward more of the source doc instead of leaving mostly empty templates:
@@ -178,16 +181,18 @@ Promotion now carries forward more of the source doc instead of leaving mostly e
 Use `split` when one source doc should produce several executable children instead of one oversized backlog item or task:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_my_first_need.md --title "Delivery slice A" --title "Delivery slice B"
-python logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_my_first_need.md --title "Implementation slice A" --title "Implementation slice B"
+python logics/skills/logics.py flow split request logics/request/req_001_my_first_need.md --title "Delivery slice A" --title "Delivery slice B"
+python logics/skills/logics.py flow split backlog logics/backlog/item_002_my_first_need.md --title "Implementation slice A" --title "Implementation slice B"
 ```
+
+The repo-native split policy now defaults to `minimal-coherent` through `logics.yaml`, which keeps split commands constrained to the smallest coherent slice count unless you explicitly pass `--allow-extra-slices`.
 
 ### Finish and close docs
 
 When a task is actually completed, use the guarded finish flow:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_implement_my_first_need.md
+python logics/skills/logics.py flow finish task logics/tasks/task_003_implement_my_first_need.md
 ```
 
 `finish task` is the recommended path because it closes the task, propagates closure to linked backlog/request docs when eligible, verifies the linked chain, appends finish/report evidence to the task, and leaves a completion note on linked backlog items.
@@ -201,39 +206,45 @@ Generated tasks now include explicit wave checkpoints:
 Lower-level close commands are still available when you explicitly want the primitive transition commands:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_implement_my_first_need.md
-python logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_my_first_need.md
-python logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_my_first_need.md
+python logics/skills/logics.py flow close task logics/tasks/task_003_implement_my_first_need.md
+python logics/skills/logics.py flow close backlog logics/backlog/item_002_my_first_need.md
+python logics/skills/logics.py flow close request logics/request/req_001_my_first_need.md
 ```
 
 ### Sync workflow state
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-eligible-requests
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-mermaid-signatures
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-ai-context
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync schema-status
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync migrate-schema --refresh-ai-context
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync context-pack req_001_my_first_need --mode summary-only --profile tiny
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync export-graph --out output/workflow-graph.json
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync validate-skills
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync export-registry --out output/logics-registry.json
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync doctor
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync benchmark-skills
+python logics/skills/logics.py flow sync close-eligible-requests
+python logics/skills/logics.py flow sync refresh-mermaid-signatures
+python logics/skills/logics.py flow sync refresh-ai-context
+python logics/skills/logics.py flow sync schema-status
+python logics/skills/logics.py flow sync migrate-schema --refresh-ai-context
+python logics/skills/logics.py flow sync context-pack req_001_my_first_need --mode summary-only --profile tiny
+python logics/skills/logics.py flow sync export-graph --out output/workflow-graph.json
+python logics/skills/logics.py flow sync validate-skills
+python logics/skills/logics.py flow sync export-registry --out output/logics-registry.json
+python logics/skills/logics.py flow sync doctor
+python logics/skills/logics.py flow sync benchmark-skills
+python logics/skills/logics.py flow sync build-index
+python logics/skills/logics.py config show --format json
 ```
 
 Useful command contracts:
 
 - most `new`, `promote`, `split`, `close`, `finish`, and `sync` flows now support `--format json`
-- bulk mutation flows such as `refresh-ai-context` and `migrate-schema` support `--preview` for safe-write review before writing
+- automation-facing adjacent skills now expose machine-readable contracts too, including `logics.py bootstrap`, `logics.py index`, and `logics.py lint`
+- bulk mutation flows such as `refresh-ai-context` and `migrate-schema` support `--preview` plus repo-configurable `transactional` apply-or-rollback semantics
+- repeated workflow and skill scans reuse `logics/.cache/runtime_index.json` by default, with `sync build-index` available when you want to refresh or inspect the cache directly
 - `context-pack` produces a reusable kit-native artifact that can be written to disk or consumed directly by plugin or agent tooling
 
 Examples:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "JSON request" --format json
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync migrate-schema --preview --format json
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync context-pack req_001_my_first_need --mode diff-first --profile normal --format json
+python logics/skills/logics.py flow new request --title "JSON request" --format json
+python logics/skills/logics.py flow sync migrate-schema --preview --format json
+python logics/skills/logics.py flow sync context-pack req_001_my_first_need --mode diff-first --profile normal --format json
+python logics/skills/logics.py index --format json
+python logics/skills/logics.py lint --format json
 ```
 
 The current workflow schema is tracked explicitly in generated docs through `> Schema version:` and can be normalized with `sync migrate-schema`.

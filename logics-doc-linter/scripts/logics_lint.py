@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -434,6 +435,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Require `Status` indicator in all supported Logics docs.",
     )
+    parser.add_argument("--format", choices=("text", "json"), default="text")
     return parser
 
 
@@ -474,6 +476,26 @@ def main(argv: list[str]) -> int:
                 all_issues.append((rel_path, issues))
             if warnings:
                 all_warnings.append((rel_path, warnings))
+
+    payload = {
+        "ok": not all_issues,
+        "issue_count": sum(len(issues) for _path, issues in all_issues),
+        "warning_count": sum(len(warnings) for _path, warnings in all_warnings),
+        "issues": [
+            {"path": path.as_posix(), "message": issue}
+            for path, issues in all_issues
+            for issue in issues
+        ],
+        "warnings": [
+            {"path": path.as_posix(), "message": warning}
+            for path, warnings in all_warnings
+            for warning in warnings
+        ],
+    }
+
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if not all_issues else 1
 
     if not all_issues and not all_warnings:
         print("Logics lint: OK")

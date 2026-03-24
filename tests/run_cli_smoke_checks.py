@@ -44,16 +44,17 @@ def run_flow_fixture() -> None:
         project_root = Path(temp_dir)
         link_skills_repo(project_root)
 
-        run([sys.executable, "logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py"], cwd=project_root)
+        run([sys.executable, "logics/skills/logics.py", "bootstrap"], cwd=project_root)
         run(
-            [sys.executable, "logics/skills/logics-flow-manager/scripts/logics_flow.py", "new", "request", "--title", "Smoke request"],
+            [sys.executable, "logics/skills/logics.py", "flow", "new", "request", "--title", "Smoke request"],
             cwd=project_root,
         )
         request_path = find_single("logics/request/req_*.md", project_root)
         run(
             [
                 sys.executable,
-                "logics/skills/logics-flow-manager/scripts/logics_flow.py",
+                "logics/skills/logics.py",
+                "flow",
                 "promote",
                 "request-to-backlog",
                 str(request_path.relative_to(project_root)),
@@ -64,7 +65,8 @@ def run_flow_fixture() -> None:
         run(
             [
                 sys.executable,
-                "logics/skills/logics-flow-manager/scripts/logics_flow.py",
+                "logics/skills/logics.py",
+                "flow",
                 "promote",
                 "backlog-to-task",
                 str(backlog_path.relative_to(project_root)),
@@ -76,7 +78,8 @@ def run_flow_fixture() -> None:
         run(
             [
                 sys.executable,
-                "logics/skills/logics-flow-manager/scripts/logics_flow.py",
+                "logics/skills/logics.py",
+                "flow",
                 "split",
                 "request",
                 str(request_path.relative_to(project_root)),
@@ -91,12 +94,13 @@ def run_flow_fixture() -> None:
         mark_checkboxes_done(request_path)
         mark_checkboxes_done(task_path)
 
-        run([sys.executable, "logics/skills/logics-doc-linter/scripts/logics_lint.py"], cwd=project_root)
-        run([sys.executable, "logics/skills/logics-flow-manager/scripts/workflow_audit.py"], cwd=project_root)
+        run([sys.executable, "logics/skills/logics.py", "lint"], cwd=project_root)
+        run([sys.executable, "logics/skills/logics.py", "audit"], cwd=project_root)
         run(
             [
                 sys.executable,
-                "logics/skills/logics-flow-manager/scripts/workflow_audit.py",
+                "logics/skills/logics.py",
+                "audit",
                 "--refs",
                 request_path.stem,
             ],
@@ -109,11 +113,12 @@ def run_companion_fixture() -> None:
         project_root = Path(temp_dir)
         link_skills_repo(project_root)
 
-        run([sys.executable, "logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py"], cwd=project_root)
+        run([sys.executable, "logics/skills/logics.py", "bootstrap"], cwd=project_root)
         run(
             [
                 sys.executable,
-                "logics/skills/logics-flow-manager/scripts/logics_flow.py",
+                "logics/skills/logics.py",
+                "flow",
                 "new",
                 "backlog",
                 "--title",
@@ -139,7 +144,7 @@ def run_companion_fixture() -> None:
             raise SystemExit("Expected generated product brief in companion smoke fixture.")
         if not list((project_root / "logics" / "architecture").glob("adr_*.md")):
             raise SystemExit("Expected generated ADR in companion smoke fixture.")
-        run([sys.executable, "logics/skills/logics-doc-linter/scripts/logics_lint.py"], cwd=project_root)
+        run([sys.executable, "logics/skills/logics.py", "lint"], cwd=project_root)
 
 
 def main() -> int:

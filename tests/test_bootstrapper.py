@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -33,6 +34,31 @@ class BootstrapperTest(unittest.TestCase):
             self.assertIn("Canonical examples use `python ...`;", instructions)
             self.assertIn("`python logics/skills/logics-flow-manager/scripts/logics_flow.py`", instructions)
             self.assertNotIn("python3 logics/skills/", instructions)
+            config_text = (repo / "logics.yaml").read_text(encoding="utf-8")
+            self.assertIn("policy: minimal-coherent", config_text)
+            self.assertIn("mode: transactional", config_text)
+
+    def test_bootstrap_supports_json_output(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-bootstrapper" / "scripts" / "logics_bootstrap.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertTrue(payload["ok"])
+            created_paths = {entry["path"] for entry in payload["actions_needed"]}
+            self.assertIn("logics.yaml", created_paths)
+            self.assertTrue((repo / "logics.yaml").is_file())
 
 
 if __name__ == "__main__":

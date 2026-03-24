@@ -40,6 +40,7 @@ description: >-
 If unsure, open `logics/instructions.md` and follow the workflow described there.
 
 Command examples below use `python ...` as the canonical cross-platform launcher.
+The preferred stable entrypoint is now `python logics/skills/logics.py ...`, which routes toward the flow manager and adjacent kit commands behind one operator-facing contract.
 If your environment only exposes `python3` or `py -3`, substitute that launcher.
 
 ## Create a new doc (recommended)
@@ -47,9 +48,9 @@ If your environment only exposes `python3` or `py -3`, substitute that launcher.
 Use the generator script (picks the next available ID, creates a file from templates):
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "Offline recap UI"
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "Offline recap UI"
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "Implement offline recap UI"
+python logics/skills/logics.py flow new request --title "Offline recap UI"
+python logics/skills/logics.py flow new backlog --title "Offline recap UI"
+python logics/skills/logics.py flow new task --title "Implement offline recap UI"
 ```
 
 After creation, run **logics-confidence-booster** to raise Understanding/Confidence above 90%:
@@ -75,7 +76,7 @@ python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --ti
 For backlog/task creation or promotion, the script now auto-detects product and architecture signals and writes a `# Decision framing` section in generated docs. It stays advisory by default and can auto-create the companion docs when you opt in:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "Checkout auth migration" --auto-create-product-brief --auto-create-adr
+python logics/skills/logics.py flow new backlog --title "Checkout auth migration" --auto-create-product-brief --auto-create-adr
 ```
 
 Optional flags:
@@ -94,8 +95,8 @@ Optional flags:
 Create the next-stage doc and link back to the source:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/req_001_offline_recap_ui.md
-python logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/item_002_offline_recap_ui.md
+python logics/skills/logics.py flow promote request-to-backlog logics/request/req_001_offline_recap_ui.md
+python logics/skills/logics.py flow promote backlog-to-task logics/backlog/item_002_offline_recap_ui.md
 ```
 
 The promotion flow seeds more of the next-stage document automatically:
@@ -108,22 +109,24 @@ The promotion flow seeds more of the next-stage document automatically:
 Split a broad request/backlog item into several executable children:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py split request logics/request/req_001_example.md --title "Slice A" --title "Slice B"
-python logics/skills/logics-flow-manager/scripts/logics_flow.py split backlog logics/backlog/item_002_example.md --title "Task A" --title "Task B"
+python logics/skills/logics.py flow split request logics/request/req_001_example.md --title "Slice A" --title "Slice B"
+python logics/skills/logics.py flow split backlog logics/backlog/item_002_example.md --title "Task A" --title "Task B"
 ```
+
+`logics.yaml` now drives the default split policy. The shipped default is `minimal-coherent`, so keep splits to the smallest coherent slice count unless you explicitly pass `--allow-extra-slices`.
 
 Close docs with automatic transition propagation:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py close task logics/tasks/task_003_example.md
-python logics/skills/logics-flow-manager/scripts/logics_flow.py close backlog logics/backlog/item_002_example.md
-python logics/skills/logics-flow-manager/scripts/logics_flow.py close request logics/request/req_001_example.md
+python logics/skills/logics.py flow close task logics/tasks/task_003_example.md
+python logics/skills/logics.py flow close backlog logics/backlog/item_002_example.md
+python logics/skills/logics.py flow close request logics/request/req_001_example.md
 ```
 
 When a task is actually finished, prefer the kit-native guarded flow instead of editing indicators manually:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py finish task logics/tasks/task_003_example.md
+python logics/skills/logics.py flow finish task logics/tasks/task_003_example.md
 ```
 
 `finish task` closes the task, propagates closure to linked backlog/request docs when eligible, verifies that the linked chain stayed synchronized, appends finish/report evidence to the task, and leaves a completion note in linked backlog items. Use `close` only when you explicitly want the lower-level primitive.
@@ -137,23 +140,23 @@ Generated tasks now include explicit wave checkpoints:
 Run workflow coherence audit:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py --stale-days 30
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_example
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
-python logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-mermaid-signatures
+python logics/skills/logics.py audit
+python logics/skills/logics.py audit --stale-days 30
+python logics/skills/logics.py audit --group-by-doc
+python logics/skills/logics.py audit --format json
+python logics/skills/logics.py audit --autofix-ac-traceability
+python logics/skills/logics.py audit --refs req_001_example
+python logics/skills/logics.py audit --paths logics/request logics/backlog
+python logics/skills/logics.py audit --since-version 1.9.0
+python logics/skills/logics.py flow sync refresh-mermaid-signatures
 ```
 
 Use the guarded local dispatcher when you want a local model to propose a workflow action without giving it direct file-write authority:
 
 ```bash
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync dispatch-context req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --include-graph --include-registry
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync dispatch req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --model deepseek-coder-v2:16b --include-graph --include-registry
-python logics/skills/logics-flow-manager/scripts/logics_flow.py sync dispatch req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --decision-file /tmp/dispatcher-decision.json --execution-mode execute
+python logics/skills/logics.py flow sync dispatch-context req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --include-graph --include-registry
+python logics/skills/logics.py flow sync dispatch req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --model deepseek-coder-v2:16b --include-graph --include-registry
+python logics/skills/logics.py flow sync dispatch req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --decision-file /tmp/dispatcher-decision.json --execution-mode execute
 ```
 
 Dispatcher rules:
@@ -163,6 +166,9 @@ Dispatcher rules:
 - `suggestion-only` is the default mode; use `--execution-mode execute` only when you explicitly want the runner to invoke the mapped Logics command.
 - Dispatcher runs append JSONL audit records to `logics/dispatcher_audit.jsonl` unless you override `--audit-log`.
 - The Ollama path is transport-specific only; the deterministic runner and decision schema stay runtime-agnostic.
+- `sync build-index` refreshes the runtime cache used by repeated context, graph, doctor, validation, and registry operations.
+- `sync show-config` exposes the effective `logics.yaml` merge so automation can inspect the active split policy, mutation mode, and cache path.
+- `sync refresh-ai-context` and `sync migrate-schema` now support repo-configurable `transactional` apply-or-rollback semantics and emit JSONL audit records to `logics/mutation_audit.jsonl` by default.
 
 Manage per-repository Codex overlays when several repos expose Logics skills concurrently:
 

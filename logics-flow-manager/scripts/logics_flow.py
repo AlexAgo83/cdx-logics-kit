@@ -11,6 +11,7 @@ from contextlib import redirect_stdout
 from datetime import date
 from pathlib import Path
 
+from logics_flow_config import get_config_value, load_repo_config
 from logics_flow_dispatcher import (
     DEFAULT_DISPATCH_AUDIT_LOG,
     DEFAULT_DISPATCH_CONTEXT_MODE,
@@ -25,30 +26,30 @@ from logics_flow_dispatcher import (
     run_ollama_dispatch,
     validate_dispatcher_decision,
 )
+from logics_flow_index import indexed_skill_packages, indexed_workflow_docs, load_runtime_index
 from logics_flow_support import *  # noqa: F401,F403
-from logics_flow_models import WorkflowDocModel, iter_skill_packages, parse_workflow_doc
-from logics_flow_mutations import apply_mutation, build_planned_mutation
+from logics_flow_models import WorkflowDocModel, parse_workflow_doc
+from logics_flow_mutations import build_planned_mutation
 from logics_flow_registry import (
     CURRENT_WORKFLOW_SCHEMA_VERSION,
     GOVERNANCE_PROFILES,
     WORKFLOW_CONVENTIONS,
     build_release_metadata,
 )
+from logics_flow_transactions import TransactionWrite, apply_transaction
 
 
 def _rel(repo_root: Path, path: Path) -> str:
     return path.relative_to(repo_root).as_posix()
 
 
-def _load_workflow_docs(repo_root: Path) -> dict[str, WorkflowDocModel]:
-    docs: dict[str, WorkflowDocModel] = {}
-    for kind_name, kind in DOC_KINDS.items():
-        directory = repo_root / kind.directory
-        if not directory.is_dir():
-            continue
-        for path in sorted(directory.glob(f"{kind.prefix}_*.md")):
-            model = parse_workflow_doc(path, repo_root=repo_root)
-            docs[model.ref] = model
+def _effective_config(repo_root: Path) -> tuple[dict[str, object], Path | None]:
+    return load_repo_config(repo_root)
+
+
+def _load_workflow_docs(repo_root: Path, *, config: dict[str, object] | None = None, force_reindex: bool = False) -> dict[str, WorkflowDocModel]:
+    effective_config = config or _effective_config(repo_root)[0]
+    docs, _stats = indexed_workflow_docs(repo_root, config=effective_config, force=force_reindex)
     return docs
 
 
@@ -150,8 +151,15 @@ def _context_pack_doc_entry(doc: WorkflowDocModel, mode: str) -> dict[str, objec
     return entry
 
 
-def _build_context_pack(repo_root: Path, seed_ref: str, *, mode: str, profile: str) -> dict[str, object]:
-    docs = _load_workflow_docs(repo_root)
+def _build_context_pack(
+    repo_root: Path,
+    seed_ref: str,
+    *,
+    mode: str,
+    profile: str,
+    config: dict[str, object] | None = None,
+) -> dict[str, object]:
+    docs = _load_workflow_docs(repo_root, config=config)
     seed = docs.get(seed_ref)
     if seed is None:
         raise SystemExit(f"Unknown workflow ref `{seed_ref}`.")
@@ -216,8 +224,8 @@ def _ensure_schema_version_text(text: str) -> tuple[str, bool]:
     return refreshed, refreshed != text
 
 
-def _graph_payload(repo_root: Path) -> dict[str, object]:
-    docs = _load_workflow_docs(repo_root)
+def _graph_payload(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
+    docs = _load_workflow_docs(repo_root, config=config)
     nodes = []
     edges = []
     for doc in docs.values():
@@ -237,13 +245,14 @@ def _graph_payload(repo_root: Path) -> dict[str, object]:
     return {"nodes": nodes, "edges": edges}
 
 
-def _skill_packages(repo_root: Path) -> list[dict[str, object]]:
-    skills_root = repo_root / "logics" / "skills"
-    return [package.to_dict() for package in iter_skill_packages(skills_root, repo_root=repo_root)]
+def _skill_packages(repo_root: Path, *, config: dict[str, object] | None = None, force_reindex: bool = False) -> list[dict[str, object]]:
+    effective_config = config or _effective_config(repo_root)[0]
+    packages, _stats = indexed_skill_packages(repo_root, config=effective_config, force=force_reindex)
+    return [package.to_dict() for package in packages]
 
 
-def _validate_skills_payload(repo_root: Path) -> dict[str, object]:
-    packages = _skill_packages(repo_root)
+def _validate_skills_payload(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
+    packages = _skill_packages(repo_root, config=config)
     issues = [
         {
             "skill": package["name"],
@@ -261,18 +270,18 @@ def _validate_skills_payload(repo_root: Path) -> dict[str, object]:
     }
 
 
-def _export_registry_payload(repo_root: Path) -> dict[str, object]:
+def _export_registry_payload(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
     skills_root = repo_root / "logics" / "skills"
     return {
         "schema_version": CURRENT_WORKFLOW_SCHEMA_VERSION,
         "conventions": WORKFLOW_CONVENTIONS,
         "governance_profiles": GOVERNANCE_PROFILES,
-        "skills": _skill_packages(repo_root),
+        "skills": _skill_packages(repo_root, config=config),
         "releases": [release.__dict__ for release in build_release_metadata(skills_root)],
     }
 
 
-def _doctor_payload(repo_root: Path) -> dict[str, object]:
+def _doctor_payload(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
     issues: list[dict[str, str]] = []
     for directory in ("logics/request", "logics/backlog", "logics/tasks", "logics/skills"):
         path = repo_root / directory
@@ -286,7 +295,7 @@ def _doctor_payload(repo_root: Path) -> dict[str, object]:
                 }
             )
 
-    validation = _validate_skills_payload(repo_root)
+    validation = _validate_skills_payload(repo_root, config=config)
     for issue in validation["issues"]:
         issues.append(
             {
@@ -315,9 +324,9 @@ def _doctor_payload(repo_root: Path) -> dict[str, object]:
     }
 
 
-def _benchmark_payload(repo_root: Path) -> dict[str, object]:
+def _benchmark_payload(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
     started = time.perf_counter()
-    packages = _skill_packages(repo_root)
+    packages = _skill_packages(repo_root, config=config)
     duration_ms = round((time.perf_counter() - started) * 1000, 3)
     return {
         "skill_count": len(packages),
@@ -326,8 +335,8 @@ def _benchmark_payload(repo_root: Path) -> dict[str, object]:
     }
 
 
-def _dispatcher_graph_slice(repo_root: Path, seed_ref: str) -> dict[str, object]:
-    docs = _load_workflow_docs(repo_root)
+def _dispatcher_graph_slice(repo_root: Path, seed_ref: str, *, config: dict[str, object] | None = None) -> dict[str, object]:
+    docs = _load_workflow_docs(repo_root, config=config)
     seed = docs.get(seed_ref)
     if seed is None:
         raise SystemExit(f"Unknown workflow ref `{seed_ref}`.")
@@ -352,8 +361,8 @@ def _dispatcher_graph_slice(repo_root: Path, seed_ref: str) -> dict[str, object]
     return {"seed_ref": seed_ref, "nodes": nodes, "edges": edges}
 
 
-def _dispatcher_registry_summary(repo_root: Path) -> dict[str, object]:
-    payload = _export_registry_payload(repo_root)
+def _dispatcher_registry_summary(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
+    payload = _export_registry_payload(repo_root, config=config)
     return {
         "schema_version": payload["schema_version"],
         "governance_profiles": payload["governance_profiles"],
@@ -372,26 +381,51 @@ def _build_dispatcher_context(
     include_graph: bool,
     include_registry: bool,
     include_doctor: bool,
+    config: dict[str, object] | None = None,
 ) -> dict[str, object]:
     bundle: dict[str, object] = {
         "schema_version": CURRENT_WORKFLOW_SCHEMA_VERSION,
         "seed_ref": ref,
         "default_execution_mode": DEFAULT_DISPATCH_EXECUTION_MODE,
         "contract": build_dispatcher_contract(),
-        "context_pack": _build_context_pack(repo_root, ref, mode=mode, profile=profile),
+        "context_pack": _build_context_pack(repo_root, ref, mode=mode, profile=profile, config=config),
     }
     if include_graph:
-        bundle["graph"] = _dispatcher_graph_slice(repo_root, ref)
+        bundle["graph"] = _dispatcher_graph_slice(repo_root, ref, config=config)
     if include_registry:
-        bundle["registry"] = _dispatcher_registry_summary(repo_root)
+        bundle["registry"] = _dispatcher_registry_summary(repo_root, config=config)
     if include_doctor:
-        doctor_payload = _doctor_payload(repo_root)
+        doctor_payload = _doctor_payload(repo_root, config=config)
         bundle["doctor"] = {
             "ok": doctor_payload["ok"],
             "issue_count": len(doctor_payload["issues"]),
             "issues": doctor_payload["issues"],
         }
     return bundle
+
+
+def _mutation_mode(args: argparse.Namespace, config: dict[str, object]) -> str:
+    if getattr(args, "mutation_mode", None):
+        return str(args.mutation_mode)
+    return str(get_config_value(config, "mutations", "mode", default="transactional"))
+
+
+def _mutation_audit_log(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "mutations", "audit_log", default="logics/mutation_audit.jsonl"))
+
+
+def _enforce_split_policy(titles: list[str], args: argparse.Namespace, config: dict[str, object]) -> None:
+    policy = str(get_config_value(config, "workflow", "split", "policy", default="minimal-coherent"))
+    max_children = int(get_config_value(config, "workflow", "split", "max_children_without_override", default=2))
+    if policy != "minimal-coherent":
+        return
+    if len(titles) <= max_children or getattr(args, "allow_extra_slices", False):
+        return
+    raise SystemExit(
+        "Split policy `minimal-coherent` only allows "
+        + f"{max_children} child slice(s) by default. "
+        + "Reduce the split or pass `--allow-extra-slices` when the extra decomposition is genuinely required."
+    )
 
 
 def _run_mapped_command(repo_root: Path, argv: list[str]) -> dict[str, object]:
@@ -423,6 +457,7 @@ def _run_mapped_command(repo_root: Path, argv: list[str]) -> dict[str, object]:
 
 def cmd_sync_dispatch_context(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
     payload = _build_dispatcher_context(
         repo_root,
         args.ref,
@@ -431,7 +466,9 @@ def cmd_sync_dispatch_context(args: argparse.Namespace) -> dict[str, object]:
         include_graph=args.include_graph,
         include_registry=args.include_registry,
         include_doctor=args.include_doctor,
+        config=config,
     )
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
     if args.out:
         out_path = (repo_root / args.out).resolve()
         _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
@@ -444,6 +481,7 @@ def cmd_sync_dispatch_context(args: argparse.Namespace) -> dict[str, object]:
 
 def cmd_sync_dispatch(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
     context_bundle = _build_dispatcher_context(
         repo_root,
         args.ref,
@@ -452,8 +490,9 @@ def cmd_sync_dispatch(args: argparse.Namespace) -> dict[str, object]:
         include_graph=args.include_graph,
         include_registry=args.include_registry,
         include_doctor=args.include_doctor,
+        config=config,
     )
-    docs_by_ref = _load_workflow_docs(repo_root)
+    docs_by_ref = _load_workflow_docs(repo_root, config=config)
 
     transport: dict[str, object]
     if args.decision_json:
@@ -516,6 +555,7 @@ def cmd_sync_dispatch(args: argparse.Namespace) -> dict[str, object]:
         "mapped_command": mapped,
         "execution_result": execution_result,
         "transport": transport,
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
         "dry_run": args.dry_run,
     }
 
@@ -604,7 +644,9 @@ def cmd_split_request(args: argparse.Namespace) -> None:
         raise SystemExit(f"Source not found: {source_path}")
 
     repo_root = _find_repo_root(Path.cwd())
+    config, _config_path = _effective_config(repo_root)
     titles = _split_titles(args.title)
+    _enforce_split_policy(titles, args, config)
     created_refs: list[str] = []
     for title in titles:
         planned = _create_backlog_from_request(repo_root, source_path, title, args)
@@ -626,7 +668,9 @@ def cmd_split_backlog(args: argparse.Namespace) -> None:
         raise SystemExit(f"Source not found: {source_path}")
 
     repo_root = _find_repo_root(Path.cwd())
+    config, _config_path = _effective_config(repo_root)
     titles = _split_titles(args.title)
+    _enforce_split_policy(titles, args, config)
     created_refs: list[str] = []
     for title in titles:
         planned = _create_task_from_backlog(repo_root, source_path, title, args)
@@ -711,7 +755,9 @@ def cmd_sync_refresh_mermaid_signatures(args: argparse.Namespace) -> None:
 
 def cmd_sync_refresh_ai_context(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
     modified: list[dict[str, object]] = []
+    writes: list[TransactionWrite] = []
     for kind_name, path in _resolve_target_docs(repo_root, args.sources):
         original = path.read_text(encoding="utf-8")
         refreshed, changed = refresh_ai_context_text(original, kind_name)
@@ -719,9 +765,18 @@ def cmd_sync_refresh_ai_context(args: argparse.Namespace) -> dict[str, object]:
             continue
         mutation = build_planned_mutation(path, before=original, after=refreshed, reason="refresh AI Context", repo_root=repo_root)
         modified.append(mutation.to_dict())
-        if args.preview:
-            continue
-        _write(path, refreshed, args.dry_run)
+        writes.append(TransactionWrite(path=path, content=refreshed, reason="refresh AI Context"))
+    try:
+        transaction = apply_transaction(
+            repo_root,
+            writes=writes,
+            mode=_mutation_mode(args, config),
+            audit_log=_mutation_audit_log(config),
+            dry_run=args.preview or args.dry_run,
+            command_name="sync refresh-ai-context",
+        )
+    except Exception as exc:
+        raise SystemExit(str(exc)) from exc
     if args.preview:
         print(f"Previewed AI Context refresh for {len(modified)} workflow doc(s).")
     else:
@@ -734,12 +789,17 @@ def cmd_sync_refresh_ai_context(args: argparse.Namespace) -> dict[str, object]:
         "preview": args.preview,
         "dry_run": args.dry_run,
         "modified_files": modified,
+        "mutation_mode": transaction.mode,
+        "mutation_audit_log": transaction.audit_path,
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
     }
 
 
 def cmd_sync_context_pack(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
-    payload = _build_context_pack(repo_root, args.ref, mode=args.mode, profile=args.profile)
+    config, config_path = _effective_config(repo_root)
+    payload = _build_context_pack(repo_root, args.ref, mode=args.mode, profile=args.profile, config=config)
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
     if args.out:
         out_path = (repo_root / args.out).resolve()
         serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
@@ -762,7 +822,9 @@ def cmd_sync_schema_status(args: argparse.Namespace) -> dict[str, object]:
 
 def cmd_sync_migrate_schema(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
     modified: list[dict[str, object]] = []
+    writes: list[TransactionWrite] = []
     for kind_name, path in _resolve_target_docs(repo_root, args.sources):
         original = path.read_text(encoding="utf-8")
         refreshed, changed = _ensure_schema_version_text(original)
@@ -773,9 +835,18 @@ def cmd_sync_migrate_schema(args: argparse.Namespace) -> dict[str, object]:
             continue
         mutation = build_planned_mutation(path, before=original, after=refreshed, reason="migrate workflow schema", repo_root=repo_root)
         modified.append(mutation.to_dict())
-        if args.preview:
-            continue
-        _write(path, refreshed, args.dry_run)
+        writes.append(TransactionWrite(path=path, content=refreshed, reason="migrate workflow schema"))
+    try:
+        transaction = apply_transaction(
+            repo_root,
+            writes=writes,
+            mode=_mutation_mode(args, config),
+            audit_log=_mutation_audit_log(config),
+            dry_run=args.preview or args.dry_run,
+            command_name="sync migrate-schema",
+        )
+    except Exception as exc:
+        raise SystemExit(str(exc)) from exc
     if args.preview:
         print(f"Previewed schema migration for {len(modified)} workflow doc(s).")
     else:
@@ -789,12 +860,17 @@ def cmd_sync_migrate_schema(args: argparse.Namespace) -> dict[str, object]:
         "dry_run": args.dry_run,
         "refresh_ai_context": args.refresh_ai_context,
         "modified_files": modified,
+        "mutation_mode": transaction.mode,
+        "mutation_audit_log": transaction.audit_path,
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
     }
 
 
 def cmd_sync_export_graph(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
-    payload = _graph_payload(repo_root)
+    config, config_path = _effective_config(repo_root)
+    payload = _graph_payload(repo_root, config=config)
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
     if args.out:
         out_path = (repo_root / args.out).resolve()
         _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
@@ -807,19 +883,22 @@ def cmd_sync_export_graph(args: argparse.Namespace) -> dict[str, object]:
 
 def cmd_sync_validate_skills(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
-    payload = _validate_skills_payload(repo_root)
+    config, config_path = _effective_config(repo_root)
+    payload = _validate_skills_payload(repo_root, config=config)
     print(f"Validated {payload['skill_count']} skill package(s).")
     if payload["issues"]:
         for issue in payload["issues"]:
             print(f"- {issue['path']}: {'; '.join(issue['issues'])}")
     else:
         print("- No skill package issues detected.")
-    return {"command": "sync", "sync_kind": "validate-skills", **payload}
+    return {"command": "sync", "sync_kind": "validate-skills", "config_path": _rel(repo_root, config_path) if config_path is not None else None, **payload}
 
 
 def cmd_sync_export_registry(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
-    payload = _export_registry_payload(repo_root)
+    config, config_path = _effective_config(repo_root)
+    payload = _export_registry_payload(repo_root, config=config)
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
     if args.out:
         out_path = (repo_root / args.out).resolve()
         _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
@@ -832,7 +911,8 @@ def cmd_sync_export_registry(args: argparse.Namespace) -> dict[str, object]:
 
 def cmd_sync_doctor(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
-    payload = _doctor_payload(repo_root)
+    config, config_path = _effective_config(repo_root)
+    payload = _doctor_payload(repo_root, config=config)
     if payload["ok"]:
         print("Kit doctor: OK")
     else:
@@ -840,14 +920,47 @@ def cmd_sync_doctor(args: argparse.Namespace) -> dict[str, object]:
         for issue in payload["issues"]:
             print(f"- [{issue['code']}] {issue['path']}: {issue['message']}")
             print(f"  remediation: {issue['remediation']}")
-    return {"command": "sync", "sync_kind": "doctor", **payload}
+    return {"command": "sync", "sync_kind": "doctor", "config_path": _rel(repo_root, config_path) if config_path is not None else None, **payload}
 
 
 def cmd_sync_benchmark_skills(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
-    payload = _benchmark_payload(repo_root)
+    config, config_path = _effective_config(repo_root)
+    payload = _benchmark_payload(repo_root, config=config)
     print(f"Benchmarked {payload['skill_count']} skill package(s) in {payload['duration_ms']} ms.")
-    return {"command": "sync", "sync_kind": "benchmark-skills", **payload}
+    return {"command": "sync", "sync_kind": "benchmark-skills", "config_path": _rel(repo_root, config_path) if config_path is not None else None, **payload}
+
+
+def cmd_sync_build_index(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    payload = load_runtime_index(repo_root, config=config, force=args.force, dry_run=args.dry_run)
+    print(
+        "Runtime index: "
+        + f"{payload['stats']['workflow_doc_count']} workflow doc(s), "
+        + f"{payload['stats']['skill_count']} skill package(s), "
+        + f"{payload['stats']['cache_hits']} cache hit(s), "
+        + f"{payload['stats']['cache_misses']} cache miss(es)."
+    )
+    return {
+        "command": "sync",
+        "sync_kind": "build-index",
+        "dry_run": args.dry_run,
+        "force": args.force,
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
+        **payload,
+    }
+
+
+def cmd_sync_show_config(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    payload = {
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
+        "config": config,
+    }
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return {"command": "sync", "sync_kind": "show-config", **payload}
 
 
 def cmd_close(args: argparse.Namespace) -> None:
@@ -1060,13 +1173,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     split_request = split_sub.add_parser("request", help="Split a request into multiple backlog items.")
     split_request.add_argument("source")
-    split_request.add_argument("--title", action="append", required=True, help="Child backlog item title. Repeat the flag for multiple children.")
+    split_request.add_argument("--title", action="append", required=True, help="Child backlog item title. Repeat the flag for multiple children, keeping the split to the minimum coherent slice count.")
+    split_request.add_argument("--allow-extra-slices", action="store_true", help="Override the repo split policy when more child slices are explicitly justified.")
     _add_common_doc_args(split_request, "backlog")
     split_request.set_defaults(func=cmd_split_request)
 
     split_backlog = split_sub.add_parser("backlog", help="Split a backlog item into multiple tasks.")
     split_backlog.add_argument("source")
-    split_backlog.add_argument("--title", action="append", required=True, help="Child task title. Repeat the flag for multiple children.")
+    split_backlog.add_argument("--title", action="append", required=True, help="Child task title. Repeat the flag for multiple children, keeping the split to the minimum coherent slice count.")
+    split_backlog.add_argument("--allow-extra-slices", action="store_true", help="Override the repo split policy when more child slices are explicitly justified.")
     _add_common_doc_args(split_backlog, "task")
     split_backlog.set_defaults(func=cmd_split_backlog)
 
@@ -1117,6 +1232,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     refresh_ai.add_argument("sources", nargs="*", help="Optional workflow refs or paths to limit the refresh.")
     refresh_ai.add_argument("--preview", action="store_true", help="Preview the mutation plan without writing files.")
+    refresh_ai.add_argument("--mutation-mode", choices=("direct", "transactional"), help="Override the repo mutation mode for this bulk update.")
     refresh_ai.add_argument("--format", choices=("text", "json"), default="text")
     refresh_ai.add_argument("--dry-run", action="store_true")
     refresh_ai.set_defaults(func=cmd_sync_refresh_ai_context)
@@ -1148,6 +1264,7 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_schema.add_argument("sources", nargs="*", help="Optional workflow refs or paths to limit the migration.")
     migrate_schema.add_argument("--refresh-ai-context", action="store_true", help="Refresh AI Context while migrating schema.")
     migrate_schema.add_argument("--preview", action="store_true", help="Preview the mutation plan without writing files.")
+    migrate_schema.add_argument("--mutation-mode", choices=("direct", "transactional"), help="Override the repo mutation mode for this bulk update.")
     migrate_schema.add_argument("--format", choices=("text", "json"), default="text")
     migrate_schema.add_argument("--dry-run", action="store_true")
     migrate_schema.set_defaults(func=cmd_sync_migrate_schema)
@@ -1190,6 +1307,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     benchmark.add_argument("--format", choices=("text", "json"), default="text")
     benchmark.set_defaults(func=cmd_sync_benchmark_skills)
+
+    build_index = sync_sub.add_parser(
+        "build-index",
+        help="Build or refresh the incremental runtime index used by repeated workflow and skill operations.",
+    )
+    build_index.add_argument("--force", action="store_true", help="Ignore unchanged cache entries and rebuild the runtime index.")
+    build_index.add_argument("--format", choices=("text", "json"), default="text")
+    build_index.add_argument("--dry-run", action="store_true")
+    build_index.set_defaults(func=cmd_sync_build_index)
+
+    show_config = sync_sub.add_parser(
+        "show-config",
+        help="Show the effective repo-native Logics configuration merged with kit defaults.",
+    )
+    show_config.add_argument("--format", choices=("text", "json"), default="text")
+    show_config.set_defaults(func=cmd_sync_show_config)
 
     dispatch_context = sync_sub.add_parser(
         "dispatch-context",
@@ -1259,6 +1392,12 @@ def _run_json_command(args: argparse.Namespace) -> int:
             payload = {
                 "ok": False,
                 "error": exc.code if isinstance(exc.code, str) else "command failed",
+            }
+        except Exception as exc:  # pragma: no cover - defensive JSON contract fallback
+            exit_code = 1
+            payload = {
+                "ok": False,
+                "error": str(exc) or exc.__class__.__name__,
             }
 
     logs = [line for line in stdout_buffer.getvalue().splitlines() if line.strip()]

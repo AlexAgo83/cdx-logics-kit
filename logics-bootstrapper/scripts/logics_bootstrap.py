@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,10 @@ class Action:
 
 def _template_instructions_path() -> Path:
     return Path(__file__).resolve().parents[1] / "assets" / "instructions.md"
+
+
+def _template_config_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / "logics.yaml"
 
 
 def _find_git_root(start: Path) -> Path | None:
@@ -64,6 +69,10 @@ def _plan_actions(repo_root: Path) -> list[Action]:
     if not instructions_path.exists():
         actions.append(Action("instructions", instructions_path))
 
+    config_path = repo_root / "logics.yaml"
+    if not config_path.exists():
+        actions.append(Action("config", config_path))
+
     # Only add .gitkeep to empty dirs (and never to logics/skills which may be a submodule).
     for rel in DEFAULT_DIRS:
         if rel == "logics":
@@ -96,6 +105,13 @@ def _apply(actions: list[Action], dry_run: bool) -> None:
             else:
                 action.path.parent.mkdir(parents=True, exist_ok=True)
                 action.path.write_text(template_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+        elif action.kind == "config":
+            template_path = _template_config_path()
+            if dry_run:
+                print(f"[dry-run] write {action.path} (from {template_path})")
+            else:
+                action.path.parent.mkdir(parents=True, exist_ok=True)
+                action.path.write_text(template_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
         else:
             raise SystemExit(f"Unknown action: {action.kind}")
 
@@ -109,24 +125,48 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Exit non-zero if actions are needed (implies dry-run; does not write).",
     )
+    parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
 
     template_path = _template_instructions_path()
     if not template_path.is_file():
         raise SystemExit(f"Missing template: {template_path}")
+    config_template_path = _template_config_path()
+    if not config_template_path.is_file():
+        raise SystemExit(f"Missing template: {config_template_path}")
 
     repo_root = _resolve_root(args.root)
     actions = _plan_actions(repo_root)
+    payload = {
+        "ok": True,
+        "repo_root": repo_root.as_posix(),
+        "actions_needed": [
+            {"kind": action.kind, "path": action.path.relative_to(repo_root).as_posix()}
+            for action in actions
+        ],
+        "check": args.check,
+        "dry_run": args.dry_run or args.check,
+    }
     if not actions:
-        print("Logics bootstrap: OK (nothing to do)")
+        if args.format == "json":
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print("Logics bootstrap: OK (nothing to do)")
         return 0
 
     dry_run = args.dry_run or args.check
     _apply(actions, dry_run=dry_run)
     if args.check:
-        print("Logics bootstrap: FAIL (actions needed)")
+        payload["ok"] = False
+        if args.format == "json":
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print("Logics bootstrap: FAIL (actions needed)")
         return 1
-    print("Logics bootstrap: OK")
+    if args.format == "json":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print("Logics bootstrap: OK")
     return 0
 
 
