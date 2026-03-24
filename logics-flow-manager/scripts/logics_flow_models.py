@@ -139,9 +139,32 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
         return {}, ["unterminated frontmatter block"]
     frontmatter = text[4:end].splitlines()
     parsed: dict[str, str] = {}
+    block_key: str | None = None
+    block_style: str | None = None
+    block_lines: list[str] = []
+
+    def flush_block() -> None:
+        nonlocal block_key, block_style, block_lines
+        if block_key is None:
+            return
+        if block_style and block_style.startswith(">"):
+            parsed[block_key] = " ".join(line.strip() for line in block_lines if line.strip()).strip()
+        else:
+            parsed[block_key] = "\n".join(line.rstrip() for line in block_lines).strip()
+        block_key = None
+        block_style = None
+        block_lines = []
+
     for line in frontmatter:
         if not line.strip():
+            if block_key is not None:
+                block_lines.append("")
             continue
+        if block_key is not None:
+            if line[:1].isspace():
+                block_lines.append(line.lstrip())
+                continue
+            flush_block()
         if ":" not in line:
             issues.append(f"frontmatter line missing ':' -> {line.strip()}")
             continue
@@ -152,7 +175,15 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], list[str]]:
             issues.append("description must be a string scalar, not a YAML sequence-like literal")
         if normalized_key == "description" and ": " in normalized_value and not normalized_value.startswith(("\"", "'")):
             issues.append("description contains an unquoted colon and is likely invalid YAML")
+        if normalized_value in {">", ">-", "|", "|-"}:
+            block_key = normalized_key
+            block_style = normalized_value
+            block_lines = []
+            continue
+        if normalized_key == "description" and ": " in normalized_value and normalized_value.startswith(("\"", "'")):
+            issues.append("description should prefer a YAML block scalar when it contains a colon for Codex CLI compatibility")
         parsed[normalized_key] = normalized_value.strip("\"'")
+    flush_block()
     return parsed, issues
 
 

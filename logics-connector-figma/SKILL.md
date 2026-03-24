@@ -1,6 +1,9 @@
 ---
 name: logics-connector-figma
-description: "Connect Figma to the Logics workflow: list pages/nodes, export node images, and import a Figma node reference into `logics/backlog/` as a new `item_###_*.md`."
+description: >-
+  Connect Figma to the Logics workflow: list pages and nodes, export node
+  images, and import a Figma node reference into `logics/backlog/` as a new
+  `item_###_*.md`.
 ---
 
 # Figma connector

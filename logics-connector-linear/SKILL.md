@@ -1,6 +1,9 @@
 ---
 name: logics-connector-linear
-description: "Connect Linear (GraphQL) to the Logics workflow: list issues and import a Linear issue into `logics/backlog/` as a new `item_###_*.md` with a link back to Linear."
+description: >-
+  Connect Linear (GraphQL) to the Logics workflow: list issues and import a
+  Linear issue into `logics/backlog/` as a new `item_###_*.md` with a link back
+  to Linear.
 ---
 
 # Linear connector

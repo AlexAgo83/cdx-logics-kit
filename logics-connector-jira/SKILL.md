@@ -1,6 +1,8 @@
 ---
 name: logics-connector-jira
-description: "Connect Jira (Atlassian) to the Logics workflow: search issues via JQL and import a Jira issue into `logics/backlog/` as a new `item_###_*.md`."
+description: >-
+  Connect Jira (Atlassian) to the Logics workflow: search issues via JQL and
+  import a Jira issue into `logics/backlog/` as a new `item_###_*.md`.
 ---
 
 # Jira connector
