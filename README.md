@@ -11,6 +11,8 @@
 
 A reusable Logics kit to import into your projects under `logics/skills/`.
 
+The goal is simple: turn project context into a maintained asset instead of leaving it trapped in issue trackers, AI chats, and tribal memory.
+
 The kit standardizes a lightweight Markdown workflow with optional companion decision docs:
 
 `logics/request` -> `logics/backlog` -> `logics/tasks` -> `logics/specs`
@@ -22,13 +24,15 @@ Companion framing docs can be added when needed:
 
 It also ships scripts and skills to create, promote, lint, audit, review, and enrich those docs so project context stays durable, inspectable, and reusable across AI sessions.
 
+In practice, the kit gives teams a structured delivery memory they can keep in git, automate with scripts, and hand off to assistants without restating the whole project every time.
+
 ## Why This Matters For AI Projects
 
-- Logics turns scattered AI chat history into explicit project artifacts stored in the repo.
-- Requests, backlog items, tasks, specs, product briefs, architecture decisions, and links act as long-lived context that can be reused across sessions and across assistants.
-- Instead of repasting large amounts of project history into every prompt, the assistant can rely on the structured `logics/*` corpus as the project memory.
-- That usually means lower token consumption, less context-window waste, and fewer regressions caused by missing prior decisions.
-- Because the context is written as Markdown in the repository, it stays reviewable by humans, diffable in git, and portable across tools.
+- It converts scattered project conversations into a delivery memory that lives with the code.
+- Requests, backlog items, tasks, specs, product briefs, architecture decisions, and links become reusable context assets instead of disposable chat fragments.
+- Instead of repasting history into every prompt, assistants can rely on the structured `logics/*` corpus as the working memory of the project.
+- That usually means lower token usage, more stable agent sessions, and fewer regressions caused by lost context.
+- Because the context is stored as Markdown in the repository, it stays reviewable by humans, diffable in git, and portable across tools and teams.
 
 ```mermaid
 flowchart LR
@@ -207,7 +211,32 @@ python logics/skills/logics-flow-manager/scripts/logics_flow.py close request lo
 ```bash
 python logics/skills/logics-flow-manager/scripts/logics_flow.py sync close-eligible-requests
 python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-mermaid-signatures
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-ai-context
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync schema-status
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync migrate-schema --refresh-ai-context
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync context-pack req_001_my_first_need --mode summary-only --profile tiny
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync export-graph --out output/workflow-graph.json
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync validate-skills
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync export-registry --out output/logics-registry.json
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync doctor
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync benchmark-skills
 ```
+
+Useful command contracts:
+
+- most `new`, `promote`, `split`, `close`, `finish`, and `sync` flows now support `--format json`
+- bulk mutation flows such as `refresh-ai-context` and `migrate-schema` support `--preview` for safe-write review before writing
+- `context-pack` produces a reusable kit-native artifact that can be written to disk or consumed directly by plugin or agent tooling
+
+Examples:
+
+```bash
+python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "JSON request" --format json
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync migrate-schema --preview --format json
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync context-pack req_001_my_first_need --mode diff-first --profile normal --format json
+```
+
+The current workflow schema is tracked explicitly in generated docs through `> Schema version:` and can be normalized with `sync migrate-schema`.
 
 ### Manage multi-project Codex overlays
 
@@ -248,10 +277,33 @@ python logics/skills/logics-flow-manager/scripts/workflow_audit.py
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --group-by-doc
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --format json
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-ac-traceability
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --autofix-structure
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --token-hygiene
+python logics/skills/logics-flow-manager/scripts/workflow_audit.py --governance-profile strict
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --refs req_001_my_first_need
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --paths logics/request logics/backlog
 python logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-version 1.9.0
 ```
+
+Additional audit behaviors:
+
+- `--autofix-structure` repairs missing schema metadata, missing `# AI Context`, and missing DoR/DoD sections deterministically
+- `--token-hygiene` flags missing compact AI context and oversized sections that are likely to waste tokens
+- `--governance-profile strict` enables a tighter default baseline for stale docs, gates, AC traceability, and token hygiene
+- skill-package validation is available separately through `logics_flow.py sync validate-skills`
+
+## Compact AI context and kit-native handoffs
+
+Managed request/backlog/task docs now carry a compact `# AI Context` section and explicit schema metadata. The flow manager can also backfill older docs and emit a small serialized handoff from the workflow graph.
+
+Practical flow:
+
+```bash
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-ai-context
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync context-pack item_002_my_first_need --mode summary-only --profile tiny --out output/context-pack.json
+```
+
+This keeps the Markdown corpus reviewable while giving downstream tools a lighter artifact to inject into Codex or other agents.
 
 Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
 
@@ -497,6 +549,12 @@ git commit -m "Update Logics kit"
 ## Collaboration
 
 Contribution workflow and repository expectations live in `CONTRIBUTING.md`.
+
+Highlights:
+
+- prefer shared flow-manager helpers over duplicating workflow-assembly logic in each connector
+- keep `SKILL.md` frontmatter and `agents/openai.yaml` valid, because skill-package validation now checks them explicitly
+- reusable skill fixtures for contract tests live under `tests/fixtures/`
 
 ## License
 
