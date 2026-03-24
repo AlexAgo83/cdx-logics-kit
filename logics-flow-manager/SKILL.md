@@ -148,6 +148,22 @@ python logics/skills/logics-flow-manager/scripts/workflow_audit.py --since-versi
 python logics/skills/logics-flow-manager/scripts/logics_flow.py sync refresh-mermaid-signatures
 ```
 
+Use the guarded local dispatcher when you want a local model to propose a workflow action without giving it direct file-write authority:
+
+```bash
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync dispatch-context req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --include-graph --include-registry
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync dispatch req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --model deepseek-coder-v2:16b --include-graph --include-registry
+python logics/skills/logics-flow-manager/scripts/logics_flow.py sync dispatch req_088_add_a_local_llm_dispatcher_for_deterministic_logics_flow_orchestration --decision-file /tmp/dispatcher-decision.json --execution-mode execute
+```
+
+Dispatcher rules:
+
+- `sync dispatch-context` builds a compact machine-readable bundle around `context-pack`, with optional graph, registry, and doctor summaries.
+- `sync dispatch` validates a strict decision contract with only `new`, `promote`, `split`, `finish`, and safe non-destructive `sync` actions.
+- `suggestion-only` is the default mode; use `--execution-mode execute` only when you explicitly want the runner to invoke the mapped Logics command.
+- Dispatcher runs append JSONL audit records to `logics/dispatcher_audit.jsonl` unless you override `--audit-log`.
+- The Ollama path is transport-specific only; the deterministic runner and decision schema stay runtime-agnostic.
+
 Manage per-repository Codex overlays when several repos expose Logics skills concurrently:
 
 ```bash

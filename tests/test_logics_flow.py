@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import http.server
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -1343,6 +1345,382 @@ class LogicsFlowTest(unittest.TestCase):
             benchmark_payload = json.loads(benchmark.stdout)
             self.assertEqual(benchmark_payload["skill_count"], 2)
             self.assertGreaterEqual(benchmark_payload["duration_ms"], 0.0)
+
+    def test_sync_dispatch_context_supports_json_output(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / "skills").mkdir(parents=True, exist_ok=True)
+            request = repo / "logics" / "request" / "req_000_dispatch_seed.md"
+            backlog = repo / "logics" / "backlog" / "item_000_dispatch_seed.md"
+            task = repo / "logics" / "tasks" / "task_000_dispatch_seed.md"
+
+            self._write_doc(
+                request,
+                [
+                    "## req_000_dispatch_seed - Dispatch seed",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Turn local model output into guarded workflow actions.",
+                    "",
+                    "# AI Context",
+                    "- Summary: Seed request for local dispatcher tests.",
+                    "- Keywords: dispatcher, workflow, local",
+                    "- Use when: Use when testing local dispatcher context assembly.",
+                    "- Skip when: Skip when another workflow ref is active.",
+                    "",
+                    "# Backlog",
+                    "- `item_000_dispatch_seed`",
+                ],
+            )
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_dispatch_seed - Dispatch seed backlog",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Problem",
+                    "- Convert requests into executable slices safely.",
+                    "",
+                    "# Links",
+                    "- Request: `req_000_dispatch_seed`",
+                    "- Task(s): `task_000_dispatch_seed`",
+                ],
+            )
+            self._write_doc(
+                task,
+                [
+                    "## task_000_dispatch_seed - Dispatch seed task",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Context",
+                    "- Provide a deterministic runner for local dispatch.",
+                    "",
+                    "# Links",
+                    "- Backlog item: `item_000_dispatch_seed`",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "dispatch-context",
+                    "req_000_dispatch_seed",
+                    "--include-graph",
+                    "--include-registry",
+                    "--include-doctor",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["sync_kind"], "dispatch-context")
+            self.assertEqual(payload["seed_ref"], "req_000_dispatch_seed")
+            self.assertEqual(payload["context_pack"]["ref"], "req_000_dispatch_seed")
+            self.assertIn("graph", payload)
+            self.assertEqual(payload["graph"]["seed_ref"], "req_000_dispatch_seed")
+            self.assertIn("registry", payload)
+            self.assertEqual(payload["registry"]["skill_count"], 0)
+            self.assertIn("doctor", payload)
+            self.assertTrue(payload["doctor"]["ok"])
+
+    def test_sync_dispatch_suggestion_only_validates_and_maps_inline_payload(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+            request = repo / "logics" / "request" / "req_000_dispatch_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_dispatch_seed - Dispatch seed",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Convert a request into an executable backlog slice.",
+                ],
+            )
+
+            decision = json.dumps(
+                {
+                    "action": "promote",
+                    "target_ref": "req_000_dispatch_seed",
+                    "proposed_args": {},
+                    "rationale": "A request should be promoted into a backlog item before implementation.",
+                    "confidence": 0.84,
+                }
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "dispatch",
+                    "req_000_dispatch_seed",
+                    "--decision-json",
+                    decision,
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertFalse(payload["executed"])
+            self.assertEqual(payload["decision_source"], "inline")
+            self.assertEqual(payload["validated_decision"]["action"], "promote")
+            self.assertEqual(payload["mapped_command"]["argv"][:2], ["promote", "request-to-backlog"])
+            self.assertFalse((repo / "logics" / "backlog" / "item_000_dispatch_seed.md").exists())
+
+            audit_path = repo / payload["audit_log"]
+            self.assertTrue(audit_path.is_file())
+            audit_lines = audit_path.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            audit_record = json.loads(audit_lines[0])
+            self.assertEqual(audit_record["execution_mode"], "suggestion-only")
+            self.assertEqual(audit_record["validated_decision"]["target_ref"], "req_000_dispatch_seed")
+            self.assertIsNone(audit_record["execution_result"])
+
+    def test_sync_dispatch_execute_runs_mapped_command_and_appends_audit_log(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+            request = repo / "logics" / "request" / "req_000_dispatch_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_dispatch_seed - Dispatch seed",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Convert a request into an executable backlog slice.",
+                ],
+            )
+
+            decision = json.dumps(
+                {
+                    "action": "promote",
+                    "target_ref": "req_000_dispatch_seed",
+                    "proposed_args": {},
+                    "rationale": "A request should be promoted into a backlog item before implementation.",
+                    "confidence": 0.91,
+                }
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "dispatch",
+                    "req_000_dispatch_seed",
+                    "--decision-json",
+                    decision,
+                    "--execution-mode",
+                    "execute",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["executed"])
+            self.assertEqual(payload["execution_result"]["command"], "promote")
+            backlog = repo / "logics" / "backlog" / "item_000_dispatch_seed.md"
+            self.assertTrue(backlog.is_file())
+
+            audit_record = json.loads((repo / payload["audit_log"]).read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(audit_record["execution_mode"], "execute")
+            self.assertEqual(audit_record["execution_result"]["command"], "promote")
+
+    def test_sync_dispatch_returns_structured_error_for_invalid_payload(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_dispatch_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_dispatch_seed - Dispatch seed",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Reject invalid dispatcher payloads.",
+                ],
+            )
+
+            decision = json.dumps(
+                {
+                    "action": "finish",
+                    "target_ref": "req_000_dispatch_seed",
+                    "proposed_args": {},
+                    "rationale": "This is intentionally invalid for a request target.",
+                    "confidence": 0.5,
+                }
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "sync",
+                    "dispatch",
+                    "req_000_dispatch_seed",
+                    "--decision-json",
+                    decision,
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["ok"])
+            self.assertEqual(payload["error_code"], "dispatcher_invalid_finish_target")
+
+    def test_sync_dispatch_ollama_adapter_supports_local_http_backend(self) -> None:
+        script = self._script()
+
+        class OllamaHandler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802
+                length = int(self.headers.get("Content-Length", "0"))
+                body = self.rfile.read(length).decode("utf-8")
+                request_payload = json.loads(body)
+                response_payload = {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "action": "sync",
+                                "target_ref": None,
+                                "proposed_args": {"sync_kind": "doctor"},
+                                "rationale": "Start with a safe health check before mutating workflow docs.",
+                                "confidence": 0.88,
+                            }
+                        )
+                    },
+                    "echo_model": request_payload["model"],
+                }
+                encoded = json.dumps(response_payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_dispatch_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_dispatch_seed - Dispatch seed",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Verify the local Ollama adapter path.",
+                ],
+            )
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "sync",
+                        "dispatch",
+                        "req_000_dispatch_seed",
+                        "--model",
+                        "fake-dispatcher",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["decision_source"], "ollama")
+            self.assertEqual(payload["validated_decision"]["action"], "sync")
+            self.assertEqual(payload["validated_decision"]["proposed_args"]["sync_kind"], "doctor")
+            self.assertEqual(payload["transport"]["model"], "fake-dispatcher")
+            self.assertIn("request_payload", payload["transport"])
 
 
 if __name__ == "__main__":

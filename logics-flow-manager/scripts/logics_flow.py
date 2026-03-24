@@ -11,6 +11,20 @@ from contextlib import redirect_stdout
 from datetime import date
 from pathlib import Path
 
+from logics_flow_dispatcher import (
+    DEFAULT_DISPATCH_AUDIT_LOG,
+    DEFAULT_DISPATCH_CONTEXT_MODE,
+    DEFAULT_DISPATCH_EXECUTION_MODE,
+    DEFAULT_DISPATCH_PROFILE,
+    DispatcherError,
+    append_audit_record,
+    build_audit_record,
+    build_dispatcher_contract,
+    extract_json_object,
+    map_decision_to_command,
+    run_ollama_dispatch,
+    validate_dispatcher_decision,
+)
 from logics_flow_support import *  # noqa: F401,F403
 from logics_flow_models import WorkflowDocModel, iter_skill_packages, parse_workflow_doc
 from logics_flow_mutations import apply_mutation, build_planned_mutation
@@ -309,6 +323,200 @@ def _benchmark_payload(repo_root: Path) -> dict[str, object]:
         "skill_count": len(packages),
         "duration_ms": duration_ms,
         "average_ms_per_skill": round(duration_ms / len(packages), 3) if packages else 0.0,
+    }
+
+
+def _dispatcher_graph_slice(repo_root: Path, seed_ref: str) -> dict[str, object]:
+    docs = _load_workflow_docs(repo_root)
+    seed = docs.get(seed_ref)
+    if seed is None:
+        raise SystemExit(f"Unknown workflow ref `{seed_ref}`.")
+    neighborhood = _workflow_neighborhood(seed, docs)
+    allowed = {doc.ref for doc in neighborhood}
+    nodes = [
+        {
+            "ref": doc.ref,
+            "kind": doc.kind,
+            "title": doc.title,
+            "path": doc.path,
+            "status": doc.indicators.get("Status", ""),
+        }
+        for doc in neighborhood
+    ]
+    edges = []
+    for doc in neighborhood:
+        for refs in doc.refs.values():
+            for ref in refs:
+                if ref in allowed:
+                    edges.append({"from": doc.ref, "to": ref})
+    return {"seed_ref": seed_ref, "nodes": nodes, "edges": edges}
+
+
+def _dispatcher_registry_summary(repo_root: Path) -> dict[str, object]:
+    payload = _export_registry_payload(repo_root)
+    return {
+        "schema_version": payload["schema_version"],
+        "governance_profiles": payload["governance_profiles"],
+        "skill_count": len(payload["skills"]),
+        "skill_names": [skill["name"] for skill in payload["skills"]],
+        "release_versions": [release["version"] for release in payload["releases"]],
+    }
+
+
+def _build_dispatcher_context(
+    repo_root: Path,
+    ref: str,
+    *,
+    mode: str,
+    profile: str,
+    include_graph: bool,
+    include_registry: bool,
+    include_doctor: bool,
+) -> dict[str, object]:
+    bundle: dict[str, object] = {
+        "schema_version": CURRENT_WORKFLOW_SCHEMA_VERSION,
+        "seed_ref": ref,
+        "default_execution_mode": DEFAULT_DISPATCH_EXECUTION_MODE,
+        "contract": build_dispatcher_contract(),
+        "context_pack": _build_context_pack(repo_root, ref, mode=mode, profile=profile),
+    }
+    if include_graph:
+        bundle["graph"] = _dispatcher_graph_slice(repo_root, ref)
+    if include_registry:
+        bundle["registry"] = _dispatcher_registry_summary(repo_root)
+    if include_doctor:
+        doctor_payload = _doctor_payload(repo_root)
+        bundle["doctor"] = {
+            "ok": doctor_payload["ok"],
+            "issue_count": len(doctor_payload["issues"]),
+            "issues": doctor_payload["issues"],
+        }
+    return bundle
+
+
+def _run_mapped_command(repo_root: Path, argv: list[str]) -> dict[str, object]:
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()), *argv, "--format", "json"],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        error_message = result.stderr.strip() or result.stdout.strip() or "Mapped command failed."
+        raise DispatcherError(
+            "dispatcher_command_failed",
+            error_message,
+            details={"argv": argv, "stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode},
+        )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise DispatcherError(
+            "dispatcher_command_invalid_json",
+            f"Mapped command did not return valid JSON: {exc}",
+            details={"argv": argv, "stdout": result.stdout},
+        ) from exc
+    return payload
+
+
+def cmd_sync_dispatch_context(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    payload = _build_dispatcher_context(
+        repo_root,
+        args.ref,
+        mode=args.mode,
+        profile=args.profile,
+        include_graph=args.include_graph,
+        include_registry=args.include_registry,
+        include_doctor=args.include_doctor,
+    )
+    if args.out:
+        out_path = (repo_root / args.out).resolve()
+        _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
+        print(f"Wrote {out_path.relative_to(repo_root)}")
+        payload["output_path"] = _rel(repo_root, out_path)
+    else:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return {"command": "sync", "sync_kind": "dispatch-context", **payload}
+
+
+def cmd_sync_dispatch(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    context_bundle = _build_dispatcher_context(
+        repo_root,
+        args.ref,
+        mode=args.context_mode,
+        profile=args.profile,
+        include_graph=args.include_graph,
+        include_registry=args.include_registry,
+        include_doctor=args.include_doctor,
+    )
+    docs_by_ref = _load_workflow_docs(repo_root)
+
+    transport: dict[str, object]
+    if args.decision_json:
+        decision_payload = extract_json_object(args.decision_json)
+        transport = {"transport": "inline", "source": "decision-json"}
+    elif args.decision_file:
+        decision_payload = extract_json_object(Path(args.decision_file).read_text(encoding="utf-8"))
+        transport = {"transport": "file", "source": args.decision_file}
+    elif args.model:
+        transport = run_ollama_dispatch(
+            host=args.ollama_host,
+            model=args.model,
+            context_bundle=context_bundle,
+            timeout_seconds=args.timeout,
+        )
+        decision_payload = transport["decision_payload"]
+    else:
+        raise SystemExit("Provide exactly one of --decision-json, --decision-file, or --model.")
+
+    validated = validate_dispatcher_decision(decision_payload, docs_by_ref)
+    mapped = map_decision_to_command(validated, docs_by_ref)
+
+    execution_result: dict[str, object] | None = None
+    executed = False
+    if args.execution_mode == "execute":
+        execution_result = _run_mapped_command(repo_root, mapped["argv"])
+        executed = True
+
+    audit_path = (repo_root / args.audit_log).resolve()
+    audit_record = build_audit_record(
+        seed_ref=args.ref,
+        execution_mode=args.execution_mode,
+        context_bundle=context_bundle,
+        decision_payload=decision_payload,
+        validated_decision=validated,
+        mapped_command=mapped,
+        execution_result=execution_result,
+        transport=transport,
+    )
+    if not args.dry_run:
+        append_audit_record(audit_path, audit_record)
+
+    if executed:
+        print(f"Executed dispatcher action `{validated.action}` via {' '.join(mapped['argv'])}.")
+    else:
+        print(f"Suggested dispatcher action `{validated.action}` via {' '.join(mapped['argv'])}.")
+    print(f"Audit log: {audit_path.relative_to(repo_root)}")
+
+    return {
+        "command": "sync",
+        "sync_kind": "dispatch",
+        "seed_ref": args.ref,
+        "execution_mode": args.execution_mode,
+        "executed": executed,
+        "decision_source": transport["transport"],
+        "audit_log": _rel(repo_root, audit_path),
+        "context_bundle": context_bundle,
+        "raw_decision": decision_payload,
+        "validated_decision": validated.to_dict(),
+        "mapped_command": mapped,
+        "execution_result": execution_result,
+        "transport": transport,
+        "dry_run": args.dry_run,
     }
 
 def cmd_new(args: argparse.Namespace) -> None:
@@ -983,6 +1191,48 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--format", choices=("text", "json"), default="text")
     benchmark.set_defaults(func=cmd_sync_benchmark_skills)
 
+    dispatch_context = sync_sub.add_parser(
+        "dispatch-context",
+        help="Build the compact local-dispatch context bundle used by the deterministic dispatcher.",
+    )
+    dispatch_context.add_argument("ref", help="Seed workflow ref for the dispatcher context.")
+    dispatch_context.add_argument("--mode", choices=("summary-only", "diff-first", "full"), default=DEFAULT_DISPATCH_CONTEXT_MODE)
+    dispatch_context.add_argument("--profile", choices=("tiny", "normal", "deep"), default=DEFAULT_DISPATCH_PROFILE)
+    dispatch_context.add_argument("--include-graph", action="store_true", help="Include a local graph slice around the seed ref.")
+    dispatch_context.add_argument("--include-registry", action="store_true", help="Include a compact registry summary.")
+    dispatch_context.add_argument("--include-doctor", action="store_true", help="Include a doctor summary in the context bundle.")
+    dispatch_context.add_argument("--out", help="Write the JSON context bundle to this relative path.")
+    dispatch_context.add_argument("--format", choices=("text", "json"), default="text")
+    dispatch_context.add_argument("--dry-run", action="store_true")
+    dispatch_context.set_defaults(func=cmd_sync_dispatch_context)
+
+    dispatch = sync_sub.add_parser(
+        "dispatch",
+        help="Validate and optionally execute a local dispatcher decision through whitelisted Logics commands.",
+    )
+    dispatch.add_argument("ref", help="Seed workflow ref for dispatcher context assembly.")
+    decision_source = dispatch.add_mutually_exclusive_group(required=True)
+    decision_source.add_argument("--decision-json", help="Inline dispatcher decision payload.")
+    decision_source.add_argument("--decision-file", help="Path to a JSON file containing the dispatcher decision payload.")
+    decision_source.add_argument("--model", help="Use Ollama with this local model to produce the dispatcher decision.")
+    dispatch.add_argument("--ollama-host", default="http://127.0.0.1:11434", help="Base URL for Ollama when --model is used.")
+    dispatch.add_argument("--timeout", type=float, default=30.0, help="HTTP timeout in seconds for Ollama dispatch.")
+    dispatch.add_argument("--context-mode", choices=("summary-only", "diff-first", "full"), default=DEFAULT_DISPATCH_CONTEXT_MODE)
+    dispatch.add_argument("--profile", choices=("tiny", "normal", "deep"), default=DEFAULT_DISPATCH_PROFILE)
+    dispatch.add_argument("--include-graph", action="store_true", help="Include a local graph slice around the seed ref.")
+    dispatch.add_argument("--include-registry", action="store_true", help="Include a compact registry summary.")
+    dispatch.add_argument("--include-doctor", action="store_true", help="Include a doctor summary in the context bundle.")
+    dispatch.add_argument(
+        "--execution-mode",
+        choices=("suggestion-only", "execute"),
+        default=DEFAULT_DISPATCH_EXECUTION_MODE,
+        help="Keep the default suggestion-only posture or explicitly execute the mapped command.",
+    )
+    dispatch.add_argument("--audit-log", default=DEFAULT_DISPATCH_AUDIT_LOG, help="Relative path to the JSONL dispatcher audit log.")
+    dispatch.add_argument("--format", choices=("text", "json"), default="text")
+    dispatch.add_argument("--dry-run", action="store_true")
+    dispatch.set_defaults(func=cmd_sync_dispatch)
+
     return parser
 
 
@@ -996,6 +1246,14 @@ def _run_json_command(args: argparse.Namespace) -> int:
             result = args.func(args)
             payload = result if isinstance(result, dict) else {"result": result}
             payload.setdefault("ok", True)
+        except DispatcherError as exc:
+            exit_code = 1
+            payload = {
+                "ok": False,
+                "error": str(exc),
+                "error_code": exc.code,
+                "details": exc.details,
+            }
         except SystemExit as exc:
             exit_code = exc.code if isinstance(exc.code, int) else 1
             payload = {
