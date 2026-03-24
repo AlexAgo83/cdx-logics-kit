@@ -1,4 +1,4 @@
 interface:
   display_name: "Ollama Specialist"
-  short_description: "Install, configure, and integrate Ollama in local apps"
-  default_prompt: "Use $logics-ollama-specialist to install, configure, and integrate Ollama in local apps and wire frontend/backends to /api/chat via Vite or Express proxies."
+  short_description: "Set up Ollama for local coding, editors, and frontend integration"
+  default_prompt: "Use $logics-ollama-specialist to install, validate, and integrate Ollama for deepseek-coder-v2, Continue, Roo Code, or frontend proxy workflows."
