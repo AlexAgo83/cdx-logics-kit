@@ -1700,6 +1700,39 @@ def build_parser() -> argparse.ArgumentParser:
     assist_run.add_argument("--dry-run", action="store_true")
     assist_run.set_defaults(func=cmd_assist_run)
 
+    def add_assist_alias(name: str, flow_name: str, help_text: str, *, takes_ref: bool) -> None:
+        alias = assist_sub.add_parser(name, help=help_text)
+        if takes_ref:
+            alias.add_argument("ref", help="Workflow ref for the assist flow target.")
+        alias.add_argument("--backend", choices=("auto", "ollama", "codex"))
+        alias.add_argument("--model")
+        alias.add_argument("--ollama-host")
+        alias.add_argument("--timeout", type=float)
+        alias.add_argument("--context-mode", choices=("summary-only", "diff-first", "full"))
+        alias.add_argument("--profile", choices=("tiny", "normal", "deep"))
+        alias.add_argument("--include-graph", action="store_true", default=None)
+        alias.add_argument("--include-registry", action="store_true", default=None)
+        alias.add_argument("--include-doctor", action="store_true", default=None)
+        alias.add_argument("--execution-mode", choices=("suggestion-only", "execute"), default="suggestion-only")
+        alias.add_argument("--audit-log")
+        alias.add_argument("--measurement-log")
+        alias.add_argument("--format", choices=("text", "json"), default="text")
+        alias.add_argument("--dry-run", action="store_true")
+        alias.set_defaults(func=cmd_assist_run, flow_name=flow_name)
+
+    add_assist_alias("summarize-pr", "pr-summary", "Generate a bounded PR summary.", takes_ref=False)
+    add_assist_alias("summarize-changelog", "changelog-summary", "Generate a bounded changelog summary.", takes_ref=False)
+    add_assist_alias("summarize-validation", "validation-summary", "Summarize shared validation results.", takes_ref=False)
+    add_assist_alias("next-step", "next-step", "Suggest the next bounded workflow action for a target doc.", takes_ref=True)
+    add_assist_alias("triage", "triage", "Triage a target request or backlog doc.", takes_ref=True)
+    add_assist_alias("handoff", "handoff-packet", "Generate a compact handoff packet for a target workflow doc.", takes_ref=True)
+    add_assist_alias("suggest-split", "suggest-split", "Suggest a bounded split for a broad request or backlog item.", takes_ref=True)
+    add_assist_alias("diff-risk", "diff-risk", "Classify the current diff risk.", takes_ref=False)
+    add_assist_alias("commit-plan", "commit-plan", "Suggest the minimal coherent commit plan for the current diff.", takes_ref=False)
+    add_assist_alias("closure-summary", "closure-summary", "Summarize a delivered request, backlog item, or task.", takes_ref=True)
+    add_assist_alias("validation-checklist", "validation-checklist", "Generate a validation checklist for the current diff.", takes_ref=False)
+    add_assist_alias("doc-consistency", "doc-consistency", "Review workflow docs for consistency issues without mutating them.", takes_ref=False)
+
     commit_all = assist_sub.add_parser(
         "commit-all",
         help="Suggest or execute a minimal coherent commit plan using the shared hybrid assist runtime.",

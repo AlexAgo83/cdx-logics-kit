@@ -249,6 +249,27 @@ python logics/skills/logics.py lint --format json
 
 The current workflow schema is tracked explicitly in generated docs through `> Schema version:` and can be normalized with `sync migrate-schema`.
 
+### Hybrid assist runtime
+
+Use the shared hybrid assist runtime for bounded repetitive delivery operations:
+
+```bash
+python logics/skills/logics.py flow assist runtime-status --format json
+python logics/skills/logics.py flow assist commit-all
+python logics/skills/logics.py flow assist summarize-pr --format json
+python logics/skills/logics.py flow assist summarize-validation --format json
+python logics/skills/logics.py flow assist next-step req_001_my_first_need --format json
+python logics/skills/logics.py flow assist triage req_001_my_first_need --format json
+python logics/skills/logics.py flow assist handoff req_001_my_first_need --format json
+```
+
+Hybrid assist rules:
+
+- the runtime prefers `ollama` when the configured local backend is healthy and degrades cleanly otherwise;
+- the runtime keeps a shared payload envelope, audit log, and measurement log under `logics/`;
+- `commit-all` and `next-step` still default to bounded behavior unless you pass `--execution-mode execute`;
+- Codex and Claude integrations should stay thin over this command surface rather than reimplementing hybrid behavior in prompts.
+
 ### Manage multi-project Codex overlays
 
 Use the workspace manager when you want Codex to see the Logics skills from the current repository without publishing them into the single global `~/.codex/skills` pool:

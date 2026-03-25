@@ -2071,6 +2071,55 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertTrue((repo / "logics" / "hybrid_assist_audit.jsonl").is_file())
             self.assertTrue((repo / "logics" / "hybrid_assist_measurements.jsonl").is_file())
 
+    def test_assist_next_step_alias_routes_to_shared_runtime(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_hybrid_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_hybrid_seed - Hybrid seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Promote this request into the next bounded slice.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The request should produce a next-step suggestion.",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "next-step",
+                    "req_000_hybrid_seed",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["flow"], "next-step")
+            self.assertEqual(payload["result"]["decision"]["action"], "promote")
+            self.assertEqual(payload["result"]["decision"]["target_ref"], "req_000_hybrid_seed")
+
 
 if __name__ == "__main__":
     unittest.main()

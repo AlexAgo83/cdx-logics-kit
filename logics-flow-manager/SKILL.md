@@ -170,6 +170,26 @@ Dispatcher rules:
 - `sync show-config` exposes the effective `logics.yaml` merge so automation can inspect the active split policy, mutation mode, and cache path.
 - `sync refresh-ai-context` and `sync migrate-schema` now support repo-configurable `transactional` apply-or-rollback semantics and emit JSONL audit records to `logics/mutation_audit.jsonl` by default.
 
+Use the shared hybrid assist runtime when the user asks for repetitive delivery help that should opportunistically use Ollama but still degrade safely:
+
+```bash
+python logics/skills/logics.py flow assist runtime-status --format json
+python logics/skills/logics.py flow assist commit-all
+python logics/skills/logics.py flow assist summarize-pr --format json
+python logics/skills/logics.py flow assist summarize-validation --format json
+python logics/skills/logics.py flow assist next-step req_089_add_a_hybrid_ollama_or_codex_local_orchestration_backend_for_repetitive_logics_delivery_tasks --format json
+python logics/skills/logics.py flow assist triage req_090_add_high_roi_hybrid_ollama_or_codex_assist_flows_for_repetitive_logics_delivery_operations --format json
+python logics/skills/logics.py flow assist handoff req_090_add_high_roi_hybrid_ollama_or_codex_assist_flows_for_repetitive_logics_delivery_operations --format json
+```
+
+Hybrid assist rules:
+
+- prefer the named aliases over ad hoc shell commands;
+- keep `python ...` as the canonical cross-platform launcher;
+- `runtime-status` is the shared probe surface for plugin, Codex, and Claude integrations;
+- the shared runtime keeps backend provenance, degraded reasons, audit JSONL, and measurement JSONL visible to downstream surfaces;
+- risky execution stays bounded: `suggestion-only` remains the default unless the operator intent is explicit.
+
 Manage per-repository Codex overlays when several repos expose Logics skills concurrently:
 
 ```bash
