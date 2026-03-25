@@ -1958,6 +1958,118 @@ class LogicsFlowTest(unittest.TestCase):
             config_payload = json.loads(config_show.stdout)
             self.assertEqual(config_payload["config"]["workflow"]["split"]["policy"], "minimal-coherent")
             self.assertEqual(config_payload["config"]["mutations"]["mode"], "transactional")
+            self.assertEqual(config_payload["config"]["hybrid_assist"]["default_backend"], "auto")
+            self.assertEqual(config_payload["config"]["hybrid_assist"]["default_model"], "deepseek-coder-v2:16b")
+
+    def test_assist_runtime_status_reports_hybrid_backend_health(self) -> None:
+        script = self._script()
+
+        class OllamaStatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            (repo / ".claude" / "commands").mkdir(parents=True)
+            (repo / ".claude" / "agents").mkdir(parents=True)
+            (repo / ".claude" / "commands" / "logics-flow.md").write_text("bridge\n", encoding="utf-8")
+            (repo / ".claude" / "agents" / "logics-flow-manager.md").write_text("bridge\n", encoding="utf-8")
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaStatusHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "runtime-status",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["backend"]["selected_backend"], "ollama")
+            self.assertTrue(payload["backend"]["healthy"])
+            self.assertTrue(payload["claude_bridge_available"])
+
+    def test_assist_run_diff_risk_supports_codex_fallback_and_audit(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            changed = repo / "README.md"
+            changed.parent.mkdir(parents=True, exist_ok=True)
+            changed.write_text("demo\n", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "add", "README.md"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            changed.write_text("demo\nchange\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "run",
+                    "diff-risk",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertIn(payload["result"]["risk"], {"low", "medium", "high"})
+            self.assertTrue((repo / "logics" / "hybrid_assist_audit.jsonl").is_file())
+            self.assertTrue((repo / "logics" / "hybrid_assist_measurements.jsonl").is_file())
 
 
 if __name__ == "__main__":

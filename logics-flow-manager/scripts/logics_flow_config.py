@@ -22,6 +22,14 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
         "enabled": True,
         "path": "logics/.cache/runtime_index.json",
     },
+    "hybrid_assist": {
+        "default_backend": "auto",
+        "default_model": "deepseek-coder-v2:16b",
+        "ollama_host": "http://127.0.0.1:11434",
+        "timeout_seconds": 20.0,
+        "audit_log": "logics/hybrid_assist_audit.jsonl",
+        "measurement_log": "logics/hybrid_assist_measurements.jsonl",
+    },
 }
 
 
@@ -181,4 +189,3 @@ def get_config_value(config: dict[str, Any], *path: str, default: Any = None) ->
             return default
         current = current[segment]
     return current
-

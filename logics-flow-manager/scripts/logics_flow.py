@@ -26,6 +26,30 @@ from logics_flow_dispatcher import (
     run_ollama_dispatch,
     validate_dispatcher_decision,
 )
+from logics_flow_hybrid import (
+    DEFAULT_HYBRID_AUDIT_LOG,
+    DEFAULT_HYBRID_BACKEND,
+    DEFAULT_HYBRID_HOST,
+    DEFAULT_HYBRID_MEASUREMENT_LOG,
+    DEFAULT_HYBRID_MODEL,
+    DEFAULT_HYBRID_TIMEOUT_SECONDS,
+    HybridAssistError,
+    HybridBackendStatus,
+    append_jsonl_record,
+    build_flow_contract,
+    build_fallback_result,
+    build_hybrid_audit_record,
+    build_measurement_record,
+    build_runtime_status,
+    build_shared_hybrid_contract,
+    collect_git_snapshot,
+    default_context_spec,
+    execute_commit_step,
+    probe_ollama_backend,
+    run_ollama_hybrid,
+    run_validation_commands,
+    validate_hybrid_result,
+)
 from logics_flow_index import indexed_skill_packages, indexed_workflow_docs, load_runtime_index
 from logics_flow_support import *  # noqa: F401,F403
 from logics_flow_models import WorkflowDocModel, parse_workflow_doc
@@ -324,6 +348,12 @@ def _doctor_payload(repo_root: Path, *, config: dict[str, object] | None = None)
     }
 
 
+def _claude_bridge_available(repo_root: Path) -> bool:
+    return (repo_root / ".claude" / "commands" / "logics-flow.md").is_file() and (
+        repo_root / ".claude" / "agents" / "logics-flow-manager.md"
+    ).is_file()
+
+
 def _benchmark_payload(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
     started = time.perf_counter()
     packages = _skill_packages(repo_root, config=config)
@@ -402,6 +432,403 @@ def _build_dispatcher_context(
             "issues": doctor_payload["issues"],
         }
     return bundle
+
+
+def _hybrid_default_backend(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "hybrid_assist", "default_backend", default=DEFAULT_HYBRID_BACKEND))
+
+
+def _hybrid_default_model(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "hybrid_assist", "default_model", default=DEFAULT_HYBRID_MODEL))
+
+
+def _hybrid_default_host(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "hybrid_assist", "ollama_host", default=DEFAULT_HYBRID_HOST))
+
+
+def _hybrid_default_timeout(config: dict[str, object]) -> float:
+    return float(get_config_value(config, "hybrid_assist", "timeout_seconds", default=DEFAULT_HYBRID_TIMEOUT_SECONDS))
+
+
+def _hybrid_audit_log(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "hybrid_assist", "audit_log", default=DEFAULT_HYBRID_AUDIT_LOG))
+
+
+def _hybrid_measurement_log(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "hybrid_assist", "measurement_log", default=DEFAULT_HYBRID_MEASUREMENT_LOG))
+
+
+def _build_hybrid_context(
+    repo_root: Path,
+    flow_name: str,
+    *,
+    ref: str | None,
+    context_mode: str | None,
+    profile: str | None,
+    include_graph: bool | None,
+    include_registry: bool | None,
+    include_doctor: bool | None,
+    config: dict[str, object],
+) -> dict[str, object]:
+    spec = default_context_spec(flow_name)
+    resolved_mode = context_mode or spec["mode"]
+    resolved_profile = profile or spec["profile"]
+    resolved_graph = spec["include_graph"] if include_graph is None else include_graph
+    resolved_registry = spec["include_registry"] if include_registry is None else include_registry
+    resolved_doctor = spec["include_doctor"] if include_doctor is None else include_doctor
+
+    bundle: dict[str, object] = {
+        "schema_version": CURRENT_WORKFLOW_SCHEMA_VERSION,
+        "assist_schema_version": build_shared_hybrid_contract()["schema_version"],
+        "flow": flow_name,
+        "seed_ref": ref,
+        "context_profile": {
+            "mode": resolved_mode,
+            "profile": resolved_profile,
+            "include_graph": resolved_graph,
+            "include_registry": resolved_registry,
+            "include_doctor": resolved_doctor,
+        },
+        "contract": build_flow_contract(flow_name),
+        "git_snapshot": collect_git_snapshot(repo_root),
+        "claude_bridge_available": _claude_bridge_available(repo_root),
+    }
+    if ref:
+        bundle["context_pack"] = _build_context_pack(repo_root, ref, mode=resolved_mode, profile=resolved_profile, config=config)
+        if resolved_graph:
+            bundle["graph"] = _dispatcher_graph_slice(repo_root, ref, config=config)
+    else:
+        bundle["context_pack"] = {
+            "ref": None,
+            "mode": resolved_mode,
+            "profile": resolved_profile,
+            "docs": [],
+            "budgets": {"max_docs": 0},
+            "changed_paths": bundle["git_snapshot"]["changed_paths"],
+            "estimates": {"doc_count": 0, "char_count": 0},
+        }
+    if resolved_registry:
+        bundle["registry"] = _dispatcher_registry_summary(repo_root, config=config)
+    if resolved_doctor:
+        doctor_payload = _doctor_payload(repo_root, config=config)
+        bundle["doctor"] = {
+            "ok": doctor_payload["ok"],
+            "issue_count": len(doctor_payload["issues"]),
+            "issues": doctor_payload["issues"],
+        }
+    return bundle
+
+
+def _hybrid_validation_payload(repo_root: Path) -> dict[str, object]:
+    commands = [
+        [sys.executable, str(Path(__file__).resolve().parents[2] / "logics.py"), "lint", "--format", "json"],
+        [sys.executable, str(Path(__file__).resolve().parents[2] / "logics.py"), "audit", "--group-by-doc", "--format", "json"],
+        [sys.executable, str(Path(__file__).resolve().parents[2] / "logics.py"), "doctor", "--format", "json"],
+    ]
+    return run_validation_commands(repo_root, commands)
+
+
+def cmd_assist_runtime_status(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    payload = build_runtime_status(
+        repo_root=repo_root,
+        requested_backend=args.backend or _hybrid_default_backend(config),
+        host=args.ollama_host or _hybrid_default_host(config),
+        model=args.model or _hybrid_default_model(config),
+        timeout_seconds=args.timeout or _hybrid_default_timeout(config),
+        claude_bridge_available=_claude_bridge_available(repo_root),
+    )
+    payload["command"] = "assist"
+    payload["assist_kind"] = "runtime-status"
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
+    if args.out:
+        out_path = (repo_root / args.out).resolve()
+        _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
+        payload["output_path"] = _rel(repo_root, out_path)
+    elif args.format == "text":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
+def cmd_assist_context(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    payload = _build_hybrid_context(
+        repo_root,
+        args.flow_name,
+        ref=getattr(args, "ref", None),
+        context_mode=args.context_mode,
+        profile=args.profile,
+        include_graph=args.include_graph,
+        include_registry=args.include_registry,
+        include_doctor=args.include_doctor,
+        config=config,
+    )
+    payload["command"] = "assist"
+    payload["assist_kind"] = "context"
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
+    if args.out:
+        out_path = (repo_root / args.out).resolve()
+        _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
+        payload["output_path"] = _rel(repo_root, out_path)
+    elif args.format == "text":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
+def _run_hybrid_assist(
+    repo_root: Path,
+    *,
+    flow_name: str,
+    ref: str | None,
+    requested_backend: str,
+    model: str,
+    ollama_host: str,
+    timeout_seconds: float,
+    context_mode: str | None,
+    profile: str | None,
+    include_graph: bool | None,
+    include_registry: bool | None,
+    include_doctor: bool | None,
+    execution_mode: str,
+    audit_log: str,
+    measurement_log: str,
+    config: dict[str, object],
+    dry_run: bool,
+) -> dict[str, object]:
+    docs_by_ref = _load_workflow_docs(repo_root, config=config)
+    context_bundle = _build_hybrid_context(
+        repo_root,
+        flow_name,
+        ref=ref,
+        context_mode=context_mode,
+        profile=profile,
+        include_graph=include_graph,
+        include_registry=include_registry,
+        include_doctor=include_doctor,
+        config=config,
+    )
+    validation_payload = None
+    if flow_name in {"validation-summary", "doc-consistency"}:
+        validation_payload = _hybrid_validation_payload(repo_root)
+        context_bundle["validation_payload"] = validation_payload
+
+    backend_status = probe_ollama_backend(
+        requested_backend=requested_backend,
+        host=ollama_host,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+    degraded_reasons = list(backend_status.reasons)
+    raw_payload: dict[str, object] | None = None
+    transport: dict[str, object]
+    if backend_status.selected_backend == "ollama":
+        try:
+            transport = run_ollama_hybrid(
+                host=backend_status.host,
+                model=backend_status.model,
+                flow_name=flow_name,
+                context_bundle=context_bundle,
+                timeout_seconds=timeout_seconds,
+            )
+            raw_payload = transport["result_payload"]
+            validated = validate_hybrid_result(flow_name, raw_payload, docs_by_ref)
+        except HybridAssistError as exc:
+            if requested_backend != "auto":
+                raise
+            degraded_reasons.append(exc.code)
+            raw_payload = None
+            transport = {"transport": "fallback", "reason": exc.code, "selected_backend": "codex"}
+            validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
+            backend_status = HybridBackendStatus(
+                requested_backend=requested_backend,
+                selected_backend="codex",
+                host=backend_status.host,
+                model=backend_status.model,
+                ollama_reachable=backend_status.ollama_reachable,
+                model_available=backend_status.model_available,
+                healthy=False,
+                reasons=degraded_reasons,
+                response_time_ms=backend_status.response_time_ms,
+                version=backend_status.version,
+            )
+    else:
+        transport = {"transport": "fallback", "reason": "selected-codex", "selected_backend": "codex"}
+        validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
+
+    execution_result = None
+    executed = False
+    if flow_name == "next-step":
+        decision = validate_dispatcher_decision(validated, docs_by_ref)
+        mapped_command = map_decision_to_command(decision, docs_by_ref)
+        if execution_mode == "execute":
+            execution_result = _run_mapped_command(repo_root, mapped_command["argv"])
+            executed = True
+        validated = {"decision": decision.to_dict(), "mapped_command": mapped_command}
+    elif flow_name == "commit-all":
+        raise SystemExit("Internal error: commit-all should route through cmd_assist_commit_all.")
+
+    result_status = "degraded" if degraded_reasons else "ok"
+    audit_path = (repo_root / audit_log).resolve()
+    measurement_path = (repo_root / measurement_log).resolve()
+    confidence = None
+    if flow_name == "next-step":
+        confidence = float(validated["decision"]["confidence"])
+    elif isinstance(validated, dict) and "confidence" in validated:
+        confidence = float(validated["confidence"])
+    review_recommended = bool(degraded_reasons) or (confidence is not None and confidence < 0.7)
+    if not dry_run:
+        append_jsonl_record(
+            audit_path,
+            build_hybrid_audit_record(
+                flow_name=flow_name,
+                result_status=result_status,
+                backend_status=backend_status,
+                context_bundle=context_bundle,
+                raw_payload=raw_payload,
+                validated_payload=validated,
+                transport=transport,
+                degraded_reasons=degraded_reasons,
+                execution_result=execution_result,
+            ),
+        )
+        append_jsonl_record(
+            measurement_path,
+            build_measurement_record(
+                flow_name=flow_name,
+                backend_status=backend_status,
+                result_status=result_status,
+                confidence=confidence,
+                degraded_reasons=degraded_reasons,
+                review_recommended=review_recommended,
+            ),
+        )
+    return {
+        "command": "assist",
+        "assist_kind": "run",
+        "flow": flow_name,
+        "seed_ref": ref,
+        "backend_requested": requested_backend,
+        "backend_used": backend_status.selected_backend,
+        "backend_status": backend_status.to_dict(),
+        "result_status": result_status,
+        "degraded_reasons": degraded_reasons,
+        "context_bundle": context_bundle,
+        "raw_result": raw_payload,
+        "result": validated,
+        "transport": transport,
+        "executed": executed,
+        "execution_mode": execution_mode,
+        "execution_result": execution_result,
+        "audit_log": _rel(repo_root, audit_path),
+        "measurement_log": _rel(repo_root, measurement_path),
+        "review_recommended": review_recommended,
+        "ok": True,
+    }
+
+
+def cmd_assist_run(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    payload = _run_hybrid_assist(
+        repo_root,
+        flow_name=args.flow_name,
+        ref=getattr(args, "ref", None),
+        requested_backend=args.backend or _hybrid_default_backend(config),
+        model=args.model or _hybrid_default_model(config),
+        ollama_host=args.ollama_host or _hybrid_default_host(config),
+        timeout_seconds=args.timeout or _hybrid_default_timeout(config),
+        context_mode=args.context_mode,
+        profile=args.profile,
+        include_graph=args.include_graph,
+        include_registry=args.include_registry,
+        include_doctor=args.include_doctor,
+        execution_mode=args.execution_mode,
+        audit_log=args.audit_log or _hybrid_audit_log(config),
+        measurement_log=args.measurement_log or _hybrid_measurement_log(config),
+        config=config,
+        dry_run=args.dry_run,
+    )
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
+    if args.format == "text":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
+def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    base_kwargs = {
+        "repo_root": repo_root,
+        "requested_backend": args.backend or _hybrid_default_backend(config),
+        "model": args.model or _hybrid_default_model(config),
+        "ollama_host": args.ollama_host or _hybrid_default_host(config),
+        "timeout_seconds": args.timeout or _hybrid_default_timeout(config),
+        "context_mode": args.context_mode,
+        "profile": args.profile,
+        "include_graph": args.include_graph,
+        "include_registry": args.include_registry,
+        "include_doctor": args.include_doctor,
+        "execution_mode": "suggestion-only",
+        "audit_log": args.audit_log or _hybrid_audit_log(config),
+        "measurement_log": args.measurement_log or _hybrid_measurement_log(config),
+        "config": config,
+        "dry_run": args.dry_run,
+    }
+    plan_payload = _run_hybrid_assist(flow_name="commit-plan", ref=None, **base_kwargs)
+    root_message_payload = _run_hybrid_assist(flow_name="commit-message", ref=None, **base_kwargs)
+    execution_result = None
+    executed = False
+    if args.execution_mode == "execute":
+        plan = plan_payload["result"]
+        steps = plan["steps"]
+        step_results = []
+        for step in steps:
+            target_repo = repo_root / "logics" / "skills" if step["scope"] == "submodule" else repo_root
+            message_payload = _run_hybrid_assist(
+                flow_name="commit-message",
+                ref=None,
+                repo_root=target_repo,
+                requested_backend=args.backend or _hybrid_default_backend(config),
+                model=args.model or _hybrid_default_model(config),
+                ollama_host=args.ollama_host or _hybrid_default_host(config),
+                timeout_seconds=args.timeout or _hybrid_default_timeout(config),
+                context_mode=args.context_mode,
+                profile=args.profile,
+                include_graph=args.include_graph,
+                include_registry=args.include_registry,
+                include_doctor=args.include_doctor,
+                execution_mode="suggestion-only",
+                audit_log=args.audit_log or _hybrid_audit_log(config),
+                measurement_log=args.measurement_log or _hybrid_measurement_log(config),
+                config=config,
+                dry_run=args.dry_run,
+            )
+            message = message_payload["result"]["subject"]
+            commit_result = execute_commit_step(target_repo, message)
+            step_results.append({"scope": step["scope"], "message": message, **commit_result})
+        execution_result = {"steps": step_results}
+        executed = True
+    payload = {
+        "command": "assist",
+        "assist_kind": "commit-all",
+        "flow": "commit-all",
+        "plan": plan_payload["result"],
+        "root_message": root_message_payload["result"],
+        "executed": executed,
+        "execution_mode": args.execution_mode,
+        "execution_result": execution_result,
+        "backend_requested": plan_payload["backend_requested"],
+        "backend_used": plan_payload["backend_used"],
+        "audit_log": plan_payload["audit_log"],
+        "measurement_log": plan_payload["measurement_log"],
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
+        "ok": True,
+    }
+    if args.format == "text":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
 
 
 def _mutation_mode(args: argparse.Namespace, config: dict[str, object]) -> str:
@@ -1208,6 +1635,91 @@ def build_parser() -> argparse.ArgumentParser:
     finish_task.add_argument("--dry-run", action="store_true")
     finish_task.set_defaults(func=cmd_finish_task)
 
+    assist_parser = sub.add_parser(
+        "assist",
+        help="Run bounded hybrid assist flows that can prefer Ollama locally and degrade cleanly otherwise.",
+    )
+    assist_sub = assist_parser.add_subparsers(dest="assist_kind", required=True)
+
+    assist_runtime = assist_sub.add_parser(
+        "runtime-status",
+        help="Report the hybrid assist backend, bridge, and degraded-mode status for this repository.",
+    )
+    assist_runtime.add_argument("--backend", choices=("auto", "ollama", "codex"))
+    assist_runtime.add_argument("--model")
+    assist_runtime.add_argument("--ollama-host")
+    assist_runtime.add_argument("--timeout", type=float)
+    assist_runtime.add_argument("--out", help="Write the JSON status payload to this relative path.")
+    assist_runtime.add_argument("--format", choices=("text", "json"), default="text")
+    assist_runtime.add_argument("--dry-run", action="store_true")
+    assist_runtime.set_defaults(func=cmd_assist_runtime_status)
+
+    assist_context = assist_sub.add_parser(
+        "context",
+        help="Build a shared hybrid assist context bundle for a named flow.",
+    )
+    assist_context.add_argument(
+        "flow_name",
+        choices=tuple(sorted(build_shared_hybrid_contract()["flows"].keys())),
+        help="Hybrid assist flow name.",
+    )
+    assist_context.add_argument("ref", nargs="?", help="Optional workflow ref for flows that operate on a target doc.")
+    assist_context.add_argument("--context-mode", choices=("summary-only", "diff-first", "full"))
+    assist_context.add_argument("--profile", choices=("tiny", "normal", "deep"))
+    assist_context.add_argument("--include-graph", action="store_true", default=None)
+    assist_context.add_argument("--include-registry", action="store_true", default=None)
+    assist_context.add_argument("--include-doctor", action="store_true", default=None)
+    assist_context.add_argument("--out", help="Write the JSON context bundle to this relative path.")
+    assist_context.add_argument("--format", choices=("text", "json"), default="text")
+    assist_context.add_argument("--dry-run", action="store_true")
+    assist_context.set_defaults(func=cmd_assist_context)
+
+    assist_run = assist_sub.add_parser(
+        "run",
+        help="Run a shared hybrid assist flow and return structured output plus backend provenance.",
+    )
+    assist_run.add_argument(
+        "flow_name",
+        choices=tuple(sorted(build_shared_hybrid_contract()["flows"].keys())),
+        help="Hybrid assist flow name.",
+    )
+    assist_run.add_argument("ref", nargs="?", help="Optional workflow ref for flows that operate on a target doc.")
+    assist_run.add_argument("--backend", choices=("auto", "ollama", "codex"))
+    assist_run.add_argument("--model")
+    assist_run.add_argument("--ollama-host")
+    assist_run.add_argument("--timeout", type=float)
+    assist_run.add_argument("--context-mode", choices=("summary-only", "diff-first", "full"))
+    assist_run.add_argument("--profile", choices=("tiny", "normal", "deep"))
+    assist_run.add_argument("--include-graph", action="store_true", default=None)
+    assist_run.add_argument("--include-registry", action="store_true", default=None)
+    assist_run.add_argument("--include-doctor", action="store_true", default=None)
+    assist_run.add_argument("--execution-mode", choices=("suggestion-only", "execute"), default="suggestion-only")
+    assist_run.add_argument("--audit-log")
+    assist_run.add_argument("--measurement-log")
+    assist_run.add_argument("--format", choices=("text", "json"), default="text")
+    assist_run.add_argument("--dry-run", action="store_true")
+    assist_run.set_defaults(func=cmd_assist_run)
+
+    commit_all = assist_sub.add_parser(
+        "commit-all",
+        help="Suggest or execute a minimal coherent commit plan using the shared hybrid assist runtime.",
+    )
+    commit_all.add_argument("--backend", choices=("auto", "ollama", "codex"))
+    commit_all.add_argument("--model")
+    commit_all.add_argument("--ollama-host")
+    commit_all.add_argument("--timeout", type=float)
+    commit_all.add_argument("--context-mode", choices=("summary-only", "diff-first", "full"))
+    commit_all.add_argument("--profile", choices=("tiny", "normal", "deep"))
+    commit_all.add_argument("--include-graph", action="store_true", default=None)
+    commit_all.add_argument("--include-registry", action="store_true", default=None)
+    commit_all.add_argument("--include-doctor", action="store_true", default=None)
+    commit_all.add_argument("--execution-mode", choices=("suggestion-only", "execute"), default="suggestion-only")
+    commit_all.add_argument("--audit-log")
+    commit_all.add_argument("--measurement-log")
+    commit_all.add_argument("--format", choices=("text", "json"), default="text")
+    commit_all.add_argument("--dry-run", action="store_true")
+    commit_all.set_defaults(func=cmd_assist_commit_all)
+
     sync_parser = sub.add_parser("sync", help="Sync workflow metadata and closure transitions.")
     sync_sub = sync_parser.add_subparsers(dest="sync_kind", required=True)
     close_eligible = sync_sub.add_parser(
@@ -1379,6 +1891,14 @@ def _run_json_command(args: argparse.Namespace) -> int:
             result = args.func(args)
             payload = result if isinstance(result, dict) else {"result": result}
             payload.setdefault("ok", True)
+        except HybridAssistError as exc:
+            exit_code = 1
+            payload = {
+                "ok": False,
+                "error": str(exc),
+                "error_code": exc.code,
+                "details": exc.details,
+            }
         except DispatcherError as exc:
             exit_code = 1
             payload = {
@@ -1412,7 +1932,14 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if getattr(args, "format", "text") == "json":
         return _run_json_command(args)
-    result = args.func(args)
+    try:
+        result = args.func(args)
+    except HybridAssistError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except DispatcherError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     if isinstance(result, dict) and result.get("ok") is False:
         return 1
     return 0
