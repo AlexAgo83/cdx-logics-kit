@@ -32,9 +32,11 @@ from logics_flow_hybrid import (
     DEFAULT_HYBRID_HOST,
     DEFAULT_HYBRID_MEASUREMENT_LOG,
     DEFAULT_HYBRID_MODEL,
+    DEFAULT_HYBRID_MODEL_PROFILE,
     DEFAULT_HYBRID_TIMEOUT_SECONDS,
     HybridAssistError,
     HybridBackendStatus,
+    apply_legacy_default_model,
     append_jsonl_record,
     build_flow_contract,
     build_fallback_result,
@@ -44,8 +46,10 @@ from logics_flow_hybrid import (
     build_shared_hybrid_contract,
     collect_git_snapshot,
     default_context_spec,
+    merge_hybrid_model_profiles,
     execute_commit_step,
     probe_ollama_backend,
+    resolve_hybrid_model_selection,
     run_ollama_hybrid,
     run_validation_commands,
     validate_hybrid_result,
@@ -442,6 +446,40 @@ def _hybrid_default_model(config: dict[str, object]) -> str:
     return str(get_config_value(config, "hybrid_assist", "default_model", default=DEFAULT_HYBRID_MODEL))
 
 
+def _hybrid_default_model_profile(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "hybrid_assist", "default_model_profile", default=DEFAULT_HYBRID_MODEL_PROFILE))
+
+
+def _hybrid_model_profiles(config: dict[str, object]) -> dict[str, dict[str, object]]:
+    configured = merge_hybrid_model_profiles(get_config_value(config, "hybrid_assist", "model_profiles", default={}))
+    return apply_legacy_default_model(
+        configured,
+        default_profile=_hybrid_default_model_profile(config),
+        legacy_default_model=(
+            str(get_config_value(config, "hybrid_assist", "default_model", default="")).strip() or None
+            if _hybrid_default_model_profile(config) == DEFAULT_HYBRID_MODEL_PROFILE
+            else None
+        ),
+    )
+
+
+def _hybrid_model_selection(
+    config: dict[str, object],
+    *,
+    requested_model_profile: str | None,
+    requested_model: str | None,
+) -> dict[str, object]:
+    profiles = _hybrid_model_profiles(config)
+    selection = resolve_hybrid_model_selection(
+        configured_profiles=profiles,
+        default_profile=_hybrid_default_model_profile(config),
+        requested_profile=requested_model_profile,
+        requested_model=requested_model,
+    )
+    selection["supported_profiles"] = profiles
+    return selection
+
+
 def _hybrid_default_host(config: dict[str, object]) -> str:
     return str(get_config_value(config, "hybrid_assist", "ollama_host", default=DEFAULT_HYBRID_HOST))
 
@@ -531,11 +569,18 @@ def _hybrid_validation_payload(repo_root: Path) -> dict[str, object]:
 def cmd_assist_runtime_status(args: argparse.Namespace) -> dict[str, object]:
     repo_root = _find_repo_root(Path.cwd())
     config, config_path = _effective_config(repo_root)
+    model_selection = _hybrid_model_selection(
+        config,
+        requested_model_profile=getattr(args, "model_profile", None),
+        requested_model=args.model,
+    )
     payload = build_runtime_status(
         repo_root=repo_root,
         requested_backend=args.backend or _hybrid_default_backend(config),
         host=args.ollama_host or _hybrid_default_host(config),
-        model=args.model or _hybrid_default_model(config),
+        model_profile=model_selection,
+        supported_model_profiles=model_selection["supported_profiles"],
+        model=str(model_selection["resolved_model"]),
         timeout_seconds=args.timeout or _hybrid_default_timeout(config),
         claude_bridge_available=_claude_bridge_available(repo_root),
     )
@@ -583,6 +628,7 @@ def _run_hybrid_assist(
     flow_name: str,
     ref: str | None,
     requested_backend: str,
+    requested_model_profile: str | None,
     model: str,
     ollama_host: str,
     timeout_seconds: float,
@@ -598,6 +644,11 @@ def _run_hybrid_assist(
     dry_run: bool,
 ) -> dict[str, object]:
     docs_by_ref = _load_workflow_docs(repo_root, config=config)
+    model_selection = _hybrid_model_selection(
+        config,
+        requested_model_profile=requested_model_profile,
+        requested_model=model,
+    )
     context_bundle = _build_hybrid_context(
         repo_root,
         flow_name,
@@ -617,7 +668,10 @@ def _run_hybrid_assist(
     backend_status = probe_ollama_backend(
         requested_backend=requested_backend,
         host=ollama_host,
-        model=model,
+        model_profile=str(model_selection["name"]),
+        model_family=str(model_selection["family"]),
+        configured_model=str(model_selection["configured_model"]),
+        model=str(model_selection["resolved_model"]),
         timeout_seconds=timeout_seconds,
     )
     degraded_reasons = list(backend_status.reasons)
@@ -645,6 +699,9 @@ def _run_hybrid_assist(
                 requested_backend=requested_backend,
                 selected_backend="codex",
                 host=backend_status.host,
+                model_profile=backend_status.model_profile,
+                model_family=backend_status.model_family,
+                configured_model=backend_status.configured_model,
                 model=backend_status.model,
                 ollama_reachable=backend_status.ollama_reachable,
                 model_available=backend_status.model_available,
@@ -712,6 +769,14 @@ def _run_hybrid_assist(
         "backend_requested": requested_backend,
         "backend_used": backend_status.selected_backend,
         "backend_status": backend_status.to_dict(),
+        "active_model_profile": {
+            "name": model_selection["name"],
+            "family": model_selection["family"],
+            "configured_model": model_selection["configured_model"],
+            "resolved_model": model_selection["resolved_model"],
+            "description": model_selection["description"],
+            "example_tags": model_selection["example_tags"],
+        },
         "result_status": result_status,
         "degraded_reasons": degraded_reasons,
         "context_bundle": context_bundle,
@@ -736,6 +801,7 @@ def cmd_assist_run(args: argparse.Namespace) -> dict[str, object]:
         flow_name=args.flow_name,
         ref=getattr(args, "ref", None),
         requested_backend=args.backend or _hybrid_default_backend(config),
+        requested_model_profile=getattr(args, "model_profile", None),
         model=args.model or _hybrid_default_model(config),
         ollama_host=args.ollama_host or _hybrid_default_host(config),
         timeout_seconds=args.timeout or _hybrid_default_timeout(config),
@@ -762,6 +828,7 @@ def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
     base_kwargs = {
         "repo_root": repo_root,
         "requested_backend": args.backend or _hybrid_default_backend(config),
+        "requested_model_profile": getattr(args, "model_profile", None),
         "model": args.model or _hybrid_default_model(config),
         "ollama_host": args.ollama_host or _hybrid_default_host(config),
         "timeout_seconds": args.timeout or _hybrid_default_timeout(config),
@@ -791,6 +858,7 @@ def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
                 ref=None,
                 repo_root=target_repo,
                 requested_backend=args.backend or _hybrid_default_backend(config),
+                requested_model_profile=getattr(args, "model_profile", None),
                 model=args.model or _hybrid_default_model(config),
                 ollama_host=args.ollama_host or _hybrid_default_host(config),
                 timeout_seconds=args.timeout or _hybrid_default_timeout(config),
@@ -1646,6 +1714,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Report the hybrid assist backend, bridge, and degraded-mode status for this repository.",
     )
     assist_runtime.add_argument("--backend", choices=("auto", "ollama", "codex"))
+    assist_runtime.add_argument("--model-profile")
     assist_runtime.add_argument("--model")
     assist_runtime.add_argument("--ollama-host")
     assist_runtime.add_argument("--timeout", type=float)
@@ -1685,6 +1754,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     assist_run.add_argument("ref", nargs="?", help="Optional workflow ref for flows that operate on a target doc.")
     assist_run.add_argument("--backend", choices=("auto", "ollama", "codex"))
+    assist_run.add_argument("--model-profile")
     assist_run.add_argument("--model")
     assist_run.add_argument("--ollama-host")
     assist_run.add_argument("--timeout", type=float)
@@ -1705,6 +1775,7 @@ def build_parser() -> argparse.ArgumentParser:
         if takes_ref:
             alias.add_argument("ref", help="Workflow ref for the assist flow target.")
         alias.add_argument("--backend", choices=("auto", "ollama", "codex"))
+        alias.add_argument("--model-profile")
         alias.add_argument("--model")
         alias.add_argument("--ollama-host")
         alias.add_argument("--timeout", type=float)
@@ -1738,6 +1809,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Suggest or execute a minimal coherent commit plan using the shared hybrid assist runtime.",
     )
     commit_all.add_argument("--backend", choices=("auto", "ollama", "codex"))
+    commit_all.add_argument("--model-profile")
     commit_all.add_argument("--model")
     commit_all.add_argument("--ollama-host")
     commit_all.add_argument("--timeout", type=float)

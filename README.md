@@ -266,6 +266,7 @@ python logics/skills/logics.py flow assist handoff req_001_my_first_need --forma
 Hybrid assist rules:
 
 - the runtime prefers `ollama` when the configured local backend is healthy and degrades cleanly otherwise;
+- the runtime supports curated local model profiles such as `deepseek-coder` and `qwen-coder`, with the active profile chosen through repo config or `--model-profile`;
 - the runtime keeps a shared payload envelope, audit log, and measurement log under `logics/`;
 - `commit-all` and `next-step` still default to bounded behavior unless you pass `--execution-mode execute`;
 - Codex and Claude integrations should stay thin over this command surface rather than reimplementing hybrid behavior in prompts.

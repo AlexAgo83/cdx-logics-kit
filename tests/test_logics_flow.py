@@ -1959,7 +1959,9 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(config_payload["config"]["workflow"]["split"]["policy"], "minimal-coherent")
             self.assertEqual(config_payload["config"]["mutations"]["mode"], "transactional")
             self.assertEqual(config_payload["config"]["hybrid_assist"]["default_backend"], "auto")
+            self.assertEqual(config_payload["config"]["hybrid_assist"]["default_model_profile"], "deepseek-coder")
             self.assertEqual(config_payload["config"]["hybrid_assist"]["default_model"], "deepseek-coder-v2:16b")
+            self.assertIn("qwen-coder", config_payload["config"]["hybrid_assist"]["model_profiles"])
 
     def test_assist_runtime_status_reports_hybrid_backend_health(self) -> None:
         script = self._script()
@@ -2027,7 +2029,86 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertEqual(payload["backend"]["selected_backend"], "ollama")
             self.assertTrue(payload["backend"]["healthy"])
+            self.assertEqual(payload["backend"]["model_profile"], "deepseek-coder")
+            self.assertEqual(payload["active_model_profile"]["name"], "deepseek-coder")
             self.assertTrue(payload["claude_bridge_available"])
+
+    def test_assist_runtime_status_uses_configured_qwen_profile(self) -> None:
+        script = self._script()
+
+        class OllamaStatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "qwen2.5-coder:14b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            (repo / "logics.yaml").write_text(
+                "\n".join(
+                    [
+                        "hybrid_assist:",
+                        "  default_model_profile: qwen-coder",
+                        "  model_profiles:",
+                        "    qwen-coder:",
+                        "      family: qwen",
+                        "      model: qwen2.5-coder:14b",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaStatusHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "runtime-status",
+                        "--backend",
+                        "auto",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend"]["selected_backend"], "ollama")
+            self.assertEqual(payload["backend"]["model_profile"], "qwen-coder")
+            self.assertEqual(payload["backend"]["configured_model"], "qwen2.5-coder:14b")
+            self.assertEqual(payload["backend"]["model"], "qwen2.5-coder:14b")
+            self.assertEqual(payload["active_model_profile"]["family"], "qwen")
 
     def test_assist_run_diff_risk_supports_codex_fallback_and_audit(self) -> None:
         script = self._script()

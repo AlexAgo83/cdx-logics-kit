@@ -4,6 +4,17 @@ set -euo pipefail
 model="${1:-deepseek-coder-v2:16b}"
 host="${OLLAMA_HOST:-http://127.0.0.1:11434}"
 continue_config="${CONTINUE_CONFIG:-$HOME/.continue/config.yaml}"
+model_prefix="${model%%:*}"
+family_prefix="$model_prefix"
+
+case "$model_prefix" in
+  deepseek-coder-v2*|deepseek*)
+    family_prefix="deepseek-coder-v2"
+    ;;
+  qwen*)
+    family_prefix="qwen"
+    ;;
+esac
 
 status=0
 
@@ -40,8 +51,8 @@ if command -v curl >/dev/null 2>&1; then
   if [[ -n "$tags_json" ]]; then
     if printf '%s' "$tags_json" | grep -F "\"name\":\"${model}\"" >/dev/null 2>&1; then
       note "✓ Model '${model}' is available through /api/tags"
-    elif printf '%s' "$tags_json" | grep -F '"name":"deepseek-coder-v2:' >/dev/null 2>&1; then
-      note "⚠ A deepseek-coder-v2 variant is installed, but not the requested tag '${model}'"
+    elif printf '%s' "$tags_json" | grep -F "\"name\":\"${family_prefix}:" >/dev/null 2>&1; then
+      note "⚠ A ${family_prefix} variant is installed, but not the requested tag '${model}'"
     else
       note "⚠ Model '${model}' not found through /api/tags (run: ollama pull ${model})"
     fi
@@ -66,8 +77,8 @@ if [[ -f "$continue_config" ]]; then
 
   if grep -F "model: ${model}" "$continue_config" >/dev/null 2>&1; then
     note "✓ Continue config references model: ${model}"
-  elif grep -F "model: deepseek-coder-v2" "$continue_config" >/dev/null 2>&1; then
-    note "⚠ Continue config references deepseek-coder-v2, but not the requested tag '${model}'"
+  elif grep -F "model: ${family_prefix}" "$continue_config" >/dev/null 2>&1; then
+    note "⚠ Continue config references ${family_prefix}, but not the requested tag '${model}'"
   fi
 
   if grep -F "apiBase: http://localhost:11434" "$continue_config" >/dev/null 2>&1; then

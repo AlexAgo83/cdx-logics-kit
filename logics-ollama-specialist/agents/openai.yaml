@@ -1,4 +1,4 @@
 interface:
   display_name: "Ollama Specialist"
   short_description: "Set up Ollama for local coding, editors, and frontend integration"
-  default_prompt: "Use $logics-ollama-specialist to install, validate, and integrate Ollama for deepseek-coder-v2, Continue, Roo Code, or frontend proxy workflows."
+  default_prompt: "Use $logics-ollama-specialist to install, validate, and integrate Ollama for DeepSeek or Qwen coding profiles, Continue, Roo Code, or frontend proxy workflows."

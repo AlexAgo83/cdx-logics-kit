@@ -1,6 +1,6 @@
 ---
 name: logics-ollama-specialist
-description: Install, configure, validate, and integrate Ollama for local development. Use when setting up deepseek-coder-v2 for terminal, HTTP API, Continue, or Roo Code workflows, or when wiring frontend/backends to Ollama through Vite or Express proxies and fixing CORS or 403 Origin issues.
+description: Install, configure, validate, and integrate Ollama for local development. Use when setting up DeepSeek or Qwen coding profiles for terminal, HTTP API, Continue, or Roo Code workflows, or when wiring frontend/backends to Ollama through Vite or Express proxies and fixing CORS or 403 Origin issues.
 ---
 
 # Logics Ollama Specialist
@@ -12,17 +12,24 @@ Platform scope:
 - On Windows, follow the Ollama product's native install path first, then adapt the integration guidance in `references/`.
 
 Normalize common user variants such as `deepseeker-coder-v2`, `deepseek coder v2`, or `deepseek-coder` to `deepseek-coder-v2`.
+Treat `Qwen coder`, `qwen coder`, or `qwen-coder` requests as a Qwen-family coding profile and confirm the exact tag before changing config.
 
 ## Quick start
 
 1. Clarify OS, target model, editor surface, and whether Ollama runs locally or on another host.
 2. If installation is needed, ask for explicit permission before running install commands.
-3. For local coding, prefer `deepseek-coder-v2:16b` unless the user explicitly asks for another tag.
+3. For local coding, prefer the repo's curated DeepSeek default profile `deepseek-coder-v2:16b` unless the user explicitly asks for another supported family or tag.
 4. Verify Ollama, daemon reachability, and model availability before editing editor config.
 5. If the app is a frontend, prefer a same-origin proxy (`/ollama/*`) to avoid CORS.
 6. If LAN URL causes `403`, remove `Origin` in the proxy or set `OLLAMA_ORIGINS`.
 
 Do not default to `deepseek-coder-v2:236b` unless the user clearly has server-grade hardware.
+
+Supported profile guidance:
+
+- DeepSeek default profile: `deepseek-coder-v2:16b`
+- Qwen coding profile example: `qwen2.5-coder:14b`
+- If the user asks for `qwen3`, `qwen3.5`, or another Qwen-family coder tag, confirm the exact local Ollama tag and treat the repo profile as overrideable rather than forcing one hard-coded tag.
 
 ## Install Ollama (macOS-only helper)
 
@@ -62,6 +69,25 @@ curl -fsS http://127.0.0.1:11434/api/chat -d '{
 
 Use `deepseek-coder-v2:latest` only if the user explicitly wants the floating tag.
 
+## Qwen coding profile workflow
+
+Use a Qwen-family coding profile when the operator explicitly prefers Qwen over DeepSeek for bounded local coding or hybrid assist work.
+
+Curated example:
+
+```bash
+ollama pull qwen2.5-coder:14b
+```
+
+Validate the profile path:
+
+```bash
+ollama list | grep -E '^qwen'
+ollama run qwen2.5-coder:14b "Write a Python hello world"
+```
+
+If the user wants another Qwen-family coder tag, confirm that exact tag first and then use it consistently in runtime config, Continue, and checks.
+
 ## Continue in VS Code
 
 When the user wants a local VS Code coding assistant and does not name another extension, prefer Continue.
@@ -95,6 +121,7 @@ Rules for Continue edits:
 - Patch the existing file instead of overwriting unrelated models.
 - Keep `apiBase: http://localhost:11434` unless the user says Ollama is remote.
 - Prefer explicit tags instead of `latest`.
+- Keep the selected model family consistent across runtime config and editor config instead of mixing DeepSeek and Qwen tags accidentally.
 - If the user wants faster inline completion, pair the main DeepSeek model with a smaller completion model instead of forcing one large model to do everything.
 
 ## Roo Code
@@ -172,6 +199,7 @@ Run the check script to validate prerequisites, reachability, model presence, an
 
 ```bash
 logics/skills/logics-ollama-specialist/scripts/ollama_check.sh deepseek-coder-v2:16b
+logics/skills/logics-ollama-specialist/scripts/ollama_check.sh qwen2.5-coder:14b
 ```
 
 ## Integrate with a frontend (Vite/React)
@@ -197,6 +225,8 @@ Common failures and fixes:
   Start the Ollama app or run `ollama serve`.
 - Model missing from `ollama list`
   Run `ollama pull deepseek-coder-v2:16b`.
+- Wrong model family in config
+  Re-check that the selected DeepSeek or Qwen tag matches the intended runtime profile and editor config.
 - Continue or Roo Code cannot answer
   Re-check provider, model, and base URL against the local Ollama setup.
 - Browser app on LAN returns `403`
@@ -207,9 +237,9 @@ Common failures and fixes:
 ## Resources
 
 ### scripts/
-- `ollama_check.sh`: POSIX-shell helper to verify `ollama`, curl reachability, local model availability, and optional Continue config hints.
+- `ollama_check.sh`: POSIX-shell helper to verify `ollama`, curl reachability, local model availability, and optional Continue config hints for the requested DeepSeek or Qwen tag.
 - `ollama_install_macos.sh`: macOS-only helper to install or start Ollama with an optional model (supports `DRY_RUN=1`).
 
 ### references/
-- `ollama-integration.md`: DeepSeek model notes, editor-integration notes, proxy or CORS guidance, env vars, and endpoint notes.
+- `ollama-integration.md`: DeepSeek and Qwen profile notes, editor-integration notes, proxy or CORS guidance, env vars, and endpoint notes.
 - `pwa-vite.md`: PWA steps for Vite or React.

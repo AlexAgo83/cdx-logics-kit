@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -23,11 +24,26 @@ from logics_flow_models import WorkflowDocModel
 
 HYBRID_ASSIST_SCHEMA_VERSION = "1.0"
 DEFAULT_HYBRID_BACKEND = "auto"
+DEFAULT_HYBRID_MODEL_PROFILE = "deepseek-coder"
 DEFAULT_HYBRID_MODEL = "deepseek-coder-v2:16b"
 DEFAULT_HYBRID_HOST = "http://127.0.0.1:11434"
 DEFAULT_HYBRID_TIMEOUT_SECONDS = 20.0
 DEFAULT_HYBRID_AUDIT_LOG = "logics/hybrid_assist_audit.jsonl"
 DEFAULT_HYBRID_MEASUREMENT_LOG = "logics/hybrid_assist_measurements.jsonl"
+DEFAULT_HYBRID_MODEL_PROFILES: dict[str, dict[str, Any]] = {
+    "deepseek-coder": {
+        "family": "deepseek",
+        "model": "deepseek-coder-v2:16b",
+        "description": "DeepSeek Coder V2 profile for shared local coding and hybrid assist work.",
+        "example_tags": ["deepseek-coder-v2:16b", "deepseek-coder-v2:latest"],
+    },
+    "qwen-coder": {
+        "family": "qwen",
+        "model": "qwen2.5-coder:14b",
+        "description": "Qwen coder profile for bounded local coding and hybrid assist work.",
+        "example_tags": ["qwen2.5-coder:14b", "qwen2.5-coder:7b"],
+    },
+}
 
 SAFETY_CLASS_PROPOSAL_ONLY = "proposal-only"
 SAFETY_CLASS_DETERMINISTIC_RUNNER = "deterministic-runner"
@@ -152,6 +168,9 @@ class HybridBackendStatus:
     requested_backend: str
     selected_backend: str
     host: str
+    model_profile: str
+    model_family: str
+    configured_model: str
     model: str
     ollama_reachable: bool
     model_available: bool
@@ -165,6 +184,9 @@ class HybridBackendStatus:
             "requested_backend": self.requested_backend,
             "selected_backend": self.selected_backend,
             "host": self.host,
+            "model_profile": self.model_profile,
+            "model_family": self.model_family,
+            "configured_model": self.configured_model,
             "model": self.model,
             "ollama_reachable": self.ollama_reachable,
             "model_available": self.model_available,
@@ -181,12 +203,111 @@ def default_context_spec(flow_name: str) -> dict[str, Any]:
     return dict(FLOW_CONTEXT_PROFILES[flow_name])
 
 
+def default_hybrid_model_profiles() -> dict[str, dict[str, Any]]:
+    return deepcopy(DEFAULT_HYBRID_MODEL_PROFILES)
+
+
+def infer_model_family(model: str) -> str:
+    normalized = model.strip().lower()
+    if normalized.startswith("deepseek"):
+        return "deepseek"
+    if normalized.startswith("qwen"):
+        return "qwen"
+    return "custom"
+
+
+def merge_hybrid_model_profiles(overrides: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    profiles = default_hybrid_model_profiles()
+    if not isinstance(overrides, dict):
+        return profiles
+    for raw_name, raw_profile in overrides.items():
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            continue
+        profile_name = raw_name.strip()
+        current = deepcopy(profiles.get(profile_name, {}))
+        if not isinstance(raw_profile, dict):
+            profiles[profile_name] = current
+            continue
+        model = str(raw_profile.get("model", current.get("model", ""))).strip()
+        family = str(raw_profile.get("family", current.get("family", infer_model_family(model)))).strip() or infer_model_family(model)
+        description = str(raw_profile.get("description", current.get("description", ""))).strip()
+        example_tags = raw_profile.get("example_tags", current.get("example_tags", []))
+        if not isinstance(example_tags, list):
+            example_tags = []
+        profiles[profile_name] = {
+            "family": family or "custom",
+            "model": model,
+            "description": description or f"{profile_name} local model profile.",
+            "example_tags": [str(tag).strip() for tag in example_tags if str(tag).strip()],
+        }
+    return profiles
+
+
+def apply_legacy_default_model(
+    profiles: dict[str, dict[str, Any]],
+    *,
+    default_profile: str,
+    legacy_default_model: str | None,
+) -> dict[str, dict[str, Any]]:
+    if not legacy_default_model:
+        return profiles
+    resolved = deepcopy(profiles)
+    profile = deepcopy(resolved.get(default_profile, {}))
+    profile["family"] = str(profile.get("family") or infer_model_family(legacy_default_model))
+    profile["model"] = legacy_default_model
+    profile["description"] = str(profile.get("description") or f"{default_profile} local model profile.")
+    example_tags = profile.get("example_tags", [])
+    if not isinstance(example_tags, list):
+        example_tags = []
+    if legacy_default_model not in example_tags:
+        example_tags = [legacy_default_model, *example_tags]
+    profile["example_tags"] = [str(tag).strip() for tag in example_tags if str(tag).strip()]
+    resolved[default_profile] = profile
+    return resolved
+
+
+def resolve_hybrid_model_selection(
+    *,
+    configured_profiles: dict[str, dict[str, Any]],
+    default_profile: str,
+    requested_profile: str | None = None,
+    requested_model: str | None = None,
+) -> dict[str, Any]:
+    profile_name = (requested_profile or default_profile).strip()
+    if profile_name not in configured_profiles:
+        raise HybridAssistError(
+            "hybrid_unknown_model_profile",
+            f"Unknown hybrid model profile `{profile_name}`.",
+            details={"known_profiles": sorted(configured_profiles.keys())},
+        )
+    spec = deepcopy(configured_profiles[profile_name])
+    configured_model = str(spec.get("model", "")).strip()
+    if not configured_model:
+        raise HybridAssistError(
+            "hybrid_invalid_model_profile",
+            f"Hybrid model profile `{profile_name}` is missing a configured model tag.",
+        )
+    resolved_model = (requested_model or configured_model).strip()
+    if not resolved_model:
+        raise HybridAssistError("hybrid_invalid_model", "Hybrid model selection resolved to an empty model tag.")
+    family = str(spec.get("family") or infer_model_family(resolved_model)).strip() or infer_model_family(resolved_model)
+    return {
+        "name": profile_name,
+        "family": family,
+        "configured_model": configured_model,
+        "resolved_model": resolved_model,
+        "description": str(spec.get("description", "")).strip(),
+        "example_tags": [str(tag).strip() for tag in spec.get("example_tags", []) if str(tag).strip()],
+    }
+
+
 def build_shared_hybrid_contract() -> dict[str, Any]:
     return {
         "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
         "backends": list(BACKEND_CHOICES),
         "safety_classes": list(SAFETY_CLASSES),
         "result_statuses": list(RESULT_STATUSES),
+        "model_profiles": default_hybrid_model_profiles(),
         "flows": {
             flow: {
                 "summary": contract["summary"],
@@ -234,6 +355,9 @@ def probe_ollama_backend(
     *,
     requested_backend: str,
     host: str = DEFAULT_HYBRID_HOST,
+    model_profile: str = DEFAULT_HYBRID_MODEL_PROFILE,
+    model_family: str = "deepseek",
+    configured_model: str = DEFAULT_HYBRID_MODEL,
     model: str = DEFAULT_HYBRID_MODEL,
     timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
 ) -> HybridBackendStatus:
@@ -288,6 +412,9 @@ def probe_ollama_backend(
         requested_backend=requested_backend,
         selected_backend=selected_backend,
         host=normalized_host,
+        model_profile=model_profile,
+        model_family=model_family,
+        configured_model=configured_model,
         model=model,
         ollama_reachable=reachable,
         model_available=model_available,
@@ -644,6 +771,8 @@ def build_runtime_status(
     repo_root: Path,
     requested_backend: str,
     host: str,
+    model_profile: dict[str, Any],
+    supported_model_profiles: dict[str, dict[str, Any]],
     model: str,
     timeout_seconds: float,
     claude_bridge_available: bool,
@@ -651,6 +780,9 @@ def build_runtime_status(
     backend = probe_ollama_backend(
         requested_backend=requested_backend,
         host=host,
+        model_profile=str(model_profile["name"]),
+        model_family=str(model_profile["family"]),
+        configured_model=str(model_profile["configured_model"]),
         model=model,
         timeout_seconds=timeout_seconds,
     )
@@ -660,6 +792,15 @@ def build_runtime_status(
     return {
         "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
         "backend": backend.to_dict(),
+        "active_model_profile": {
+            "name": model_profile["name"],
+            "family": model_profile["family"],
+            "configured_model": model_profile["configured_model"],
+            "resolved_model": model_profile["resolved_model"],
+            "description": model_profile["description"],
+            "example_tags": model_profile["example_tags"],
+        },
+        "supported_model_profiles": supported_model_profiles,
         "claude_bridge_available": claude_bridge_available,
         "windows_safe_entrypoint": "python logics/skills/logics.py flow assist ...",
         "degraded": bool(degraded_reasons),

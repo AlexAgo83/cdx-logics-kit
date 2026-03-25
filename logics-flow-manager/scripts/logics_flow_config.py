@@ -24,7 +24,22 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
     },
     "hybrid_assist": {
         "default_backend": "auto",
+        "default_model_profile": "deepseek-coder",
         "default_model": "deepseek-coder-v2:16b",
+        "model_profiles": {
+            "deepseek-coder": {
+                "family": "deepseek",
+                "model": "deepseek-coder-v2:16b",
+                "description": "DeepSeek Coder V2 profile for shared local coding and hybrid assist work.",
+                "example_tags": ["deepseek-coder-v2:16b", "deepseek-coder-v2:latest"],
+            },
+            "qwen-coder": {
+                "family": "qwen",
+                "model": "qwen2.5-coder:14b",
+                "description": "Qwen coder profile for bounded local coding and hybrid assist work.",
+                "example_tags": ["qwen2.5-coder:14b", "qwen2.5-coder:7b"],
+            },
+        },
         "ollama_host": "http://127.0.0.1:11434",
         "timeout_seconds": 20.0,
         "audit_log": "logics/hybrid_assist_audit.jsonl",

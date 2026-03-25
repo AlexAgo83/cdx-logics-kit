@@ -7,7 +7,9 @@
 - `GET /api/tags` -> installed local models
 - `POST /api/chat` -> chat completion, supports `stream: true/false`
 
-## DeepSeek Coder V2 model notes
+## Supported coding profiles
+
+### DeepSeek Coder V2 model notes
 
 - Preferred local coding tag: `deepseek-coder-v2:16b`
 - Floating tag: `deepseek-coder-v2:latest`
@@ -24,6 +26,23 @@ Basic commands:
   - `ollama run deepseek-coder-v2:16b`
 - Remove a local variant:
   - `ollama rm deepseek-coder-v2:16b`
+
+### Qwen coding profile notes
+
+- Curated example tag: `qwen2.5-coder:14b`
+- Treat other Qwen-family coder tags as supported overrides only after the exact local tag is confirmed
+- Prefer one explicit Qwen tag consistently across runtime config, validation, and editor setup
+
+Basic commands:
+
+- Pull the curated example profile:
+  - `ollama pull qwen2.5-coder:14b`
+- List installed Qwen variants:
+  - `ollama list | grep -E '^qwen'`
+- Run a quick CLI test:
+  - `ollama run qwen2.5-coder:14b`
+- Remove a local variant:
+  - `ollama rm qwen2.5-coder:14b`
 
 ## Continue in VS Code
 
@@ -46,6 +65,7 @@ Guidance:
 - Config path: `~/.continue/config.yaml`
 - Patch the existing file instead of overwriting unrelated models
 - Prefer explicit model tags over `latest`
+- Keep the selected DeepSeek or Qwen tag aligned with the runtime profile the repository expects
 - If autocomplete should be faster than chat or edit, use a smaller dedicated completion model
 
 ## Roo Code
@@ -62,7 +82,7 @@ Validate Ollama first, then editor settings.
 
 Recommended split:
 
-- Main coding model: `deepseek-coder-v2:16b`
+- Main coding model: `deepseek-coder-v2:16b` or a selected Qwen-family coding tag
 - Completion model: a smaller coder model such as `qwen2.5-coder:1.5b`
 
 Use the split-model approach when low-latency inline completion matters more than using a single model everywhere.
