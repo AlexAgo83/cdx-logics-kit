@@ -174,6 +174,7 @@ Use the shared hybrid assist runtime when the user asks for repetitive delivery 
 
 ```bash
 python logics/skills/logics.py flow assist runtime-status --format json
+python logics/skills/logics.py flow assist roi-report --format json
 python logics/skills/logics.py flow assist commit-all
 python logics/skills/logics.py flow assist summarize-pr --format json
 python logics/skills/logics.py flow assist summarize-validation --format json
@@ -187,6 +188,7 @@ Hybrid assist rules:
 - prefer the named aliases over ad hoc shell commands;
 - keep `python ...` as the canonical cross-platform launcher;
 - `runtime-status` is the shared probe surface for plugin, Codex, and Claude integrations;
+- `roi-report` is the shared observability surface for CLI automation and plugin insights, including explicit measured, derived, and estimated sections;
 - use `--model-profile qwen-coder` when the operator explicitly wants the curated Qwen path instead of the default DeepSeek profile;
 - the shared runtime keeps backend provenance, degraded reasons, audit JSONL, and measurement JSONL visible to downstream surfaces;
 - risky execution stays bounded: `suggestion-only` remains the default unless the operator intent is explicit.

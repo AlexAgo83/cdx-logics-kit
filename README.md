@@ -255,6 +255,7 @@ Use the shared hybrid assist runtime for bounded repetitive delivery operations:
 
 ```bash
 python logics/skills/logics.py flow assist runtime-status --format json
+python logics/skills/logics.py flow assist roi-report --format json
 python logics/skills/logics.py flow assist commit-all
 python logics/skills/logics.py flow assist summarize-pr --format json
 python logics/skills/logics.py flow assist summarize-validation --format json
@@ -268,6 +269,7 @@ Hybrid assist rules:
 - the runtime prefers `ollama` when the configured local backend is healthy and degrades cleanly otherwise;
 - the runtime supports curated local model profiles such as `deepseek-coder` and `qwen-coder`, with the active profile chosen through repo config or `--model-profile`;
 - the runtime keeps a shared payload envelope, audit log, and measurement log under `logics/`;
+- the runtime also owns the canonical `roi-report` surface, including measured versus estimated semantics and recent audit drill-down snippets;
 - `commit-all` and `next-step` still default to bounded behavior unless you pass `--execution-mode execute`;
 - Codex and Claude integrations should stay thin over this command surface rather than reimplementing hybrid behavior in prompts.
 

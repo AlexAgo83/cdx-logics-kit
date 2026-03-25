@@ -2110,6 +2110,155 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["backend"]["model"], "qwen2.5-coder:14b")
             self.assertEqual(payload["active_model_profile"]["family"], "qwen")
 
+    def test_assist_roi_report_aggregates_measured_derived_and_estimated_sections(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            logics_dir = repo / "logics"
+            logics_dir.mkdir(parents=True)
+            audit_log = logics_dir / "hybrid_assist_audit.jsonl"
+            measurement_log = logics_dir / "hybrid_assist_measurements.jsonl"
+
+            measurement_records = [
+                {
+                    "recorded_at": "2026-03-20T10:00:00+00:00",
+                    "schema_version": "1.0",
+                    "flow": "summarize-validation",
+                    "backend_requested": "auto",
+                    "backend_used": "ollama",
+                    "result_status": "ok",
+                    "confidence": 0.91,
+                    "degraded_reasons": [],
+                    "review_recommended": False,
+                },
+                {
+                    "recorded_at": "2026-03-21T11:00:00+00:00",
+                    "schema_version": "1.0",
+                    "flow": "next-step",
+                    "backend_requested": "auto",
+                    "backend_used": "codex",
+                    "result_status": "degraded",
+                    "confidence": 0.62,
+                    "degraded_reasons": ["ollama-unreachable"],
+                    "review_recommended": True,
+                },
+                {
+                    "recorded_at": "2026-03-22T12:00:00+00:00",
+                    "schema_version": "1.0",
+                    "flow": "triage",
+                    "backend_requested": "codex",
+                    "backend_used": "ollama",
+                    "result_status": "ok",
+                    "confidence": 0.74,
+                    "degraded_reasons": [],
+                    "review_recommended": False,
+                },
+            ]
+            audit_records = [
+                {
+                    "recorded_at": "2026-03-20T10:00:00+00:00",
+                    "schema_version": "1.0",
+                    "flow": "summarize-validation",
+                    "result_status": "ok",
+                    "backend": {
+                        "requested_backend": "auto",
+                        "selected_backend": "ollama",
+                        "reasons": [],
+                    },
+                    "safety_class": "proposal-only",
+                    "context_summary": {"seed_ref": None},
+                    "validated_payload": {"overall": "pass", "summary": "Validation surfaces are green.", "confidence": 0.91},
+                    "transport": {"transport": "ollama", "selected_backend": "ollama"},
+                    "degraded_reasons": [],
+                    "execution_result": None,
+                },
+                {
+                    "recorded_at": "2026-03-21T11:00:00+00:00",
+                    "schema_version": "1.0",
+                    "flow": "next-step",
+                    "result_status": "degraded",
+                    "backend": {
+                        "requested_backend": "auto",
+                        "selected_backend": "codex",
+                        "reasons": ["ollama-unreachable"],
+                    },
+                    "safety_class": "deterministic-runner",
+                    "context_summary": {"seed_ref": "req_000_seed"},
+                    "validated_payload": {
+                        "decision": {"action": "promote", "target_ref": "req_000_seed", "confidence": 0.62}
+                    },
+                    "transport": {"transport": "fallback", "reason": "ollama-unreachable", "selected_backend": "codex"},
+                    "degraded_reasons": ["ollama-unreachable"],
+                    "execution_result": None,
+                },
+                {
+                    "recorded_at": "2026-03-22T12:00:00+00:00",
+                    "schema_version": "1.0",
+                    "flow": "triage",
+                    "result_status": "ok",
+                    "backend": {
+                        "requested_backend": "codex",
+                        "selected_backend": "ollama",
+                        "reasons": [],
+                    },
+                    "safety_class": "proposal-only",
+                    "context_summary": {"seed_ref": "req_001_seed"},
+                    "validated_payload": {
+                        "target_ref": "req_001_seed",
+                        "classification": "ready",
+                        "summary": "The request is ready for backlog promotion.",
+                        "confidence": 0.74,
+                    },
+                    "transport": {"transport": "ollama", "selected_backend": "ollama"},
+                    "degraded_reasons": [],
+                    "execution_result": None,
+                },
+            ]
+
+            audit_log.write_text("\n".join(json.dumps(record) for record in audit_records) + "\n", encoding="utf-8")
+            measurement_log.write_text("\n".join(json.dumps(record) for record in measurement_records) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "roi-report",
+                    "--recent-limit",
+                    "2",
+                    "--window-days",
+                    "30",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["assist_kind"], "roi-report")
+            self.assertEqual(payload["report_kind"], "hybrid-assist-roi-report")
+            self.assertEqual(payload["measured"]["totals"]["runs"], 3)
+            self.assertEqual(payload["measured"]["totals"]["fallback_runs"], 1)
+            self.assertEqual(payload["measured"]["totals"]["degraded_runs"], 1)
+            self.assertEqual(payload["measured"]["totals"]["review_recommended_runs"], 1)
+            self.assertEqual(payload["measured"]["totals"]["local_runs"], 2)
+            self.assertEqual(payload["measured"]["runs_by_flow"]["next-step"], 1)
+            self.assertEqual(payload["derived"]["rates"]["fallback_rate"], 0.3333)
+            self.assertEqual(payload["derived"]["rates"]["local_offload_rate"], 0.6667)
+            self.assertEqual(payload["estimated"]["proxies"]["estimated_remote_dispatches_avoided"], 2)
+            self.assertEqual(payload["estimated"]["proxies"]["estimated_remote_token_avoidance"], 2400)
+            self.assertEqual(len(payload["recent_runs"]), 2)
+            self.assertEqual(payload["recent_runs"][-1]["flow"], "triage")
+            self.assertEqual(payload["recent_runs"][0]["backend_used"], "codex")
+            self.assertTrue(payload["derived"]["top_fallback_reasons"])
+
     def test_assist_run_diff_risk_supports_codex_fallback_and_audit(self) -> None:
         script = self._script()
 

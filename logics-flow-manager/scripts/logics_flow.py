@@ -33,11 +33,14 @@ from logics_flow_hybrid import (
     DEFAULT_HYBRID_MEASUREMENT_LOG,
     DEFAULT_HYBRID_MODEL,
     DEFAULT_HYBRID_MODEL_PROFILE,
+    DEFAULT_HYBRID_ROI_RECENT_LIMIT,
+    DEFAULT_HYBRID_ROI_WINDOW_DAYS,
     DEFAULT_HYBRID_TIMEOUT_SECONDS,
     HybridAssistError,
     HybridBackendStatus,
     apply_legacy_default_model,
     append_jsonl_record,
+    build_hybrid_roi_report,
     build_flow_contract,
     build_fallback_result,
     build_hybrid_audit_record,
@@ -612,6 +615,30 @@ def cmd_assist_context(args: argparse.Namespace) -> dict[str, object]:
     )
     payload["command"] = "assist"
     payload["assist_kind"] = "context"
+    payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
+    if args.out:
+        out_path = (repo_root / args.out).resolve()
+        _write(out_path, json.dumps(payload, indent=2, sort_keys=True) + "\n", args.dry_run)
+        payload["output_path"] = _rel(repo_root, out_path)
+    elif args.format == "text":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
+def cmd_assist_roi_report(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    audit_path = (repo_root / (args.audit_log or _hybrid_audit_log(config))).resolve()
+    measurement_path = (repo_root / (args.measurement_log or _hybrid_measurement_log(config))).resolve()
+    payload = build_hybrid_roi_report(
+        repo_root=repo_root,
+        audit_log=audit_path,
+        measurement_log=measurement_path,
+        recent_limit=args.recent_limit,
+        window_days=args.window_days,
+    )
+    payload["command"] = "assist"
+    payload["assist_kind"] = "roi-report"
     payload["config_path"] = _rel(repo_root, config_path) if config_path is not None else None
     if args.out:
         out_path = (repo_root / args.out).resolve()
@@ -1742,6 +1769,19 @@ def build_parser() -> argparse.ArgumentParser:
     assist_context.add_argument("--format", choices=("text", "json"), default="text")
     assist_context.add_argument("--dry-run", action="store_true")
     assist_context.set_defaults(func=cmd_assist_context)
+
+    assist_roi = assist_sub.add_parser(
+        "roi-report",
+        help="Aggregate hybrid assist measurement and audit logs into a stable ROI dispatch report.",
+    )
+    assist_roi.add_argument("--audit-log")
+    assist_roi.add_argument("--measurement-log")
+    assist_roi.add_argument("--recent-limit", type=int, default=DEFAULT_HYBRID_ROI_RECENT_LIMIT)
+    assist_roi.add_argument("--window-days", type=int, default=DEFAULT_HYBRID_ROI_WINDOW_DAYS)
+    assist_roi.add_argument("--out", help="Write the JSON report payload to this relative path.")
+    assist_roi.add_argument("--format", choices=("text", "json"), default="text")
+    assist_roi.add_argument("--dry-run", action="store_true")
+    assist_roi.set_defaults(func=cmd_assist_roi_report)
 
     assist_run = assist_sub.add_parser(
         "run",
