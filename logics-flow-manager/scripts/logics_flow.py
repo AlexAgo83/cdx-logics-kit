@@ -803,7 +803,7 @@ def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
                 audit_log=args.audit_log or _hybrid_audit_log(config),
                 measurement_log=args.measurement_log or _hybrid_measurement_log(config),
                 config=config,
-                dry_run=args.dry_run,
+                dry_run=True,
             )
             message = message_payload["result"]["subject"]
             commit_result = execute_commit_step(target_repo, message)

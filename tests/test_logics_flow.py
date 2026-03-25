@@ -2120,6 +2120,302 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["result"]["decision"]["action"], "promote")
             self.assertEqual(payload["result"]["decision"]["target_ref"], "req_000_hybrid_seed")
 
+    def test_assist_handoff_and_split_aliases_return_targeted_outputs(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_handoff_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_handoff_seed - Handoff seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Prepare a compact handoff packet.",
+                    "- Keep the split to the minimum coherent slices.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: Generate a reusable handoff.",
+                    "- AC2: Suggest a bounded split.",
+                ],
+            )
+
+            handoff = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "handoff",
+                    "req_000_handoff_seed",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            split = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "suggest-split",
+                    "req_000_handoff_seed",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(handoff.returncode, 0, handoff.stderr)
+            self.assertEqual(split.returncode, 0, split.stderr)
+            handoff_payload = json.loads(handoff.stdout)
+            split_payload = json.loads(split.stdout)
+            self.assertEqual(handoff_payload["result"]["target_ref"], "req_000_handoff_seed")
+            self.assertTrue(handoff_payload["result"]["files_of_interest"])
+            self.assertEqual(split_payload["result"]["target_ref"], "req_000_handoff_seed")
+            self.assertGreaterEqual(len(split_payload["result"]["suggested_titles"]), 2)
+
+    def test_assist_validation_and_consistency_aliases_return_structured_outputs(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / "request").mkdir(parents=True, exist_ok=True)
+            validation = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "summarize-validation",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            consistency = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "doc-consistency",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(validation.returncode, 0, validation.stderr)
+            self.assertEqual(consistency.returncode, 0, consistency.stderr)
+            validation_payload = json.loads(validation.stdout)
+            consistency_payload = json.loads(consistency.stdout)
+            self.assertIn(validation_payload["result"]["overall"], {"pass", "warning", "fail"})
+            self.assertTrue(validation_payload["result"]["commands"])
+            self.assertIn(consistency_payload["result"]["overall"], {"clean", "issues-found"})
+            self.assertTrue(consistency_payload["result"]["issues"])
+
+    def test_assist_summary_and_closure_aliases_return_structured_outputs(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            task = repo / "logics" / "tasks" / "task_000_summary_seed.md"
+            self._write_doc(
+                task,
+                [
+                    "## task_000_summary_seed - Summary seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Done",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 100%",
+                    "",
+                    "# Context",
+                    "- Summarize this delivery.",
+                    "",
+                    "# Validation",
+                    "- python logics/skills/logics.py lint",
+                ],
+            )
+
+            pr_summary = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "summarize-pr",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            changelog = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "summarize-changelog",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            closure = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "closure-summary",
+                    "task_000_summary_seed",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(pr_summary.returncode, 0, pr_summary.stderr)
+            self.assertEqual(changelog.returncode, 0, changelog.stderr)
+            self.assertEqual(closure.returncode, 0, closure.stderr)
+            pr_payload = json.loads(pr_summary.stdout)
+            changelog_payload = json.loads(changelog.stdout)
+            closure_payload = json.loads(closure.stdout)
+            self.assertTrue(pr_payload["result"]["highlights"])
+            self.assertTrue(changelog_payload["result"]["entries"])
+            self.assertEqual(closure_payload["result"]["target_ref"], "task_000_summary_seed")
+            self.assertTrue(closure_payload["result"]["delivered"])
+
+    def test_assist_validation_checklist_alias_responds_to_plugin_and_runtime_changes(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            (repo / "src").mkdir(parents=True, exist_ok=True)
+            (repo / "src" / "feature.ts").write_text("export const x = 1;\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "validation-checklist",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["result"]["checks"])
+            self.assertIn(payload["result"]["profile"], {"docs-only", "runtime", "plugin", "mixed"})
+
+    def test_assist_commit_all_execute_commits_simple_repo(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            readme = repo / "README.md"
+            readme.write_text("demo\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            readme.write_text("demo\nmore\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "commit-all",
+                    "--backend",
+                    "codex",
+                    "--execution-mode",
+                    "execute",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["executed"])
+            self.assertEqual(len(payload["execution_result"]["steps"]), 1)
+            log = subprocess.run(
+                ["git", "log", "-1", "--pretty=%s"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(log.returncode, 0, log.stderr)
+            self.assertEqual(log.stdout.strip(), payload["execution_result"]["steps"][0]["message"])
+
 
 if __name__ == "__main__":
     unittest.main()
