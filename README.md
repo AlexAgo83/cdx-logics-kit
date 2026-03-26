@@ -273,9 +273,27 @@ Hybrid assist rules:
 - `commit-all` and `next-step` still default to bounded behavior unless you pass `--execution-mode execute`;
 - Codex and Claude integrations should stay thin over this command surface rather than reimplementing hybrid behavior in prompts.
 
-### Manage multi-project Codex overlays
+### Publish the global Codex Logics kit
 
-Use the workspace manager when you want Codex to see the Logics skills from the current repository without publishing them into the single global `~/.codex/skills` pool:
+The primary runtime model is now a globally published Logics kit under `~/.codex`.
+Compatible repositories still keep `logics/skills/` canonical, but the plugin can publish that source into the shared Codex home automatically in the normal path.
+
+Inspect the installed runtime with:
+
+```bash
+cat ~/.codex/logics-global-kit.json
+```
+
+Global publication contract:
+
+- `logics/skills/` stays the canonical source of truth inside the repository.
+- the shared runtime is published into `~/.codex/skills`.
+- `~/.codex/logics-global-kit.json` records source repo, source revision, installed version, publish time, and published skills.
+- opening a compatible repository can auto-upgrade the shared runtime without a dedicated migration step.
+
+### Legacy Codex workspace overlays
+
+The workspace manager remains available for legacy compatibility when you explicitly need per-repository `CODEX_HOME` projections during migration or troubleshooting:
 
 ```bash
 python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py register
@@ -288,7 +306,7 @@ python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py run -
 python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py clean
 ```
 
-Overlay contract:
+Legacy overlay contract:
 
 - `logics/skills/` stays the canonical source of truth inside the repository.
 - each repository gets its own workspace-specific `CODEX_HOME` under `~/.codex-workspaces/<repo-id>/`.
@@ -296,7 +314,7 @@ Overlay contract:
 - global shared assets such as `auth.json`, `config.toml`, and `skills/.system` are referenced into the overlay when present.
 - if the repository moves, a new overlay is created for the new real path and the old one becomes a cleanable stale workspace.
 
-Supported materialization modes:
+Supported legacy materialization modes:
 
 - `--publication-mode auto` prefers links and falls back to copies when needed.
 - `--publication-mode symlink` forces symlink publication.

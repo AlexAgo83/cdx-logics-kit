@@ -80,7 +80,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="logics_codex_workspace.py",
-        description="Manage per-repository Codex workspace overlays for Logics skills.",
+        description="Manage legacy per-repository Codex workspace overlays for Logics skills.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -96,31 +96,31 @@ def build_parser() -> argparse.ArgumentParser:
             help="How overlay assets should be materialized.",
         )
 
-    register_parser = sub.add_parser("register", help="Register a repository as a managed Codex workspace overlay.")
+    register_parser = sub.add_parser("register", help="Register a repository as a managed legacy Codex workspace overlay.")
     add_common_repo_args(register_parser)
     add_publication_arg(register_parser)
     register_parser.add_argument("--no-sync", action="store_true", help="Register without materializing the overlay immediately.")
     register_parser.set_defaults(func=cmd_register)
 
-    sync_parser = sub.add_parser("sync", help="Materialize or refresh the workspace overlay from repo-local skills.")
+    sync_parser = sub.add_parser("sync", help="Materialize or refresh the legacy workspace overlay from repo-local skills.")
     add_common_repo_args(sync_parser)
     add_publication_arg(sync_parser)
     sync_parser.set_defaults(func=cmd_sync)
 
-    status_parser = sub.add_parser("status", help="Inspect overlay status for one repo or for all registered workspaces.")
+    status_parser = sub.add_parser("status", help="Inspect legacy overlay status for one repo or for all registered workspaces.")
     add_common_repo_args(status_parser)
     status_parser.add_argument("--all", action="store_true", help="Inspect all registered workspaces instead of the current repo.")
     status_parser.add_argument("--fail-on-issues", action="store_true", help="Exit non-zero when issues are present.")
     status_parser.set_defaults(func=cmd_status)
 
-    doctor_parser = sub.add_parser("doctor", help="Diagnose overlay health and optionally rebuild deterministic failures.")
+    doctor_parser = sub.add_parser("doctor", help="Diagnose legacy overlay health and optionally rebuild deterministic failures.")
     add_common_repo_args(doctor_parser)
     add_publication_arg(doctor_parser)
     doctor_parser.add_argument("--fix", action="store_true", help="Rebuild the overlay when deterministic repair is possible.")
     doctor_parser.add_argument("--fail-on-issues", action="store_true", help="Exit non-zero when issues remain.")
     doctor_parser.set_defaults(func=cmd_doctor)
 
-    run_parser = sub.add_parser("run", help="Launch a command against the workspace-specific CODEX_HOME.")
+    run_parser = sub.add_parser("run", help="Launch a command against the legacy workspace-specific CODEX_HOME.")
     add_common_repo_args(run_parser)
     add_publication_arg(run_parser)
     run_parser.add_argument("--no-sync", action="store_true", help="Skip the pre-run sync step.")
@@ -128,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("command", nargs=argparse.REMAINDER, help="Command to run. Defaults to `codex`.")
     run_parser.set_defaults(func=cmd_run)
 
-    clean_parser = sub.add_parser("clean", help="Remove the overlay and registry entry for the current repo.")
+    clean_parser = sub.add_parser("clean", help="Remove the legacy overlay and registry entry for the current repo.")
     add_common_repo_args(clean_parser)
     clean_parser.set_defaults(func=cmd_clean)
 

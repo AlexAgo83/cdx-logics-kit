@@ -193,7 +193,7 @@ Hybrid assist rules:
 - the shared runtime keeps backend provenance, degraded reasons, audit JSONL, and measurement JSONL visible to downstream surfaces;
 - risky execution stays bounded: `suggestion-only` remains the default unless the operator intent is explicit.
 
-Manage per-repository Codex overlays when several repos expose Logics skills concurrently:
+Manage legacy per-repository Codex overlays when several repos still need workspace-specific `CODEX_HOME` projections during migration or troubleshooting:
 
 ```bash
 python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py register
@@ -204,7 +204,7 @@ python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py run -
 python logics/skills/logics-flow-manager/scripts/logics_codex_workspace.py clean
 ```
 
-The overlay manager keeps `logics/skills/` canonical in the repo, projects repo-local skills into `~/.codex-workspaces/<repo-id>/`, lets repo-local skills shadow same-named global skills, and keeps shared user assets such as `auth.json`, `config.toml`, and `skills/.system` referenced from the primary `~/.codex/` home when available.
+This overlay manager is no longer the primary runtime path. The default model is a globally published kit under `~/.codex`, while this legacy flow keeps `logics/skills/` canonical in the repo, projects repo-local skills into `~/.codex-workspaces/<repo-id>/`, lets repo-local skills shadow same-named global skills, and keeps shared user assets such as `auth.json`, `config.toml`, and `skills/.system` referenced from the primary `~/.codex/` home when available.
 
 After promotion:
 
