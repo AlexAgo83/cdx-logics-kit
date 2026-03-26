@@ -60,6 +60,12 @@ SAFETY_CLASSES = (
 )
 BACKEND_CHOICES = ("auto", "ollama", "codex")
 RESULT_STATUSES = ("ok", "degraded", "error")
+BACKEND_POLICY_OLLAMA_FIRST = "ollama-first"
+BACKEND_POLICY_CODEX_ONLY = "codex-only"
+BACKEND_POLICY_MODES = (
+    BACKEND_POLICY_OLLAMA_FIRST,
+    BACKEND_POLICY_CODEX_ONLY,
+)
 
 FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
     "commit-message": {
@@ -160,6 +166,87 @@ FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
     "doc-consistency": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": True},
 }
 
+FLOW_BACKEND_POLICIES: dict[str, dict[str, str]] = {
+    "commit-message": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep commit-message local-first when Ollama is healthy; degrade to Codex only after health or payload validation failure.",
+    },
+    "pr-summary": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep PR summaries local-first because the flow is bounded and non-mutating.",
+    },
+    "changelog-summary": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep changelog summaries local-first because the flow is bounded and non-mutating.",
+    },
+    "validation-summary": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-against-shared-results-then-bounded-codex-fallback",
+        "selection_summary": "Keep validation summaries local-first, but preserve stricter fallback because shared validation evidence must stay coherent.",
+    },
+    "next-step": {
+        "mode": BACKEND_POLICY_CODEX_ONLY,
+        "auto_backend": "codex",
+        "fallback_policy": "policy-routed-to-codex-before-any-local-dispatch",
+        "selection_summary": "Keep next-step Codex-only under auto because it feeds the deterministic dispatcher and should not broaden silently.",
+    },
+    "triage": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep triage local-first because it is bounded, proposal-only, and easy to review when degraded.",
+    },
+    "handoff-packet": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep handoff packets local-first because the output is advisory and stays within the shared contract.",
+    },
+    "suggest-split": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep split suggestions local-first because the output remains bounded and operator-reviewed.",
+    },
+    "diff-risk": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep diff-risk local-first because the risk report is bounded and non-mutating.",
+    },
+    "commit-plan": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep commit-plan local-first while preserving bounded fallback if local structure is weak.",
+    },
+    "closure-summary": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep closure summaries local-first because the output is advisory and easily reviewable.",
+    },
+    "validation-checklist": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-against-change-surface-then-bounded-codex-fallback",
+        "selection_summary": "Keep validation checklists local-first, with stricter fallback because the checklist drives operator validation effort.",
+    },
+    "doc-consistency": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-against-workflow-signals-then-bounded-codex-fallback",
+        "selection_summary": "Keep doc-consistency local-first, with stricter fallback because the review must stay aligned with lint and audit evidence.",
+    },
+}
+
 
 class HybridAssistError(RuntimeError):
     def __init__(self, code: str, message: str, *, details: dict[str, Any] | None = None) -> None:
@@ -210,6 +297,32 @@ def default_context_spec(flow_name: str) -> dict[str, Any]:
     if flow_name not in FLOW_CONTEXT_PROFILES:
         raise HybridAssistError("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
     return dict(FLOW_CONTEXT_PROFILES[flow_name])
+
+
+def build_flow_backend_policy(flow_name: str) -> dict[str, str]:
+    if flow_name not in FLOW_CONTRACTS:
+        raise HybridAssistError("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
+    policy = FLOW_BACKEND_POLICIES.get(flow_name)
+    if policy is None:
+        raise HybridAssistError("hybrid_missing_backend_policy", f"Missing backend policy for flow `{flow_name}`.")
+    mode = str(policy.get("mode", "")).strip()
+    auto_backend = str(policy.get("auto_backend", "")).strip()
+    if mode not in BACKEND_POLICY_MODES:
+        raise HybridAssistError(
+            "hybrid_invalid_backend_policy",
+            f"Flow `{flow_name}` uses unsupported backend policy mode `{mode}`.",
+        )
+    if auto_backend not in BACKEND_CHOICES:
+        raise HybridAssistError(
+            "hybrid_invalid_backend_policy",
+            f"Flow `{flow_name}` uses unsupported auto backend `{auto_backend}`.",
+        )
+    return {
+        "mode": mode,
+        "auto_backend": auto_backend,
+        "fallback_policy": str(policy.get("fallback_policy", "")).strip(),
+        "selection_summary": str(policy.get("selection_summary", "")).strip(),
+    }
 
 
 def default_hybrid_model_profiles() -> dict[str, dict[str, Any]]:
@@ -315,6 +428,7 @@ def build_shared_hybrid_contract() -> dict[str, Any]:
         "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
         "backends": list(BACKEND_CHOICES),
         "safety_classes": list(SAFETY_CLASSES),
+        "backend_policy_modes": list(BACKEND_POLICY_MODES),
         "result_statuses": list(RESULT_STATUSES),
         "model_profiles": default_hybrid_model_profiles(),
         "flows": {
@@ -322,6 +436,7 @@ def build_shared_hybrid_contract() -> dict[str, Any]:
                 "summary": contract["summary"],
                 "safety_class": contract["safety_class"],
                 "required_keys": list(contract["required_keys"]),
+                "backend_policy": build_flow_backend_policy(flow),
             }
             for flow, contract in sorted(FLOW_CONTRACTS.items())
         },
@@ -338,6 +453,7 @@ def build_flow_contract(flow_name: str) -> dict[str, Any]:
         "summary": contract["summary"],
         "safety_class": contract["safety_class"],
         "required_keys": list(contract["required_keys"]),
+        "backend_policy": build_flow_backend_policy(flow_name),
     }
     for key in ("scope_enum", "overall_enum", "classification_enum", "risk_enum", "strategy_enum"):
         if key in contract:
@@ -363,6 +479,7 @@ def _json_request(host: str, path: str, *, payload: dict[str, Any] | None = None
 def probe_ollama_backend(
     *,
     requested_backend: str,
+    flow_name: str | None = None,
     host: str = DEFAULT_HYBRID_HOST,
     model_profile: str = DEFAULT_HYBRID_MODEL_PROFILE,
     model_family: str = "deepseek",
@@ -379,6 +496,8 @@ def probe_ollama_backend(
     response_time_ms: float | None = None
     reachable = False
     model_available = False
+    flow_policy = build_flow_backend_policy(flow_name) if flow_name else None
+    policy_mode = flow_policy["mode"] if flow_policy else None
 
     try:
         started = datetime.now(timezone.utc)
@@ -404,19 +523,45 @@ def probe_ollama_backend(
     except Exception:
         reasons.append("ollama-probe-failed")
 
+    effective_reasons = list(reasons)
+    selection_reason = None
     selected_backend = requested_backend
+    healthy = reachable and model_available
+    if policy_mode == BACKEND_POLICY_CODEX_ONLY and requested_backend == "ollama":
+        raise HybridAssistError(
+            "hybrid_backend_policy_violation",
+            f"Flow `{flow_name}` is policy-routed away from Ollama.",
+            details={"flow": flow_name, "policy_mode": policy_mode, "requested_backend": requested_backend},
+        )
     if requested_backend == "auto":
-        selected_backend = "ollama" if reachable and model_available else "codex"
-    elif requested_backend == "ollama" and not (reachable and model_available):
+        if policy_mode == BACKEND_POLICY_CODEX_ONLY:
+            selected_backend = "codex"
+            selection_reason = "policy-codex-only"
+            effective_reasons = []
+        else:
+            selected_backend = "ollama" if healthy else "codex"
+            if selected_backend == "ollama":
+                selection_reason = "auto-healthy-ollama"
+                effective_reasons = []
+            else:
+                selection_reason = "auto-fallback-codex"
+    elif requested_backend == "ollama" and not healthy:
         raise HybridAssistError(
             "hybrid_ollama_unavailable",
             f"Ollama backend was requested explicitly but `{model}` is not healthy at {normalized_host}.",
             details={"host": normalized_host, "model": model, "reasons": reasons},
         )
+    elif requested_backend == "ollama":
+        selected_backend = "ollama"
+        selection_reason = "explicit-backend"
+        effective_reasons = []
+    elif requested_backend == "codex":
+        selected_backend = "codex"
+        selection_reason = "explicit-backend"
+        effective_reasons = []
 
-    healthy = reachable and model_available
-    if selected_backend == "codex" and requested_backend == "auto" and not reasons:
-        reasons.append("ollama-not-selected")
+    if selected_backend == "codex" and requested_backend == "auto" and policy_mode != BACKEND_POLICY_CODEX_ONLY and not effective_reasons:
+        effective_reasons.append("ollama-not-selected")
     return HybridBackendStatus(
         requested_backend=requested_backend,
         selected_backend=selected_backend,
@@ -428,9 +573,11 @@ def probe_ollama_backend(
         ollama_reachable=reachable,
         model_available=model_available,
         healthy=healthy,
-        reasons=reasons,
+        reasons=effective_reasons,
         response_time_ms=response_time_ms,
         version=version,
+        selection_reason=selection_reason,
+        policy_mode=policy_mode,
     )
 
 
@@ -1342,6 +1489,10 @@ def build_runtime_status(
         "supported_model_profiles": supported_model_profiles,
         "claude_bridge": claude_bridge_status,
         "claude_bridge_available": claude_bridge_available,
+        "flow_backend_policies": {
+            flow: build_flow_backend_policy(flow)
+            for flow in sorted(FLOW_CONTRACTS.keys())
+        },
         "windows_safe_entrypoint": "python logics/skills/logics.py flow assist ...",
         "degraded": bool(degraded_reasons),
         "degraded_reasons": degraded_reasons,

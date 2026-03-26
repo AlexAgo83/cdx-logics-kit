@@ -2243,6 +2243,69 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["claude_bridge"]["preferred_variant"], "hybrid-assist")
             self.assertIn("hybrid-assist", payload["claude_bridge"]["detected_variants"])
 
+    def test_assist_runtime_status_exposes_per_flow_backend_policies(self) -> None:
+        script = self._script()
+
+        class OllamaStatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaStatusHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "runtime-status",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["flow_backend_policies"]["diff-risk"]["mode"], "ollama-first")
+            self.assertEqual(payload["flow_backend_policies"]["next-step"]["mode"], "codex-only")
+            self.assertEqual(payload["flow_backend_policies"]["next-step"]["auto_backend"], "codex")
+
     def test_assist_run_commit_message_uses_hardened_prompt_and_stays_on_ollama_for_valid_payload(self) -> None:
         script = self._script()
 
@@ -2739,6 +2802,190 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn(payload["result"]["risk"], {"low", "medium", "high"})
             self.assertTrue((repo / "logics" / "hybrid_assist_audit.jsonl").is_file())
             self.assertTrue((repo / "logics" / "hybrid_assist_measurements.jsonl").is_file())
+
+    def test_assist_run_diff_risk_prefers_ollama_when_policy_allows_it(self) -> None:
+        script = self._script()
+
+        class OllamaDiffRiskHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/api/chat":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps(
+                                {
+                                    "risk": "medium",
+                                    "summary": "Runtime and plugin surfaces both changed in this diff.",
+                                    "drivers": ["Diff spans shared runtime and extension files."],
+                                    "confidence": 0.83,
+                                    "rationale": "The shared contract still keeps the risk report bounded and reviewable.",
+                                }
+                            ),
+                        }
+                    }
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            changed = repo / "README.md"
+            changed.parent.mkdir(parents=True, exist_ok=True)
+            changed.write_text("demo\n", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "add", "README.md"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            changed.write_text("demo\nchange\n", encoding="utf-8")
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaDiffRiskHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "diff-risk",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "ollama")
+            self.assertEqual(payload["backend_status"]["policy_mode"], "ollama-first")
+            self.assertEqual(payload["backend_status"]["selection_reason"], "auto-healthy-ollama")
+            self.assertEqual(payload["result"]["risk"], "medium")
+
+    def test_assist_run_next_step_stays_on_codex_under_auto_policy_even_when_ollama_is_healthy(self) -> None:
+        script = self._script()
+
+        class OllamaStatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_hybrid_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_hybrid_seed - Hybrid seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Promote this request into the next bounded slice.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The request should produce a next-step suggestion.",
+                ],
+            )
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaStatusHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "next-step",
+                        "req_000_hybrid_seed",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertEqual(payload["backend_status"]["policy_mode"], "codex-only")
+            self.assertEqual(payload["backend_status"]["selection_reason"], "policy-codex-only")
+            self.assertEqual(payload["degraded_reasons"], [])
+            self.assertEqual(payload["transport"]["reason"], "policy-codex-only")
 
     def test_assist_next_step_alias_routes_to_shared_runtime(self) -> None:
         script = self._script()

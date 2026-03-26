@@ -724,6 +724,7 @@ def _run_hybrid_assist(
 
     backend_status = probe_ollama_backend(
         requested_backend=requested_backend,
+        flow_name=flow_name,
         host=ollama_host,
         model_profile=str(model_selection["name"]),
         model_family=str(model_selection["family"]),
@@ -767,9 +768,15 @@ def _run_hybrid_assist(
                 reasons=degraded_reasons,
                 response_time_ms=backend_status.response_time_ms,
                 version=backend_status.version,
+                selection_reason="local-validation-fallback",
+                policy_mode=backend_status.policy_mode,
             )
     else:
-        transport = {"transport": "fallback", "reason": "selected-codex", "selected_backend": "codex"}
+        transport = {
+            "transport": "fallback",
+            "reason": degraded_reasons[0] if degraded_reasons else (backend_status.selection_reason or "selected-codex"),
+            "selected_backend": "codex",
+        }
         validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
 
     execution_result = None
