@@ -19,6 +19,14 @@ DEFAULT_DIRS = (
     "logics/external",
 )
 
+GITIGNORE_COMMENT = "# Generated Logics runtime artifacts"
+GITIGNORE_ENTRIES = (
+    "logics/.cache/",
+    "logics/hybrid_assist_audit.jsonl",
+    "logics/hybrid_assist_measurements.jsonl",
+    "logics/mutation_audit.jsonl",
+)
+
 
 @dataclass(frozen=True)
 class Action:
@@ -58,6 +66,39 @@ def _is_effectively_empty_dir(directory: Path) -> bool:
     return True
 
 
+def _missing_gitignore_entries(gitignore_path: Path) -> list[str]:
+    if gitignore_path.exists():
+        existing_lines = {
+            line.strip()
+            for line in gitignore_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+    else:
+        existing_lines = set()
+    return [entry for entry in GITIGNORE_ENTRIES if entry not in existing_lines]
+
+
+def _render_gitignore(gitignore_path: Path) -> str:
+    if gitignore_path.exists():
+        existing_text = gitignore_path.read_text(encoding="utf-8")
+        lines = existing_text.splitlines()
+    else:
+        existing_text = ""
+        lines = []
+
+    missing_entries = _missing_gitignore_entries(gitignore_path)
+    if not missing_entries:
+        return existing_text if existing_text.endswith("\n") or not existing_text else existing_text + "\n"
+
+    rendered_lines = list(lines)
+    if rendered_lines and rendered_lines[-1].strip():
+        rendered_lines.append("")
+    if GITIGNORE_COMMENT not in {line.strip() for line in rendered_lines}:
+        rendered_lines.append(GITIGNORE_COMMENT)
+    rendered_lines.extend(missing_entries)
+    return "\n".join(rendered_lines) + "\n"
+
+
 def _plan_actions(repo_root: Path) -> list[Action]:
     actions: list[Action] = []
     for rel in DEFAULT_DIRS:
@@ -72,6 +113,10 @@ def _plan_actions(repo_root: Path) -> list[Action]:
     config_path = repo_root / "logics.yaml"
     if not config_path.exists():
         actions.append(Action("config", config_path))
+
+    gitignore_path = repo_root / ".gitignore"
+    if _missing_gitignore_entries(gitignore_path):
+        actions.append(Action("gitignore", gitignore_path))
 
     # Only add .gitkeep to empty dirs (and never to logics/skills which may be a submodule).
     for rel in DEFAULT_DIRS:
@@ -112,6 +157,12 @@ def _apply(actions: list[Action], dry_run: bool) -> None:
             else:
                 action.path.parent.mkdir(parents=True, exist_ok=True)
                 action.path.write_text(template_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+        elif action.kind == "gitignore":
+            if dry_run:
+                print(f"[dry-run] update {action.path} (append Logics runtime ignores)")
+            else:
+                action.path.parent.mkdir(parents=True, exist_ok=True)
+                action.path.write_text(_render_gitignore(action.path), encoding="utf-8")
         else:
             raise SystemExit(f"Unknown action: {action.kind}")
 
