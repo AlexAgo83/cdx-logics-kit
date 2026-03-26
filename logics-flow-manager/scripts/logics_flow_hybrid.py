@@ -443,6 +443,7 @@ def build_hybrid_messages(flow_name: str, context_bundle: dict[str, Any]) -> lis
         f"Return exactly one JSON object with only these top-level keys: {required_keys}.",
         "The contract block below describes the required answer shape. It is not the answer itself.",
         "Do not echo the contract or copy metadata field names into the answer.",
+        "`confidence` must be a numeric value between 0.0 and 1.0. Do not use words like low, medium, or high.",
     ]
     if contract_metadata_keys:
         instruction_lines.append(
@@ -555,6 +556,24 @@ def run_ollama_hybrid(
 
 
 def _normalize_confidence(raw_value: Any) -> float:
+    if isinstance(raw_value, str):
+        normalized = raw_value.strip().lower()
+        string_confidence_map = {
+            "low": 0.4,
+            "medium": 0.65,
+            "med": 0.65,
+            "high": 0.85,
+        }
+        if normalized in string_confidence_map:
+            raw_value = string_confidence_map[normalized]
+        else:
+            try:
+                raw_value = float(normalized)
+            except ValueError as exc:
+                raise HybridAssistError(
+                    "hybrid_invalid_confidence",
+                    "Confidence must be numeric or one of low, medium, high.",
+                ) from exc
     if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
         raise HybridAssistError("hybrid_invalid_confidence", "Confidence must be numeric.")
     value = float(raw_value)

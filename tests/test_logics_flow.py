@@ -2204,6 +2204,92 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("Do not echo the contract or copy metadata field names into the answer.", messages[1]["content"])
             self.assertIn("Return exactly one JSON object with only these top-level keys: subject, body, scope, confidence, rationale.", messages[1]["content"])
 
+    def test_assist_run_commit_message_normalizes_textual_confidence_without_fallback(self) -> None:
+        script = self._script()
+
+        class OllamaCommitMessageTextConfidenceHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/api/chat":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                content = json.dumps(
+                    {
+                        "subject": "Normalize local confidence values",
+                        "body": "Accept common textual confidence labels without falling back unnecessarily.",
+                        "scope": "root",
+                        "confidence": "medium",
+                        "rationale": "The local model can still satisfy the contract semantically even when confidence is phrased textually.",
+                    }
+                )
+                encoded = json.dumps({"message": {"role": "assistant", "content": content}}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaCommitMessageTextConfidenceHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "commit-message",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "ollama")
+            self.assertEqual(payload["result_status"], "ok")
+            self.assertEqual(payload["result"]["subject"], "Normalize local confidence values")
+            self.assertEqual(payload["result"]["confidence"], 0.65)
+            self.assertEqual(payload["degraded_reasons"], [])
+
     def test_assist_run_commit_message_preserves_invalid_local_payload_diagnostics_on_fallback(self) -> None:
         script = self._script()
 

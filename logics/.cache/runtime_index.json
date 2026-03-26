@@ -1,0 +1,13 @@
+{
+  "cache_path": "logics/.cache/runtime_index.json",
+  "generated_at": "2026-03-26T08:14:16.607924+00:00",
+  "skill_packages": {},
+  "stats": {
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "removed_entries": 0,
+    "skill_count": 0,
+    "workflow_doc_count": 0
+  },
+  "workflow_docs": {}
+}
