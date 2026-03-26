@@ -40,6 +40,8 @@ from logics_flow_hybrid import (
     HybridBackendStatus,
     apply_legacy_default_model,
     append_jsonl_record,
+    build_hybrid_failure_raw_payload,
+    build_hybrid_failure_transport,
     build_hybrid_roi_report,
     build_flow_contract,
     build_fallback_result,
@@ -703,8 +705,9 @@ def _run_hybrid_assist(
     )
     degraded_reasons = list(backend_status.reasons)
     raw_payload: dict[str, object] | None = None
-    transport: dict[str, object]
+    transport: dict[str, object] | None
     if backend_status.selected_backend == "ollama":
+        transport = None
         try:
             transport = run_ollama_hybrid(
                 host=backend_status.host,
@@ -719,8 +722,8 @@ def _run_hybrid_assist(
             if requested_backend != "auto":
                 raise
             degraded_reasons.append(exc.code)
-            raw_payload = None
-            transport = {"transport": "fallback", "reason": exc.code, "selected_backend": "codex"}
+            raw_payload = build_hybrid_failure_raw_payload(exc=exc, transport=transport, raw_payload=raw_payload)
+            transport = build_hybrid_failure_transport(exc=exc, transport=transport)
             validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
             backend_status = HybridBackendStatus(
                 requested_backend=requested_backend,

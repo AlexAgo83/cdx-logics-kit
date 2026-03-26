@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 from typing import Any, Callable
 from urllib import error as urllib_error
@@ -431,6 +432,38 @@ def probe_ollama_backend(
 
 def build_hybrid_messages(flow_name: str, context_bundle: dict[str, Any]) -> list[dict[str, str]]:
     contract = context_bundle["contract"]
+    required_keys = ", ".join(contract["required_keys"])
+    contract_metadata_keys = [
+        key
+        for key in sorted(contract)
+        if key not in {"required_keys"} and key not in contract["required_keys"]
+    ]
+    instruction_lines = [
+        f"Flow: {flow_name}.",
+        f"Return exactly one JSON object with only these top-level keys: {required_keys}.",
+        "The contract block below describes the required answer shape. It is not the answer itself.",
+        "Do not echo the contract or copy metadata field names into the answer.",
+    ]
+    if contract_metadata_keys:
+        instruction_lines.append(
+            "Do not include contract metadata keys such as: " + ", ".join(contract_metadata_keys) + "."
+        )
+    if flow_name == "commit-message":
+        instruction_lines.extend(
+            [
+                "Set `scope` to one of: " + ", ".join(contract["scope_enum"]) + ".",
+                "`subject` must be a concise commit subject line.",
+                "`body` must be a short explanatory paragraph and may be empty if the diff is trivial.",
+            ]
+        )
+    elif flow_name == "commit-plan":
+        instruction_lines.extend(
+            [
+                "Set `strategy` to one of: " + ", ".join(contract["strategy_enum"]) + ".",
+                "`steps` must be a non-empty JSON array of objects with keys: scope, summary, paths.",
+                "Each step `scope` must be `root` or `submodule` and `paths` must be a non-empty array of strings.",
+            ]
+        )
     system = (
         "You are a bounded hybrid delivery assistant for the Logics workflow. "
         "Reply with one JSON object only. "
@@ -439,7 +472,8 @@ def build_hybrid_messages(flow_name: str, context_bundle: dict[str, Any]) -> lis
         "Prefer conservative short outputs over speculative ones."
     )
     user = (
-        "Return a JSON object matching this contract exactly.\n\n"
+        "Return a JSON instance that satisfies the contract.\n\n"
+        f"Answer rules:\n{chr(10).join('- ' + line for line in instruction_lines)}\n\n"
         f"Hybrid contract:\n{json.dumps(contract, indent=2, sort_keys=True)}\n\n"
         f"Context bundle:\n{json.dumps(context_bundle, indent=2, sort_keys=True)}"
     )
@@ -476,6 +510,12 @@ def run_ollama_hybrid(
             f"Could not reach Ollama at {host}: {exc.reason}",
             details={"host": host, "model": model, "flow": flow_name},
         ) from exc
+    except socket.timeout as exc:
+        raise HybridAssistError(
+            "hybrid_ollama_timeout",
+            f"Ollama request to {host} timed out after {timeout_seconds:.1f}s.",
+            details={"host": host, "model": model, "flow": flow_name, "timeout_seconds": timeout_seconds},
+        ) from exc
 
     content = ""
     if isinstance(response_payload, dict):
@@ -488,6 +528,20 @@ def run_ollama_hybrid(
             "Ollama returned an empty hybrid assist response.",
             details={"host": host, "model": model, "flow": flow_name},
         )
+    try:
+        result_payload = extract_json_object(content)
+    except Exception as exc:  # noqa: BLE001
+        message = exc.args[0] if exc.args else str(exc)
+        raise HybridAssistError(
+            "hybrid_invalid_json",
+            f"Ollama returned a response that did not decode to a JSON object: {message}",
+            details={
+                "host": host,
+                "model": model,
+                "flow": flow_name,
+                "raw_content_preview": _bounded_diagnostic_value(content),
+            },
+        ) from exc
     return {
         "transport": "ollama",
         "host": host,
@@ -496,7 +550,7 @@ def run_ollama_hybrid(
         "request_payload": request_payload,
         "response_payload": response_payload,
         "raw_content": content,
-        "result_payload": extract_json_object(content),
+        "result_payload": result_payload,
     }
 
 
@@ -719,6 +773,94 @@ def validate_hybrid_result(flow_name: str, payload: dict[str, Any], docs_by_ref:
         return normalized
 
     raise HybridAssistError("hybrid_unhandled_flow", f"Unhandled hybrid assist flow `{flow_name}`.")
+
+
+def _bounded_diagnostic_value(
+    value: Any,
+    *,
+    max_depth: int = 3,
+    max_items: int = 8,
+    max_string: int = 240,
+) -> Any:
+    if max_depth <= 0:
+        return "[truncated]"
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        collapsed = " ".join(value.split())
+        return collapsed[:max_string]
+    if isinstance(value, list):
+        limited = [
+            _bounded_diagnostic_value(item, max_depth=max_depth - 1, max_items=max_items, max_string=max_string)
+            for item in value[:max_items]
+        ]
+        if len(value) > max_items:
+            limited.append(f"... {len(value) - max_items} more item(s)")
+        return limited
+    if isinstance(value, dict):
+        items = list(value.items())[:max_items]
+        bounded = {
+            str(key): _bounded_diagnostic_value(item, max_depth=max_depth - 1, max_items=max_items, max_string=max_string)
+            for key, item in items
+        }
+        if len(value) > max_items:
+            bounded["_truncated_keys"] = len(value) - max_items
+        return bounded
+    return repr(value)[:max_string]
+
+
+def build_hybrid_failure_transport(
+    *,
+    exc: HybridAssistError,
+    transport: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "transport": "fallback",
+        "reason": exc.code,
+        "selected_backend": "codex",
+        "diagnostic": {
+            "error_code": exc.code,
+            "error_message": str(exc),
+            "details": _bounded_diagnostic_value(exc.details),
+        },
+    }
+    if transport:
+        payload["upstream_transport"] = transport.get("transport", "ollama")
+        raw_content = transport.get("raw_content")
+        response_payload = transport.get("response_payload")
+        if raw_content:
+            payload["raw_content_preview"] = _bounded_diagnostic_value(raw_content)
+        if response_payload is not None:
+            payload["response_payload_preview"] = _bounded_diagnostic_value(response_payload)
+    return payload
+
+
+def build_hybrid_failure_raw_payload(
+    *,
+    exc: HybridAssistError,
+    transport: dict[str, Any] | None,
+    raw_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if raw_payload is not None:
+        return raw_payload
+    if transport and isinstance(transport.get("result_payload"), dict):
+        bounded_payload = _bounded_diagnostic_value(transport["result_payload"])
+        return bounded_payload if isinstance(bounded_payload, dict) else {"_diagnostic_value": bounded_payload}
+    raw_content = transport.get("raw_content") if transport else None
+    if isinstance(raw_content, str) and raw_content.strip():
+        return {
+            "_diagnostic_kind": "invalid-local-response",
+            "error_code": exc.code,
+            "raw_content_preview": _bounded_diagnostic_value(raw_content),
+        }
+    raw_preview = exc.details.get("raw_content_preview")
+    if raw_preview:
+        return {
+            "_diagnostic_kind": "invalid-local-response",
+            "error_code": exc.code,
+            "raw_content_preview": _bounded_diagnostic_value(raw_preview),
+        }
+    return None
 
 
 def append_jsonl_record(path: Path, record: dict[str, Any]) -> None:

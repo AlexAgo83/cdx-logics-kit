@@ -2110,6 +2110,226 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["backend"]["model"], "qwen2.5-coder:14b")
             self.assertEqual(payload["active_model_profile"]["family"], "qwen")
 
+    def test_assist_run_commit_message_uses_hardened_prompt_and_stays_on_ollama_for_valid_payload(self) -> None:
+        script = self._script()
+
+        class OllamaCommitMessageHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/api/chat":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                length = int(self.headers.get("Content-Length", "0"))
+                request_payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                content = json.dumps(
+                    {
+                        "subject": "Align hybrid runtime diagnostics",
+                        "body": "Preserve bounded local failure details and keep the prompt instance-oriented.",
+                        "scope": "root",
+                        "confidence": 0.86,
+                        "rationale": "The diff centers on shared hybrid runtime behavior.",
+                    }
+                )
+                response_payload = {
+                    "message": {"role": "assistant", "content": content},
+                    "request_echo": request_payload,
+                }
+                encoded = json.dumps(response_payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaCommitMessageHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "commit-message",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "ollama")
+            self.assertEqual(payload["result_status"], "ok")
+            self.assertEqual(payload["result"]["subject"], "Align hybrid runtime diagnostics")
+            messages = payload["transport"]["messages"]
+            self.assertIn("The contract block below describes the required answer shape. It is not the answer itself.", messages[1]["content"])
+            self.assertIn("Do not echo the contract or copy metadata field names into the answer.", messages[1]["content"])
+            self.assertIn("Return exactly one JSON object with only these top-level keys: subject, body, scope, confidence, rationale.", messages[1]["content"])
+
+    def test_assist_run_commit_message_preserves_invalid_local_payload_diagnostics_on_fallback(self) -> None:
+        script = self._script()
+
+        class OllamaEchoContractHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/api/chat":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                content = json.dumps(
+                    {
+                        "flow": "commit-message",
+                        "summary": "Generate a bounded commit message proposal from the current git diff.",
+                        "required_keys": ["subject", "body", "scope", "confidence", "rationale"],
+                        "scope_enum": ["single", "root", "submodule"],
+                    }
+                )
+                encoded = json.dumps({"message": {"role": "assistant", "content": content}}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaEchoContractHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "commit-message",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertEqual(payload["result_status"], "degraded")
+            self.assertIn("hybrid_missing_field", payload["degraded_reasons"])
+            self.assertIsInstance(payload["raw_result"], dict)
+            self.assertEqual(payload["raw_result"]["flow"], "commit-message")
+            self.assertIn("required_keys", payload["raw_result"])
+            self.assertEqual(payload["transport"]["diagnostic"]["error_code"], "hybrid_missing_field")
+            self.assertEqual(payload["transport"]["upstream_transport"], "ollama")
+
+    def test_assist_run_commit_message_distinguishes_transport_unavailability_from_semantic_failure(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "run",
+                    "commit-message",
+                    "--backend",
+                    "auto",
+                    "--model",
+                    "deepseek-coder-v2:16b",
+                    "--ollama-host",
+                    "http://127.0.0.1:9",
+                    "--timeout",
+                    "0.2",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertEqual(payload["result_status"], "degraded")
+            self.assertIn("ollama-unreachable", payload["degraded_reasons"])
+            self.assertIsNone(payload["raw_result"])
+
     def test_assist_roi_report_aggregates_measured_derived_and_estimated_sections(self) -> None:
         script = self._script()
 
