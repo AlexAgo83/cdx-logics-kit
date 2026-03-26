@@ -2110,6 +2110,139 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["backend"]["model"], "qwen2.5-coder:14b")
             self.assertEqual(payload["active_model_profile"]["family"], "qwen")
 
+    def test_assist_runtime_status_does_not_degrade_when_claude_bridge_is_missing(self) -> None:
+        script = self._script()
+
+        class OllamaStatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaStatusHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "runtime-status",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["backend"]["selected_backend"], "ollama")
+            self.assertFalse(payload["claude_bridge_available"])
+            self.assertFalse(payload["degraded"])
+            self.assertEqual(payload["degraded_reasons"], [])
+            self.assertEqual(payload["claude_bridge"]["detected_variants"], [])
+
+    def test_assist_runtime_status_accepts_hybrid_assist_claude_bridge_variant(self) -> None:
+        script = self._script()
+
+        class OllamaStatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/api/version":
+                    payload = {"version": "test-ollama"}
+                elif self.path == "/api/tags":
+                    payload = {"models": [{"name": "deepseek-coder-v2:16b"}]}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            (repo / ".claude" / "commands").mkdir(parents=True)
+            (repo / ".claude" / "agents").mkdir(parents=True)
+            (repo / ".claude" / "commands" / "logics-assist.md").write_text("bridge\n", encoding="utf-8")
+            (repo / ".claude" / "agents" / "logics-hybrid-delivery-assistant.md").write_text("bridge\n", encoding="utf-8")
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OllamaStatusHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "runtime-status",
+                        "--backend",
+                        "auto",
+                        "--model",
+                        "deepseek-coder-v2:16b",
+                        "--ollama-host",
+                        f"http://127.0.0.1:{server.server_port}",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["claude_bridge_available"])
+            self.assertEqual(payload["claude_bridge"]["preferred_variant"], "hybrid-assist")
+            self.assertIn("hybrid-assist", payload["claude_bridge"]["detected_variants"])
+
     def test_assist_run_commit_message_uses_hardened_prompt_and_stays_on_ollama_for_valid_payload(self) -> None:
         script = self._script()
 

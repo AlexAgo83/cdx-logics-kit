@@ -183,6 +183,8 @@ class HybridBackendStatus:
     reasons: list[str]
     response_time_ms: float | None
     version: str | None
+    selection_reason: str | None = None
+    policy_mode: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -199,6 +201,8 @@ class HybridBackendStatus:
             "reasons": self.reasons,
             "response_time_ms": self.response_time_ms,
             "version": self.version,
+            "selection_reason": self.selection_reason,
+            "policy_mode": self.policy_mode,
         }
 
 
@@ -1311,7 +1315,7 @@ def build_runtime_status(
     supported_model_profiles: dict[str, dict[str, Any]],
     model: str,
     timeout_seconds: float,
-    claude_bridge_available: bool,
+    claude_bridge_status: dict[str, Any],
 ) -> dict[str, Any]:
     backend = probe_ollama_backend(
         requested_backend=requested_backend,
@@ -1323,8 +1327,7 @@ def build_runtime_status(
         timeout_seconds=timeout_seconds,
     )
     degraded_reasons = list(backend.reasons)
-    if not claude_bridge_available:
-        degraded_reasons.append("claude-bridge-missing")
+    claude_bridge_available = bool(claude_bridge_status.get("available"))
     return {
         "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
         "backend": backend.to_dict(),
@@ -1337,6 +1340,7 @@ def build_runtime_status(
             "example_tags": model_profile["example_tags"],
         },
         "supported_model_profiles": supported_model_profiles,
+        "claude_bridge": claude_bridge_status,
         "claude_bridge_available": claude_bridge_available,
         "windows_safe_entrypoint": "python logics/skills/logics.py flow assist ...",
         "degraded": bool(degraded_reasons),

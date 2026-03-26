@@ -71,6 +71,19 @@ from logics_flow_registry import (
 )
 from logics_flow_transactions import TransactionWrite, apply_transaction
 
+CLAUDE_BRIDGE_VARIANTS: tuple[dict[str, str], ...] = (
+    {
+        "id": "hybrid-assist",
+        "command_path": ".claude/commands/logics-assist.md",
+        "agent_path": ".claude/agents/logics-hybrid-delivery-assistant.md",
+    },
+    {
+        "id": "flow-manager",
+        "command_path": ".claude/commands/logics-flow.md",
+        "agent_path": ".claude/agents/logics-flow-manager.md",
+    },
+)
+
 
 def _rel(repo_root: Path, path: Path) -> str:
     return path.relative_to(repo_root).as_posix()
@@ -357,10 +370,24 @@ def _doctor_payload(repo_root: Path, *, config: dict[str, object] | None = None)
     }
 
 
+def _claude_bridge_status(repo_root: Path) -> dict[str, object]:
+    detected_variants: list[str] = []
+    for variant in CLAUDE_BRIDGE_VARIANTS:
+        command_path = repo_root / variant["command_path"]
+        agent_path = repo_root / variant["agent_path"]
+        if command_path.is_file() and agent_path.is_file():
+            detected_variants.append(variant["id"])
+    preferred_variant = detected_variants[0] if detected_variants else None
+    return {
+        "available": bool(detected_variants),
+        "preferred_variant": preferred_variant,
+        "detected_variants": detected_variants,
+        "supported_variants": [variant["id"] for variant in CLAUDE_BRIDGE_VARIANTS],
+    }
+
+
 def _claude_bridge_available(repo_root: Path) -> bool:
-    return (repo_root / ".claude" / "commands" / "logics-flow.md").is_file() and (
-        repo_root / ".claude" / "agents" / "logics-flow-manager.md"
-    ).is_file()
+    return bool(_claude_bridge_status(repo_root)["available"])
 
 
 def _benchmark_payload(repo_root: Path, *, config: dict[str, object] | None = None) -> dict[str, object]:
@@ -534,6 +561,7 @@ def _build_hybrid_context(
         },
         "contract": build_flow_contract(flow_name),
         "git_snapshot": collect_git_snapshot(repo_root),
+        "claude_bridge": _claude_bridge_status(repo_root),
         "claude_bridge_available": _claude_bridge_available(repo_root),
     }
     if ref:
@@ -587,7 +615,7 @@ def cmd_assist_runtime_status(args: argparse.Namespace) -> dict[str, object]:
         supported_model_profiles=model_selection["supported_profiles"],
         model=str(model_selection["resolved_model"]),
         timeout_seconds=args.timeout or _hybrid_default_timeout(config),
-        claude_bridge_available=_claude_bridge_available(repo_root),
+        claude_bridge_status=_claude_bridge_status(repo_root),
     )
     payload["command"] = "assist"
     payload["assist_kind"] = "runtime-status"
