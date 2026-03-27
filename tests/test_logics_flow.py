@@ -3408,6 +3408,113 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(log.returncode, 0, log.stderr)
             self.assertEqual(log.stdout.strip(), payload["execution_result"]["steps"][0]["message"])
 
+    def test_assist_commit_all_skips_clean_submodule_and_commits_parent_pointer(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submodule_source = root / "skills-source"
+            parent_repo = root / "parent"
+
+            submodule_source.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "init"], cwd=submodule_source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=submodule_source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=submodule_source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            (submodule_source / "README.md").write_text("skills\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=submodule_source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "init submodule"], cwd=submodule_source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            parent_repo.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "init"], cwd=parent_repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=parent_repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=parent_repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(
+                ["git", "-c", "protocol.file.allow=always", "submodule", "add", str(submodule_source.resolve()), "logics/skills"],
+                cwd=parent_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            subprocess.run(["git", "commit", "-am", "init parent"], cwd=parent_repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            nested_submodule = parent_repo / "logics" / "skills"
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=nested_submodule, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=nested_submodule, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            (nested_submodule / "README.md").write_text("skills\nupdated\n", encoding="utf-8")
+            subprocess.run(["git", "add", "README.md"], cwd=nested_submodule, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "update submodule"], cwd=nested_submodule, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            submodule_head_before = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=nested_submodule,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(submodule_head_before.returncode, 0, submodule_head_before.stderr)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "commit-all",
+                    "--backend",
+                    "codex",
+                    "--execution-mode",
+                    "execute",
+                    "--format",
+                    "json",
+                ],
+                cwd=parent_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["executed"])
+            self.assertEqual(payload["plan"]["strategy"], "single")
+            self.assertEqual(len(payload["execution_result"]["steps"]), 1)
+            self.assertEqual(payload["execution_result"]["steps"][0]["scope"], "root")
+
+            submodule_head_after = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=nested_submodule,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(submodule_head_after.returncode, 0, submodule_head_after.stderr)
+            self.assertEqual(submodule_head_before.stdout.strip(), submodule_head_after.stdout.strip())
+
+            parent_log = subprocess.run(
+                ["git", "log", "-1", "--pretty=%s"],
+                cwd=parent_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(parent_log.returncode, 0, parent_log.stderr)
+            self.assertEqual(parent_log.stdout.strip(), payload["execution_result"]["steps"][0]["message"])
+
+            parent_status = subprocess.run(
+                ["git", "status", "--short"],
+                cwd=parent_repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(parent_status.returncode, 0, parent_status.stderr)
+            self.assertEqual(parent_status.stdout.strip(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1603,6 +1603,18 @@ def _git(repo_root: Path, *argv: str) -> tuple[int, str, str]:
     return result.returncode, result.stdout, result.stderr
 
 
+def _repo_has_local_changes(repo_root: Path) -> bool:
+    status_code, status_out, _status_err = _git(repo_root, "status", "--short")
+    return status_code == 0 and bool(status_out.strip())
+
+
+def _submodule_has_local_changes(repo_root: Path, rel_path: str) -> bool:
+    submodule_root = repo_root / rel_path
+    if not submodule_root.is_dir():
+        return False
+    return _repo_has_local_changes(submodule_root)
+
+
 def collect_git_snapshot(repo_root: Path) -> dict[str, Any]:
     status_code, status_out, _status_err = _git(repo_root, "status", "--short")
     diff_code, diff_out, _diff_err = _git(repo_root, "diff", "--stat")
@@ -1628,6 +1640,7 @@ def collect_git_snapshot(repo_root: Path) -> dict[str, Any]:
         "touches_runtime": any(path.startswith("logics/skills/") or path == "logics.yaml" for path in changed_paths),
         "touches_tests": any(path.startswith("tests/") or "/tests/" in path for path in changed_paths),
         "touches_submodule": any(path == "logics/skills" or path.startswith("logics/skills/") for path in changed_paths),
+        "submodule_has_changes": _submodule_has_local_changes(repo_root, "logics/skills"),
     }
 
 
@@ -2090,8 +2103,9 @@ def build_fallback_result(
         }
     if flow_name == "commit-plan":
         touches_submodule = git_snapshot.get("touches_submodule")
+        submodule_has_changes = git_snapshot.get("submodule_has_changes")
         root_paths = [path for path in changed_paths if not path.startswith("logics/skills/") and path != "logics/skills"]
-        if touches_submodule and root_paths:
+        if touches_submodule and submodule_has_changes and root_paths:
             return {
                 "strategy": "submodule-then-root",
                 "steps": [
@@ -2101,7 +2115,7 @@ def build_fallback_result(
                 "confidence": 0.86,
                 "rationale": "Separate submodule and parent commits keep git history coherent.",
             }
-        if touches_submodule:
+        if touches_submodule and submodule_has_changes:
             return {
                 "strategy": "submodule-then-root",
                 "steps": [
@@ -2110,6 +2124,13 @@ def build_fallback_result(
                 ],
                 "confidence": 0.78,
                 "rationale": "Submodule changes still require a parent pointer update.",
+            }
+        if touches_submodule:
+            return {
+                "strategy": "single",
+                "steps": [{"scope": "root", "summary": "Commit the updated logics/skills submodule pointer in the parent repo.", "paths": root_paths[:8] or ["logics/skills"]}],
+                "confidence": 0.82,
+                "rationale": "The nested logics/skills repo is already clean, so only the parent pointer update still needs a commit.",
             }
         return {
             "strategy": "single",

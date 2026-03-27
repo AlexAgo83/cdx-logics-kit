@@ -934,6 +934,19 @@ def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
         step_results = []
         for step in steps:
             target_repo = repo_root / "logics" / "skills" if step["scope"] == "submodule" else repo_root
+            target_snapshot = collect_git_snapshot(target_repo)
+            if not target_snapshot.get("has_changes"):
+                step_results.append(
+                    {
+                        "scope": step["scope"],
+                        "message": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "skipped": True,
+                        "reason": "working-tree-clean",
+                    }
+                )
+                continue
             message_payload = _run_hybrid_assist(
                 flow_name="commit-message",
                 ref=None,
