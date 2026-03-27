@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from contextlib import redirect_stdout
+from copy import deepcopy
 from datetime import date
 from pathlib import Path
 
@@ -717,10 +718,17 @@ def _run_hybrid_assist(
         include_doctor=include_doctor,
         config=config,
     )
+    context_bundle["repo_root"] = str(repo_root)
     validation_payload = None
-    if flow_name in {"validation-summary", "doc-consistency"}:
+    if flow_name in {"validation-summary", "doc-consistency", "review-checklist"}:
         validation_payload = _hybrid_validation_payload(repo_root)
         context_bundle["validation_payload"] = validation_payload
+    if flow_name == "hybrid-insights-explainer":
+        context_bundle["roi_report"] = build_hybrid_roi_report(
+            repo_root=repo_root,
+            audit_log=(repo_root / audit_log).resolve(),
+            measurement_log=(repo_root / measurement_log).resolve(),
+        )
 
     backend_status = probe_ollama_backend(
         requested_backend=requested_backend,
@@ -735,7 +743,15 @@ def _run_hybrid_assist(
     degraded_reasons = list(backend_status.reasons)
     raw_payload: dict[str, object] | None = None
     transport: dict[str, object] | None
-    if backend_status.selected_backend == "ollama":
+    if backend_status.selected_backend == "deterministic":
+        transport = {
+            "transport": "deterministic",
+            "reason": "policy-deterministic",
+            "selected_backend": "deterministic",
+        }
+        validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
+        raw_payload = deepcopy(validated)
+    elif backend_status.selected_backend == "ollama":
         transport = None
         try:
             transport = run_ollama_hybrid(
@@ -1881,6 +1897,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_assist_alias("closure-summary", "closure-summary", "Summarize a delivered request, backlog item, or task.", takes_ref=True)
     add_assist_alias("validation-checklist", "validation-checklist", "Generate a validation checklist for the current diff.", takes_ref=False)
     add_assist_alias("doc-consistency", "doc-consistency", "Review workflow docs for consistency issues without mutating them.", takes_ref=False)
+    add_assist_alias("changed-surface-summary", "changed-surface-summary", "Summarize the current changed surface deterministically.", takes_ref=False)
+    add_assist_alias("release-changelog-status", "release-changelog-status", "Resolve the current curated release changelog contract deterministically.", takes_ref=False)
+    add_assist_alias("test-impact-summary", "test-impact-summary", "Summarize deterministic validation impact for the current diff.", takes_ref=False)
+    add_assist_alias("hybrid-insights-explainer", "hybrid-insights-explainer", "Explain the current Hybrid Insights report with bounded operator guidance.", takes_ref=False)
+    add_assist_alias("windows-compat-risk", "windows-compat-risk", "Review the current change surface for Windows compatibility risk.", takes_ref=False)
+    add_assist_alias("review-checklist", "review-checklist", "Generate a bounded review checklist for the current change surface.", takes_ref=False)
+    add_assist_alias("doc-link-suggestion", "doc-link-suggestion", "Suggest missing workflow or companion-doc links for a target doc.", takes_ref=True)
 
     commit_all = assist_sub.add_parser(
         "commit-all",

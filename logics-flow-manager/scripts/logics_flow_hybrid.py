@@ -8,8 +8,10 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import subprocess
+import sys
 from typing import Any, Callable
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -58,13 +60,16 @@ SAFETY_CLASSES = (
     SAFETY_CLASS_DETERMINISTIC_RUNNER,
     SAFETY_CLASS_CODEX_ONLY,
 )
-BACKEND_CHOICES = ("auto", "ollama", "codex")
+REQUESTED_BACKEND_CHOICES = ("auto", "ollama", "codex")
+SUPPORTED_BACKEND_NAMES = ("auto", "ollama", "codex", "deterministic")
 RESULT_STATUSES = ("ok", "degraded", "error")
 BACKEND_POLICY_OLLAMA_FIRST = "ollama-first"
 BACKEND_POLICY_CODEX_ONLY = "codex-only"
+BACKEND_POLICY_DETERMINISTIC = "deterministic"
 BACKEND_POLICY_MODES = (
     BACKEND_POLICY_OLLAMA_FIRST,
     BACKEND_POLICY_CODEX_ONLY,
+    BACKEND_POLICY_DETERMINISTIC,
 )
 
 FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
@@ -148,6 +153,42 @@ FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
         "required_keys": ("overall", "summary", "issues", "follow_up", "confidence", "rationale"),
         "overall_enum": ("clean", "issues-found"),
     },
+    "changed-surface-summary": {
+        "summary": "Summarize the current changed surface deterministically from git and repository signals.",
+        "safety_class": SAFETY_CLASS_DETERMINISTIC_RUNNER,
+        "required_keys": ("summary", "changed_paths", "categories", "confidence", "rationale"),
+    },
+    "release-changelog-status": {
+        "summary": "Resolve the current curated release changelog contract deterministically from package.json and changelog files.",
+        "safety_class": SAFETY_CLASS_DETERMINISTIC_RUNNER,
+        "required_keys": ("tag", "version", "relative_path", "exists", "summary", "confidence", "rationale"),
+    },
+    "test-impact-summary": {
+        "summary": "Summarize deterministic validation impact from the current change surface.",
+        "safety_class": SAFETY_CLASS_DETERMINISTIC_RUNNER,
+        "required_keys": ("summary", "commands", "targeted_tests", "confidence", "rationale"),
+    },
+    "hybrid-insights-explainer": {
+        "summary": "Explain the current Hybrid Insights report with bounded operator guidance.",
+        "safety_class": SAFETY_CLASS_DETERMINISTIC_RUNNER,
+        "required_keys": ("summary", "strengths", "concerns", "next_actions", "confidence", "rationale"),
+    },
+    "windows-compat-risk": {
+        "summary": "Review the current change surface for Windows compatibility risk.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("risk", "summary", "drivers", "confidence", "rationale"),
+        "risk_enum": ("low", "medium", "high"),
+    },
+    "review-checklist": {
+        "summary": "Generate a bounded review checklist from the current change surface.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("profile", "checks", "confidence", "rationale"),
+    },
+    "doc-link-suggestion": {
+        "summary": "Suggest missing workflow or companion-doc links for a target doc without mutating the repository.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("target_ref", "missing_links", "suggested_follow_up", "confidence", "rationale"),
+    },
 }
 
 FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
@@ -164,6 +205,13 @@ FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
     "closure-summary": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
     "validation-checklist": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": True, "include_doctor": True},
     "doc-consistency": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": True},
+    "changed-surface-summary": {"mode": "diff-first", "profile": "tiny", "include_graph": False, "include_registry": False, "include_doctor": False},
+    "release-changelog-status": {"mode": "summary-only", "profile": "tiny", "include_graph": False, "include_registry": False, "include_doctor": False},
+    "test-impact-summary": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": False},
+    "hybrid-insights-explainer": {"mode": "summary-only", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": False},
+    "windows-compat-risk": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": False},
+    "review-checklist": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": True, "include_doctor": True},
+    "doc-link-suggestion": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
 }
 
 FLOW_BACKEND_POLICIES: dict[str, dict[str, str]] = {
@@ -245,6 +293,48 @@ FLOW_BACKEND_POLICIES: dict[str, dict[str, str]] = {
         "fallback_policy": "validate-local-payload-against-workflow-signals-then-bounded-codex-fallback",
         "selection_summary": "Keep doc-consistency local-first, with stricter fallback because the review must stay aligned with lint and audit evidence.",
     },
+    "changed-surface-summary": {
+        "mode": BACKEND_POLICY_DETERMINISTIC,
+        "auto_backend": "deterministic",
+        "fallback_policy": "deterministic-runner",
+        "selection_summary": "Keep changed-surface summaries deterministic because the output is fully derivable from git and repository signals.",
+    },
+    "release-changelog-status": {
+        "mode": BACKEND_POLICY_DETERMINISTIC,
+        "auto_backend": "deterministic",
+        "fallback_policy": "deterministic-runner",
+        "selection_summary": "Keep release changelog resolution deterministic because the contract depends on package version and curated files only.",
+    },
+    "test-impact-summary": {
+        "mode": BACKEND_POLICY_DETERMINISTIC,
+        "auto_backend": "deterministic",
+        "fallback_policy": "deterministic-runner",
+        "selection_summary": "Keep test-impact summaries deterministic because the change surface and available scripts already define the candidate validation order.",
+    },
+    "hybrid-insights-explainer": {
+        "mode": BACKEND_POLICY_DETERMINISTIC,
+        "auto_backend": "deterministic",
+        "fallback_policy": "deterministic-runner",
+        "selection_summary": "Keep Hybrid Insights explanations deterministic because the input is already a structured shared runtime report.",
+    },
+    "windows-compat-risk": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep Windows compatibility review local-first because the output stays bounded, advisory, and easy to review.",
+    },
+    "review-checklist": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep review checklists local-first because the output is bounded and directly operator-facing.",
+    },
+    "doc-link-suggestion": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-against-workflow-refs-then-bounded-codex-fallback",
+        "selection_summary": "Keep doc-link suggestions local-first while validating the output against actual workflow references.",
+    },
 }
 
 
@@ -312,7 +402,7 @@ def build_flow_backend_policy(flow_name: str) -> dict[str, str]:
             "hybrid_invalid_backend_policy",
             f"Flow `{flow_name}` uses unsupported backend policy mode `{mode}`.",
         )
-    if auto_backend not in BACKEND_CHOICES:
+    if auto_backend not in SUPPORTED_BACKEND_NAMES:
         raise HybridAssistError(
             "hybrid_invalid_backend_policy",
             f"Flow `{flow_name}` uses unsupported auto backend `{auto_backend}`.",
@@ -426,7 +516,7 @@ def resolve_hybrid_model_selection(
 def build_shared_hybrid_contract() -> dict[str, Any]:
     return {
         "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
-        "backends": list(BACKEND_CHOICES),
+        "backends": list(SUPPORTED_BACKEND_NAMES),
         "safety_classes": list(SAFETY_CLASSES),
         "backend_policy_modes": list(BACKEND_POLICY_MODES),
         "result_statuses": list(RESULT_STATUSES),
@@ -498,6 +588,25 @@ def probe_ollama_backend(
     model_available = False
     flow_policy = build_flow_backend_policy(flow_name) if flow_name else None
     policy_mode = flow_policy["mode"] if flow_policy else None
+
+    if policy_mode == BACKEND_POLICY_DETERMINISTIC:
+        return HybridBackendStatus(
+            requested_backend=requested_backend,
+            selected_backend="deterministic",
+            host=normalized_host,
+            model_profile=model_profile,
+            model_family=model_family,
+            configured_model=configured_model,
+            model=model,
+            ollama_reachable=False,
+            model_available=False,
+            healthy=True,
+            reasons=[],
+            response_time_ms=None,
+            version=None,
+            selection_reason="policy-deterministic",
+            policy_mode=policy_mode,
+        )
 
     try:
         started = datetime.now(timezone.utc)
@@ -940,6 +1049,75 @@ def validate_hybrid_result(flow_name: str, payload: dict[str, Any], docs_by_ref:
         normalized["summary"] = " ".join(summary.split())[:500]
         normalized["issues"] = _normalize_string_list(payload["issues"], "issues")
         normalized["follow_up"] = _normalize_string_list(payload["follow_up"], "follow_up")
+        return normalized
+
+    if flow_name == "changed-surface-summary":
+        summary = payload["summary"]
+        if not isinstance(summary, str) or not summary.strip():
+            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
+        normalized["summary"] = " ".join(summary.split())[:500]
+        normalized["changed_paths"] = _normalize_string_list(payload["changed_paths"], "changed_paths")
+        normalized["categories"] = _normalize_string_list(payload["categories"], "categories")
+        return normalized
+
+    if flow_name == "release-changelog-status":
+        for key in ("tag", "version", "relative_path", "summary"):
+            value = payload[key]
+            if not isinstance(value, str) or not value.strip():
+                raise HybridAssistError("hybrid_invalid_field", f"`{key}` must be a non-empty string.")
+            normalized[key] = " ".join(value.split())[:240]
+        exists = payload["exists"]
+        if not isinstance(exists, bool):
+            raise HybridAssistError("hybrid_invalid_field", "`exists` must be a boolean.")
+        normalized["exists"] = exists
+        return normalized
+
+    if flow_name == "test-impact-summary":
+        summary = payload["summary"]
+        if not isinstance(summary, str) or not summary.strip():
+            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
+        normalized["summary"] = " ".join(summary.split())[:500]
+        normalized["commands"] = _normalize_string_list(payload["commands"], "commands")
+        normalized["targeted_tests"] = _normalize_string_list(payload["targeted_tests"], "targeted_tests")
+        return normalized
+
+    if flow_name == "hybrid-insights-explainer":
+        summary = payload["summary"]
+        if not isinstance(summary, str) or not summary.strip():
+            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
+        normalized["summary"] = " ".join(summary.split())[:500]
+        normalized["strengths"] = _normalize_string_list(payload["strengths"], "strengths")
+        normalized["concerns"] = _normalize_string_list(payload["concerns"], "concerns")
+        normalized["next_actions"] = _normalize_string_list(payload["next_actions"], "next_actions")
+        return normalized
+
+    if flow_name == "windows-compat-risk":
+        risk = payload["risk"]
+        if risk not in contract["risk_enum"]:
+            raise HybridAssistError("hybrid_invalid_risk", f"`risk` must be one of {', '.join(contract['risk_enum'])}.")
+        summary = payload["summary"]
+        if not isinstance(summary, str) or not summary.strip():
+            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
+        normalized["risk"] = risk
+        normalized["summary"] = " ".join(summary.split())[:500]
+        normalized["drivers"] = _normalize_string_list(payload["drivers"], "drivers")
+        return normalized
+
+    if flow_name == "review-checklist":
+        profile = payload["profile"]
+        if not isinstance(profile, str) or not profile.strip():
+            raise HybridAssistError("hybrid_invalid_profile", "`profile` must be a non-empty string.")
+        normalized["profile"] = " ".join(profile.split())[:120]
+        normalized["checks"] = _normalize_string_list(payload["checks"], "checks")
+        return normalized
+
+    if flow_name == "doc-link-suggestion":
+        target_ref = payload["target_ref"]
+        if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
+            raise HybridAssistError("hybrid_invalid_target_ref", "`target_ref` must resolve to a known workflow doc.")
+        normalized["target_ref"] = target_ref
+        normalized["missing_links"] = _normalize_string_list(payload["missing_links"], "missing_links")
+        normalized["suggested_follow_up"] = _normalize_string_list(payload["suggested_follow_up"], "suggested_follow_up")
         return normalized
 
     raise HybridAssistError("hybrid_unhandled_flow", f"Unhandled hybrid assist flow `{flow_name}`.")
@@ -1611,6 +1789,162 @@ def _summarize_changed_paths(context_bundle: dict[str, Any]) -> str:
     return "Changes touch " + ", ".join(f"`{path}`" for path in changed_paths[:4]) + f", and {len(changed_paths) - 4} more path(s)."
 
 
+def _deterministic_categories(git_snapshot: dict[str, Any]) -> list[str]:
+    categories: list[str] = []
+    if git_snapshot.get("doc_only"):
+        categories.append("docs-only")
+    if git_snapshot.get("touches_runtime"):
+        categories.append("runtime")
+    if git_snapshot.get("touches_plugin"):
+        categories.append("plugin")
+    if git_snapshot.get("touches_tests"):
+        categories.append("tests")
+    if git_snapshot.get("touches_submodule"):
+        categories.append("submodule")
+    return categories or ["unclassified"]
+
+
+def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
+    package_json = repo_root / "package.json"
+    version = "0.0.0"
+    if package_json.is_file():
+        try:
+            package_payload = json.loads(package_json.read_text(encoding="utf-8"))
+            if isinstance(package_payload.get("version"), str):
+                version = package_payload["version"].strip() or version
+        except json.JSONDecodeError:
+            pass
+    tag = f"v{version}"
+    relative_path = f"changelogs/CHANGELOGS_{version.replace('.', '_')}.md"
+    exists = (repo_root / relative_path).is_file()
+    return {
+        "tag": tag,
+        "version": version,
+        "relative_path": relative_path,
+        "exists": exists,
+        "summary": (
+            f"Curated changelog ready for {tag}."
+            if exists
+            else f"Curated changelog missing for {tag}; expected {relative_path}."
+        ),
+        "confidence": 0.92,
+        "rationale": "Deterministic release-changelog status derived from package.json and curated changelog file presence.",
+    }
+
+
+def _deterministic_test_impact_summary(repo_root: Path, changed_paths: list[str]) -> dict[str, Any]:
+    script = repo_root / "logics" / "skills" / "logics-test-impact-orchestrator" / "scripts" / "plan_test_impact.py"
+    if not script.is_file():
+        return {
+            "summary": f"Fallback deterministic test impact summary for {len(changed_paths)} changed path(s).",
+            "commands": ["npm run lint", "npm run test"],
+            "targeted_tests": ["No repo-local deterministic test-impact script was found."],
+            "confidence": 0.55,
+            "rationale": "The dedicated deterministic test-impact script is unavailable in this repository snapshot.",
+        }
+
+    proc = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return {
+            "summary": "Deterministic test impact script failed; use the default validation safety net.",
+            "commands": ["npm run lint", "npm run test"],
+            "targeted_tests": [proc.stderr.strip() or "Test impact script failed without diagnostics."],
+            "confidence": 0.45,
+            "rationale": "The deterministic test-impact script returned a non-zero exit status.",
+        }
+
+    commands: list[str] = []
+    targeted_tests: list[str] = []
+    section = ""
+    for raw_line in proc.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line == "## Suggested validation order":
+            section = "commands"
+            continue
+        if line == "## Candidate targeted tests":
+            section = "targeted"
+            continue
+        if line.startswith("## "):
+            section = ""
+            continue
+        if section == "commands":
+            normalized = re.sub(r"^\d+\.\s*", "", line).strip()
+            if normalized.startswith("`") and normalized.endswith("`"):
+                normalized = normalized[1:-1]
+            if normalized:
+                commands.append(normalized)
+        elif section == "targeted":
+            targeted_tests.append(line.removeprefix("- ").strip())
+
+    if not commands:
+        commands = ["npm run lint", "npm run test"]
+    if not targeted_tests:
+        targeted_tests = ["No close targeted test match found; rely on the selected command plan."]
+
+    return {
+        "summary": f"Deterministic test impact summary built from {len(changed_paths)} changed path(s).",
+        "commands": commands,
+        "targeted_tests": targeted_tests,
+        "confidence": 0.84,
+        "rationale": "The summary is derived from the deterministic test-impact planner script.",
+    }
+
+
+def _deterministic_hybrid_insights_explainer(roi_report: dict[str, Any]) -> dict[str, Any]:
+    measured = roi_report.get("measured", {}) if isinstance(roi_report, dict) else {}
+    raw_derived = roi_report.get("derived", {}) if isinstance(roi_report, dict) else {}
+    derived = raw_derived if isinstance(raw_derived, dict) else {}
+    totals = measured.get("totals", {}) if isinstance(measured, dict) else {}
+    rates = derived.get("rates", {}) if isinstance(derived, dict) else {}
+    health_summary = derived.get("health_summary", []) if isinstance(derived, dict) else []
+    local_rate = float(rates.get("local_offload_rate", 0.0) or 0.0)
+    fallback_rate = float(rates.get("fallback_rate", 0.0) or 0.0)
+    degraded_rate = float(rates.get("degraded_rate", 0.0) or 0.0)
+    review_rate = float(rates.get("review_recommended_rate", 0.0) or 0.0)
+
+    strengths = [
+        f"Local offload is running at {local_rate * 100:.1f}%." if local_rate > 0 else "Measured counters are being recorded."
+    ]
+    if int(totals.get("local_runs", 0) or 0) > 0:
+        strengths.append(f"Local completions total {int(totals.get('local_runs', 0) or 0)} run(s).")
+
+    concerns: list[str] = []
+    if fallback_rate > 0:
+        concerns.append(f"Fallback routing is visible at {fallback_rate * 100:.1f}%.")
+    if degraded_rate > 0:
+        concerns.append(f"Degraded outcomes remain present at {degraded_rate * 100:.1f}%.")
+    if review_rate >= 0.25:
+        concerns.append(f"Review-recommended outcomes remain elevated at {review_rate * 100:.1f}%.")
+    if not concerns:
+        concerns.append("No strong pressure signal is visible in the measured counters.")
+
+    next_actions = list(health_summary[:2] if isinstance(health_summary, list) else [])
+    if fallback_rate > 0:
+        next_actions.append("Inspect recent runs and fallback reasons before broadening local-first exposure.")
+    if degraded_rate > 0:
+        next_actions.append("Review degraded runs first to separate transport issues from payload-quality issues.")
+    if not next_actions:
+        next_actions.append("Keep recent runs under review while the local-first portfolio expands.")
+
+    return {
+        "summary": "Deterministic Hybrid Insights explanation derived from the shared ROI report.",
+        "strengths": strengths[:3],
+        "concerns": concerns[:3],
+        "next_actions": next_actions[:3],
+        "confidence": 0.86,
+        "rationale": "The explanation is synthesized deterministically from measured counters, derived rates, and health summary notes.",
+    }
+
+
 def build_fallback_result(
     flow_name: str,
     *,
@@ -1833,6 +2167,78 @@ def build_fallback_result(
             "follow_up": follow_up,
             "confidence": 0.72 if statuses else 0.45,
             "rationale": "Fallback doc consistency review reuses the shared validation results.",
+        }
+    if flow_name == "changed-surface-summary":
+        return {
+            "summary": _summarize_changed_paths(context_bundle),
+            "changed_paths": changed_paths or ["No changed paths detected."],
+            "categories": _deterministic_categories(git_snapshot),
+            "confidence": 0.9,
+            "rationale": "Changed-surface summary is derived directly from the shared git snapshot.",
+        }
+    if flow_name == "release-changelog-status":
+        return _resolve_release_changelog_status(Path(context_bundle.get("repo_root", ".")))
+    if flow_name == "test-impact-summary":
+        return _deterministic_test_impact_summary(Path(context_bundle.get("repo_root", ".")), changed_paths)
+    if flow_name == "hybrid-insights-explainer":
+        roi_report = context_bundle.get("roi_report", {})
+        return _deterministic_hybrid_insights_explainer(roi_report if isinstance(roi_report, dict) else {})
+    if flow_name == "windows-compat-risk":
+        risk = "low"
+        drivers: list[str] = []
+        if any(path.endswith((".ps1", ".bat", ".cmd")) for path in changed_paths):
+            risk = "medium"
+            drivers.append("Windows-specific script surfaces changed and should be rechecked for entrypoint drift.")
+        if any(path.startswith("scripts/") or path.endswith((".mjs", ".py")) for path in changed_paths):
+            risk = "medium"
+            drivers.append("Script or runtime entrypoints changed and may carry quoting or launcher assumptions.")
+        if any(path in {"README.md", "package.json"} for path in changed_paths):
+            drivers.append("Operator-facing command examples or npm scripts changed and should stay Windows-safe.")
+        if git_snapshot.get("touches_runtime") and git_snapshot.get("touches_plugin"):
+            risk = "high"
+            drivers.append("The change spans runtime and plugin surfaces, so command contracts can drift across layers.")
+        if not drivers:
+            drivers.append("No obvious Windows-specific risk signal appears in the changed paths.")
+        return {
+            "risk": risk,
+            "summary": "Fallback Windows compatibility review derived from changed-path categories.",
+            "drivers": drivers,
+            "confidence": 0.64,
+            "rationale": "Fallback Windows review uses deterministic path heuristics when no validated local-model payload is available.",
+        }
+    if flow_name == "review-checklist":
+        checks = ["Review the changed runtime and plugin contracts together.", "Confirm validation commands still match the changed surface."]
+        if git_snapshot.get("touches_runtime"):
+            checks.append("Inspect fallback, observability, and bounded-output semantics in the shared runtime.")
+        if git_snapshot.get("touches_plugin"):
+            checks.append("Verify the plugin stays a thin client over the shared runtime command surfaces.")
+        if git_snapshot.get("touches_tests"):
+            checks.append("Confirm updated tests still reflect real operator behavior rather than stale fixtures.")
+        return {
+            "profile": "mixed" if git_snapshot.get("touches_runtime") or git_snapshot.get("touches_plugin") else "docs-only",
+            "checks": checks,
+            "confidence": 0.7,
+            "rationale": "Fallback review checklist is derived from the changed-path categories.",
+        }
+    if flow_name == "doc-link-suggestion":
+        doc = docs_by_ref[str(seed_ref)]
+        missing_links: list[str] = []
+        suggested_follow_up: list[str] = []
+        if doc.kind in {"request", "backlog", "task"} and not any(doc.refs.values()):
+            missing_links.append("No workflow references are linked yet.")
+            suggested_follow_up.append("Link the adjacent request, backlog item, or task before closing the slice.")
+        if doc.kind in {"backlog", "task"} and "prod" not in doc.refs and "adr" not in doc.refs:
+            missing_links.append("No companion product or architecture doc is linked.")
+            suggested_follow_up.append("Confirm whether a product brief or ADR should be linked for this scope.")
+        if not missing_links:
+            missing_links.append("No obvious missing link was detected from the workflow graph.")
+            suggested_follow_up.append("Keep references aligned if the scope or decision framing changes.")
+        return {
+            "target_ref": doc.ref,
+            "missing_links": missing_links,
+            "suggested_follow_up": suggested_follow_up,
+            "confidence": 0.61,
+            "rationale": "Fallback doc-link suggestion is derived from the existing workflow reference graph.",
         }
     raise HybridAssistError("hybrid_unhandled_flow", f"Unhandled hybrid assist flow `{flow_name}`.")
 

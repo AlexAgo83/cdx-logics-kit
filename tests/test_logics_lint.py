@@ -358,6 +358,59 @@ class LogicsLintTest(unittest.TestCase):
             self.assertIn("Logics lint: OK (warnings)", result.stdout)
             self.assertIn("WARNING: contains template placeholder content", result.stdout)
 
+    def test_active_changed_workflow_doc_fails_on_blocking_placeholder_content(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._init_git_repo(repo)
+            (repo / "logics" / "task").mkdir(parents=True, exist_ok=True)
+            (repo / "logics" / "tasks").mkdir(parents=True, exist_ok=True)
+            (repo / "README.md").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "seed"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            task = repo / "logics" / "tasks" / "task_000_demo_task.md"
+            task.write_text(
+                "\n".join(
+                    [
+                        "## task_000_demo_task - Demo task",
+                        "> From version: 1.10.5",
+                        "> Status: Ready",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "> Progress: 0%",
+                        "",
+                        "# Plan",
+                        "- [ ] 1. demo",
+                        "",
+                        "# AC Traceability",
+                        "- AC1 -> Step 1. Proof: TODO.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(script)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("blocking placeholder content in active workflow doc", result.stdout)
+            self.assertIn("Proof: TODO", result.stdout)
+
     def test_untracked_workflow_doc_warns_on_generic_mermaid_scaffold(self) -> None:
         script = self._script()
 

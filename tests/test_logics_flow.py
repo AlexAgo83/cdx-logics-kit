@@ -2305,6 +2305,82 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["flow_backend_policies"]["diff-risk"]["mode"], "ollama-first")
             self.assertEqual(payload["flow_backend_policies"]["next-step"]["mode"], "codex-only")
             self.assertEqual(payload["flow_backend_policies"]["next-step"]["auto_backend"], "codex")
+            self.assertEqual(payload["flow_backend_policies"]["changed-surface-summary"]["mode"], "deterministic")
+            self.assertEqual(payload["flow_backend_policies"]["changed-surface-summary"]["auto_backend"], "deterministic")
+            self.assertEqual(payload["flow_backend_policies"]["windows-compat-risk"]["mode"], "ollama-first")
+
+    def test_assist_run_changed_surface_summary_uses_deterministic_backend(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            (repo / "README.md").write_text("seed\n", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["git", "config", "user.email", "tests@example.com"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "Tests"], cwd=repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "seed"], cwd=repo, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            (repo / "README.md").write_text("seed\nchanged\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "changed-surface-summary",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "deterministic")
+            self.assertEqual(payload["transport"]["transport"], "deterministic")
+            self.assertIn("README.md", payload["result"]["changed_paths"])
+            self.assertTrue(payload["result"]["categories"])
+
+    def test_assist_run_release_changelog_status_resolves_curated_file_deterministically(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            (repo / "changelogs").mkdir(parents=True)
+            (repo / "package.json").write_text(
+                json.dumps({"name": "demo", "version": "1.2.3"}),
+                encoding="utf-8",
+            )
+            (repo / "changelogs" / "CHANGELOGS_1_2_3.md").write_text("# Demo\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "release-changelog-status",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "deterministic")
+            self.assertTrue(payload["result"]["exists"])
+            self.assertEqual(payload["result"]["tag"], "v1.2.3")
+            self.assertEqual(payload["result"]["relative_path"], "changelogs/CHANGELOGS_1_2_3.md")
 
     def test_assist_run_commit_message_uses_hardened_prompt_and_stays_on_ollama_for_valid_payload(self) -> None:
         script = self._script()

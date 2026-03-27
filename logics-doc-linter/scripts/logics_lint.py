@@ -65,6 +65,7 @@ KINDS = {
 }
 
 WORKFLOW_KINDS = {"request", "backlog", "task"}
+ACTIVE_WORKFLOW_STATUSES = {"ready", "in progress", "done"}
 CRITICAL_INDICATOR_PLACEHOLDERS = {
     "From version": {"X.X.X"},
     "Understanding": {"??%"},
@@ -79,6 +80,10 @@ TEMPLATE_PLACEHOLDER_SNIPPETS = (
     "First implementation step",
     "Second implementation step",
     "Third implementation step",
+)
+BLOCKING_TRACEABILITY_PLACEHOLDER_SNIPPETS = (
+    "Proof: TODO",
+    "TODO: map this acceptance criterion",
 )
 GENERIC_MERMAID_SNIPPETS = (
     "Primary input or trigger",
@@ -290,6 +295,13 @@ def _git_modified_paths(repo_root: Path) -> set[Path]:
             if not line:
                 continue
             paths.add(Path(line))
+    if not paths:
+        output = _run_git(repo_root, ["diff-tree", "--no-commit-id", "--name-only", "-r", "--diff-filter=ACMRT", "HEAD"])
+        for line in output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            paths.add(Path(line))
     return paths
 
 
@@ -304,11 +316,21 @@ def _git_untracked_paths(repo_root: Path) -> set[Path]:
     return paths
 
 
+def _doc_diff(repo_root: Path, rel_path: Path) -> str:
+    diff = _run_git(repo_root, ["diff", "--unified=0", "--", str(rel_path)])
+    diff += _run_git(repo_root, ["diff", "--cached", "--unified=0", "--", str(rel_path)])
+    if diff:
+        return diff
+    last_commit_paths = _git_modified_paths(repo_root)
+    if rel_path in last_commit_paths:
+        return _run_git(repo_root, ["show", "--format=", "--unified=0", "HEAD", "--", str(rel_path)])
+    return ""
+
+
 def _diff_has_indicator_changes(repo_root: Path, rel_path: Path, indicators: set[str]) -> bool:
     if not indicators:
         return True
-    diff = _run_git(repo_root, ["diff", "--unified=0", "--", str(rel_path)])
-    diff += _run_git(repo_root, ["diff", "--cached", "--unified=0", "--", str(rel_path)])
+    diff = _doc_diff(repo_root, rel_path)
     if not diff:
         return False
     for line in diff.splitlines():
@@ -323,8 +345,7 @@ def _diff_has_indicator_changes(repo_root: Path, rel_path: Path, indicators: set
 
 
 def _diff_is_status_only_normalization(repo_root: Path, rel_path: Path) -> bool:
-    diff = _run_git(repo_root, ["diff", "--unified=0", "--", str(rel_path)])
-    diff += _run_git(repo_root, ["diff", "--cached", "--unified=0", "--", str(rel_path)])
+    diff = _doc_diff(repo_root, rel_path)
     if not diff:
         return False
 
@@ -348,8 +369,7 @@ def _diff_is_status_only_normalization(repo_root: Path, rel_path: Path) -> bool:
 
 
 def _diff_is_mermaid_signature_only(repo_root: Path, rel_path: Path) -> bool:
-    diff = _run_git(repo_root, ["diff", "--unified=0", "--", str(rel_path)])
-    diff += _run_git(repo_root, ["diff", "--cached", "--unified=0", "--", str(rel_path)])
+    diff = _doc_diff(repo_root, rel_path)
     if not diff:
         return False
 
@@ -370,6 +390,25 @@ def _diff_is_mermaid_signature_only(repo_root: Path, rel_path: Path) -> bool:
         return False
 
     return saw_change
+
+
+def _workflow_status_is_active(lines: list[str]) -> bool:
+    status_value = _indicator_value(lines, "Status")
+    if status_value is None:
+        return False
+    return " ".join(status_value.split()).lower() in ACTIVE_WORKFLOW_STATUSES
+
+
+def _blocking_placeholder_hits(lines: list[str]) -> list[str]:
+    text = "\n".join(lines)
+    hits: list[str] = []
+    for snippet in TEMPLATE_PLACEHOLDER_SNIPPETS:
+        if snippet in text:
+            hits.append(snippet)
+    for snippet in BLOCKING_TRACEABILITY_PLACEHOLDER_SNIPPETS:
+        if snippet in text:
+            hits.append(snippet)
+    return sorted(set(hits))
 
 
 def _lint_file(path: Path, kind_name: str, kind: Kind, require_status: bool, check_changed_doc_rules: bool) -> tuple[list[str], list[str]]:
@@ -416,7 +455,12 @@ def _lint_file(path: Path, kind_name: str, kind: Kind, require_status: bool, che
 
         text = "\n".join(lines)
         placeholder_hits = [snippet for snippet in TEMPLATE_PLACEHOLDER_SNIPPETS if snippet in text]
-        if placeholder_hits:
+        blocking_hits = _blocking_placeholder_hits(lines)
+        if _workflow_status_is_active(lines) and blocking_hits:
+            issues.append(
+                "blocking placeholder content in active workflow doc: " + ", ".join(blocking_hits)
+            )
+        elif placeholder_hits:
             warnings.append(
                 "contains template placeholder content: " + ", ".join(sorted(set(placeholder_hits)))
             )
