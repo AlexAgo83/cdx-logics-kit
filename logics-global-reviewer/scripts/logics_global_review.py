@@ -120,10 +120,10 @@ def _progress_bucket(value: str | None) -> str:
     v = value.strip()
     if v == "??%":
         return "??%"
-    try:
-        pct = int(v.removesuffix("%"))
-    except ValueError:
+    match = re.match(r"^(\d{1,3})%", v)
+    if match is None:
         return "(invalid)"
+    pct = int(match.group(1))
     if pct <= 0:
         return "0%"
     if pct < 50:

@@ -535,6 +535,72 @@ class LogicsLintTest(unittest.TestCase):
             self.assertIn("Logics lint: OK (warnings)", result.stdout)
             self.assertIn("WARNING: Mermaid context signature is stale", result.stdout)
 
+    def test_refresh_then_lint_does_not_report_a_stale_mermaid_signature(self) -> None:
+        lint_script = self._script()
+        flow_script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "logics_flow.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._init_git_repo(repo)
+            (repo / "logics" / "tasks").mkdir(parents=True)
+            task = repo / "logics" / "tasks" / "task_000_demo_task.md"
+            task.write_text(
+                "\n".join(
+                    [
+                        "## task_000_demo_task - Demo task",
+                        "> From version: 1.10.5",
+                        "> Status: Ready",
+                        "> Understanding: 100%",
+                        "> Confidence: 100%",
+                        "> Progress: 0%",
+                        "",
+                        "# Context",
+                        "- Derived from backlog item `item_000_demo_backlog`.",
+                        "",
+                        "```mermaid",
+                        "%% logics-kind: task",
+                        "%% logics-signature: task|stale-signature",
+                        "flowchart LR",
+                        "    Backlog[item_000_demo_backlog] --> Step1[Confirm scope]",
+                        "    Step1 --> Validation[Run tests]",
+                        "```",
+                        "",
+                        "# Plan",
+                        "- [ ] 1. Confirm scope, dependencies, and linked acceptance criteria.",
+                        "- [ ] 2. Implement the scoped changes from the backlog item.",
+                        "- [ ] 3. Validate the result and update the linked Logics docs.",
+                        "- [ ] FINAL: Update related Logics docs",
+                        "",
+                        "# Validation",
+                        "- python -m pytest",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            refresh = subprocess.run(
+                [sys.executable, str(flow_script), "sync", "refresh-mermaid-signatures"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(refresh.returncode, 0, refresh.stderr)
+
+            result = subprocess.run(
+                [sys.executable, str(lint_script)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("WARNING: Mermaid context signature is stale", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
