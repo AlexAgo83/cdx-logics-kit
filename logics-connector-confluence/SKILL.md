@@ -16,13 +16,13 @@ description: >-
 
 ## Search pages (CQL)
 ```bash
-python3 logics/skills/logics-connector-confluence/scripts/confluence_search_pages.py \
+python logics/skills/logics-connector-confluence/scripts/confluence_search_pages.py \
   --cql "space=dt AND text~\\\"flotauto\\\"" --limit 10
 ```
 
 ## Import a page into Logics requests
 ```bash
-python3 logics/skills/logics-connector-confluence/scripts/confluence_to_request.py \
+python logics/skills/logics-connector-confluence/scripts/confluence_to_request.py \
   --page-id 234913873
 ```
 

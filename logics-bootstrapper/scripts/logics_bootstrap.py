@@ -22,8 +22,6 @@ DEFAULT_DIRS = (
 GITIGNORE_COMMENT = "# Generated Logics runtime artifacts"
 GITIGNORE_ENTRIES = (
     "logics/.cache/",
-    "logics/hybrid_assist_audit.jsonl",
-    "logics/hybrid_assist_measurements.jsonl",
     "logics/mutation_audit.jsonl",
 )
 

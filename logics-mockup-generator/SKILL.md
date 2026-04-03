@@ -13,11 +13,11 @@ For VS Code extensions, use the `vscode` preset and generate **desktop only**.
 ## Quick start (dashboard preset)
 
 ```bash
-python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+python logics/skills/logics-mockup-generator/scripts/mockup.py \
   --layout desktop \
   --out logics/external/mockup/dashboard-desktop.png
 
-python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+python logics/skills/logics-mockup-generator/scripts/mockup.py \
   --layout mobile \
   --out logics/external/mockup/dashboard-mobile.png
 ```
@@ -25,7 +25,7 @@ python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
 ## VS Code extension preset (desktop only)
 
 ```bash
-python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+python logics/skills/logics-mockup-generator/scripts/mockup.py \
   --preset vscode \
   --out logics/external/mockup/logics-orchestrator-desktop.png \
   --title "LOGICS ORCHESTRATOR" \
@@ -37,12 +37,12 @@ python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
 ## Breakdown tab (base + modifiers)
 
 ```bash
-python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+python logics/skills/logics-mockup-generator/scripts/mockup.py \
   --mode breakdown \
   --layout desktop \
   --out logics/external/mockup/breakdown-desktop.png
 
-python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+python logics/skills/logics-mockup-generator/scripts/mockup.py \
   --mode breakdown \
   --layout mobile \
   --out logics/external/mockup/breakdown-mobile.png
@@ -53,7 +53,7 @@ python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
 You can override the title, cards, and top‑skills list:
 
 ```bash
-python3 logics/skills/logics-mockup-generator/scripts/mockup.py \
+python logics/skills/logics-mockup-generator/scripts/mockup.py \
   --out logics/external/mockup/dashboard-mock.png \
   --title "OVERVIEW" \
   --cards "Metric A|52,180|+9.1%;Metric B|8,340|+2.6%;Metric C|1,284|+3.4%;Metric D|9h 10m|-18m" \

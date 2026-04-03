@@ -2805,8 +2805,10 @@ class LogicsFlowTest(unittest.TestCase):
             repo = Path(tmp)
             logics_dir = repo / "logics"
             logics_dir.mkdir(parents=True)
-            audit_log = logics_dir / "hybrid_assist_audit.jsonl"
-            measurement_log = logics_dir / "hybrid_assist_measurements.jsonl"
+            cache_dir = logics_dir / ".cache"
+            cache_dir.mkdir(parents=True)
+            audit_log = cache_dir / "hybrid_assist_audit.jsonl"
+            measurement_log = cache_dir / "hybrid_assist_measurements.jsonl"
 
             measurement_records = [
                 {
@@ -2986,8 +2988,8 @@ class LogicsFlowTest(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertEqual(payload["backend_used"], "codex")
             self.assertIn(payload["result"]["risk"], {"low", "medium", "high"})
-            self.assertTrue((repo / "logics" / "hybrid_assist_audit.jsonl").is_file())
-            self.assertTrue((repo / "logics" / "hybrid_assist_measurements.jsonl").is_file())
+            self.assertTrue((repo / "logics" / ".cache" / "hybrid_assist_audit.jsonl").is_file())
+            self.assertTrue((repo / "logics" / ".cache" / "hybrid_assist_measurements.jsonl").is_file())
 
     def test_assist_run_diff_risk_prefers_ollama_when_policy_allows_it(self) -> None:
         script = self._script()

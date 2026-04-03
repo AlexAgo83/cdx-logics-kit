@@ -10,7 +10,7 @@ description: Bootstrap a production-ready React web project with Vite, TypeScrip
 Create a new project from the scaffold script:
 
 ```bash
-python3 logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_react_render_project.py \
+python logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_react_render_project.py \
   --project-name my-app \
   --out-dir ../my-app \
   --profile frontend-static-pwa \
@@ -41,7 +41,7 @@ python3 logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_rea
 Dry-run to inspect what will be generated:
 
 ```bash
-python3 logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_react_render_project.py \
+python logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_react_render_project.py \
   --project-name my-app \
   --out-dir ../my-app \
   --profile fullstack-render \
@@ -52,7 +52,7 @@ python3 logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_rea
 Overwrite an existing target directory:
 
 ```bash
-python3 logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_react_render_project.py \
+python logics/skills/logics-react-render-pwa-bootstrapper/scripts/bootstrap_react_render_project.py \
   --project-name my-app \
   --out-dir ../my-app \
   --force

@@ -8,8 +8,8 @@ description: Enforce migration and backward-compatibility guardrails in Logics d
 ## Add compatibility guardrails sections
 
 ```bash
-python3 logics/skills/logics-migration-compat-guardian/scripts/add_migration_guardrails.py logics/backlog/item_001_example.md
-python3 logics/skills/logics-migration-compat-guardian/scripts/add_migration_guardrails.py logics/tasks/task_010_example.md logics/specs/spec_005_example.md
+python logics/skills/logics-migration-compat-guardian/scripts/add_migration_guardrails.py logics/backlog/item_001_example.md
+python logics/skills/logics-migration-compat-guardian/scripts/add_migration_guardrails.py logics/tasks/task_010_example.md logics/specs/spec_005_example.md
 ```
 
 ## Do

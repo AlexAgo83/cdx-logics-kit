@@ -8,8 +8,8 @@ description: Add a risk/rollback review to Logics docs. Use when Codex should id
 ## Add sections automatically
 
 ```bash
-python3 logics/skills/logics-risk-reviewer/scripts/add_risk_sections.py logics/backlog/item_001_foo.md
-python3 logics/skills/logics-risk-reviewer/scripts/add_risk_sections.py logics/tasks/task_002_bar.md
+python logics/skills/logics-risk-reviewer/scripts/add_risk_sections.py logics/backlog/item_001_foo.md
+python logics/skills/logics-risk-reviewer/scripts/add_risk_sections.py logics/tasks/task_002_bar.md
 ```
 
 ## For backlog items

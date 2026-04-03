@@ -8,7 +8,7 @@ description: Detect potential duplicates across Logics documents. Use when Codex
 ## Run
 
 ```bash
-python3 logics/skills/logics-duplicate-detector/scripts/find_duplicates.py --min-score 0.55
+python logics/skills/logics-duplicate-detector/scripts/find_duplicates.py --min-score 0.55
 ```
 
 ## Output

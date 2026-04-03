@@ -8,8 +8,8 @@ description: Lint and validate the Logics Markdown conventions. Use when Codex s
 ## Run
 
 ```bash
-python3 logics/skills/logics-doc-linter/scripts/logics_lint.py
-python3 logics/skills/logics-doc-linter/scripts/logics_lint.py --require-status
+python logics/skills/logics-doc-linter/scripts/logics_lint.py
+python logics/skills/logics-doc-linter/scripts/logics_lint.py --require-status
 ```
 
 ## What it checks

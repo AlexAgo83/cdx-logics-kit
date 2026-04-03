@@ -10,14 +10,14 @@ description: Validate and repair Logics request/backlog/task/product/architectur
 Run a dry scan first, then apply fixes:
 
 ```bash
-python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py
-python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py --write
+python logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py
+python logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py --write
 ```
 
 To target specific docs:
 
 ```bash
-python3 logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py logics/request/req_001_example.md --write
+python logics/skills/logics-doc-fixer/scripts/fix_logics_docs.py logics/request/req_001_example.md --write
 ```
 
 ## What it fixes

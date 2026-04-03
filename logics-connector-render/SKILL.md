@@ -15,13 +15,13 @@ description: >-
 
 ## List services
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_list_services.py \
+python logics/skills/logics-connector-render/scripts/render_list_services.py \
   --limit 100 --include-previews yes
 ```
 
 ## List deploys for one service
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_list_deploys.py \
+python logics/skills/logics-connector-render/scripts/render_list_deploys.py \
   --service-id srv-xxxxxxxx --limit 20
 ```
 
@@ -29,12 +29,12 @@ python3 logics/skills/logics-connector-render/scripts/render_list_deploys.py \
 
 Show supported plan enums from Render OpenAPI:
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py show-plans
+python logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py show-plans
 ```
 
 Create a deployment plan snapshot file:
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py snapshot \
+python logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py snapshot \
   --out logics/external/render/render_deployment_plan.snapshot.json \
   --markdown-out logics/external/render/render_deployment_plan.snapshot.md \
   --limit 200
@@ -42,20 +42,20 @@ python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_p
 
 Apply target plan changes from a plan file:
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py apply \
+python logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py apply \
   --plan-file logics/external/render/render_deployment_plan.snapshot.json
 ```
 
 Validate changes without applying:
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py apply \
+python logics/skills/logics-connector-render/scripts/render_manage_deployment_plans.py apply \
   --plan-file logics/external/render/render_deployment_plan.snapshot.json \
   --validate-only
 ```
 
 ## Import a Render service into Logics backlog
 ```bash
-python3 logics/skills/logics-connector-render/scripts/render_to_backlog.py \
+python logics/skills/logics-connector-render/scripts/render_to_backlog.py \
   --service-id srv-xxxxxxxx --deploy-limit 10
 ```
 

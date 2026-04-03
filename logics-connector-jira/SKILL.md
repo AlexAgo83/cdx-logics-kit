@@ -17,13 +17,13 @@ Optional:
 
 ## Search issues (JQL)
 ```bash
-python3 logics/skills/logics-connector-jira/scripts/jira_search_issues.py \
+python logics/skills/logics-connector-jira/scripts/jira_search_issues.py \
   --jql "project = CIR ORDER BY created DESC" --limit 20
 ```
 
 ## Import an issue into Logics backlog
 ```bash
-python3 logics/skills/logics-connector-jira/scripts/jira_to_backlog.py \
+python logics/skills/logics-connector-jira/scripts/jira_to_backlog.py \
   --issue "CIR-123"
 ```
 

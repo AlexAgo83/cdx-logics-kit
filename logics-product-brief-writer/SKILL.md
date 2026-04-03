@@ -8,7 +8,7 @@ description: Write product briefs in `logics/product`. Use when Codex identifies
 ## Create a new product brief
 
 ```bash
-python3 logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing" --out-dir logics/product
+python logics/skills/logics-product-brief-writer/scripts/new_product_brief.py --title "Guest checkout framing" --out-dir logics/product
 ```
 
 ## Structure

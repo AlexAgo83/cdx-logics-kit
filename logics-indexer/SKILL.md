@@ -8,6 +8,6 @@ description: Generate a consolidated index of Logics documents. Use when Codex s
 ## Run
 
 ```bash
-python3 logics/skills/logics-indexer/scripts/generate_index.py --out logics/INDEX.md
+python logics/skills/logics-indexer/scripts/generate_index.py --out logics/INDEX.md
 ```
 

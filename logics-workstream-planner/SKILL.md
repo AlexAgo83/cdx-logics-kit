@@ -8,6 +8,6 @@ description: Plan workstreams/roadmap from Logics backlog and tasks. Use when Co
 ## Generate a roadmap
 
 ```bash
-python3 logics/skills/logics-workstream-planner/scripts/generate_roadmap.py --out logics/ROADMAP.md
+python logics/skills/logics-workstream-planner/scripts/generate_roadmap.py --out logics/ROADMAP.md
 ```
 

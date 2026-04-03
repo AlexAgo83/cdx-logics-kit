@@ -8,9 +8,9 @@ description: Build and refresh acceptance-criteria traceability matrices for Log
 ## Generate or refresh a matrix
 
 ```bash
-python3 logics/skills/logics-traceability-matrix-builder/scripts/build_traceability_matrix.py logics/tasks/task_001_example.md
-python3 logics/skills/logics-traceability-matrix-builder/scripts/build_traceability_matrix.py logics/backlog/item_010_example.md --update-doc
-python3 logics/skills/logics-traceability-matrix-builder/scripts/build_traceability_matrix.py logics/specs/spec_003_example.md --out logics/external/traceability/spec_003_matrix.md
+python logics/skills/logics-traceability-matrix-builder/scripts/build_traceability_matrix.py logics/tasks/task_001_example.md
+python logics/skills/logics-traceability-matrix-builder/scripts/build_traceability_matrix.py logics/backlog/item_010_example.md --update-doc
+python logics/skills/logics-traceability-matrix-builder/scripts/build_traceability_matrix.py logics/specs/spec_003_example.md --out logics/external/traceability/spec_003_matrix.md
 ```
 
 ## Do

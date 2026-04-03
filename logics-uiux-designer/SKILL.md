@@ -23,7 +23,7 @@ description: Product UI/UX design assistant for this repo. Use when Codex should
 Use the generator script (creates a `spec_XXX_*.md` in `logics/specs/` using the UI/UX proposal template):
 
 ```bash
-python3 logics/skills/logics-uiux-designer/scripts/logics_uiux.py new --title "Redesign offline recap modal"
+python logics/skills/logics-uiux-designer/scripts/logics_uiux.py new --title "Redesign offline recap modal"
 ```
 
 ## Procedure

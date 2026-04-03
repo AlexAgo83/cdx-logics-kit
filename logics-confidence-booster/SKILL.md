@@ -12,14 +12,14 @@ For `logics/product/*.md` and `logics/architecture/*.md`, use it to strengthen d
 ## Run (interactive)
 
 ```bash
-python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
-python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/product/prod_001_example.md --apply-defaults --status Active
+python logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/request/req_001_example.md
+python logics/skills/logics-confidence-booster/scripts/boost_confidence.py logics/product/prod_001_example.md --apply-defaults --status Active
 ```
 
 ## Run (apply defaults, no prompts)
 
 ```bash
-python3 logics/skills/logics-confidence-booster/scripts/boost_confidence.py \
+python logics/skills/logics-confidence-booster/scripts/boost_confidence.py \
   logics/request/req_001_example.md \
   --apply-defaults
 ```

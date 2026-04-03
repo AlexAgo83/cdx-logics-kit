@@ -17,8 +17,8 @@ It does not replace the kit repository release flow based on `VERSION` and `chan
 ## Run gate checks
 
 ```bash
-python3 logics/skills/logics-release-gatekeeper/scripts/release_gate_check.py
-python3 logics/skills/logics-release-gatekeeper/scripts/release_gate_check.py --out logics/external/release/gate.md --require-release-notes
+python logics/skills/logics-release-gatekeeper/scripts/release_gate_check.py
+python logics/skills/logics-release-gatekeeper/scripts/release_gate_check.py --out logics/external/release/gate.md --require-release-notes
 ```
 
 ## Do

@@ -8,8 +8,8 @@ description: Analyze repository changes and produce a pragmatic test impact plan
 ## Build a test impact plan
 
 ```bash
-python3 logics/skills/logics-test-impact-orchestrator/scripts/plan_test_impact.py
-python3 logics/skills/logics-test-impact-orchestrator/scripts/plan_test_impact.py --base origin/main --out logics/external/test-impact/latest.md
+python logics/skills/logics-test-impact-orchestrator/scripts/plan_test_impact.py
+python logics/skills/logics-test-impact-orchestrator/scripts/plan_test_impact.py --base origin/main --out logics/external/test-impact/latest.md
 ```
 
 ## Do

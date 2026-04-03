@@ -32,16 +32,16 @@ class BootstrapperTest(unittest.TestCase):
             self.assertIn("Use the following indicators in product briefs:", instructions)
             self.assertIn("Use the following indicators in architecture docs:", instructions)
             self.assertIn("Canonical examples use `python ...`;", instructions)
-            self.assertIn("`python logics/skills/logics-flow-manager/scripts/logics_flow.py`", instructions)
+            self.assertIn("`python logics/skills/logics.py flow ...`", instructions)
             self.assertNotIn("python3 logics/skills/", instructions)
             config_text = (repo / "logics.yaml").read_text(encoding="utf-8")
             self.assertIn("policy: minimal-coherent", config_text)
             self.assertIn("mode: transactional", config_text)
+            self.assertIn("audit_log: logics/.cache/hybrid_assist_audit.jsonl", config_text)
+            self.assertIn("measurement_log: logics/.cache/hybrid_assist_measurements.jsonl", config_text)
             gitignore_text = (repo / ".gitignore").read_text(encoding="utf-8")
             self.assertIn("# Generated Logics runtime artifacts", gitignore_text)
             self.assertIn("logics/.cache/", gitignore_text)
-            self.assertIn("logics/hybrid_assist_audit.jsonl", gitignore_text)
-            self.assertIn("logics/hybrid_assist_measurements.jsonl", gitignore_text)
             self.assertIn("logics/mutation_audit.jsonl", gitignore_text)
 
     def test_bootstrap_supports_json_output(self) -> None:
@@ -89,8 +89,6 @@ class BootstrapperTest(unittest.TestCase):
             self.assertIn("node_modules/\n*.vsix\n", gitignore_text)
             self.assertEqual(gitignore_text.count("# Generated Logics runtime artifacts"), 1)
             self.assertIn("logics/.cache/", gitignore_text)
-            self.assertIn("logics/hybrid_assist_audit.jsonl", gitignore_text)
-            self.assertIn("logics/hybrid_assist_measurements.jsonl", gitignore_text)
             self.assertIn("logics/mutation_audit.jsonl", gitignore_text)
 
             rerun = subprocess.run(

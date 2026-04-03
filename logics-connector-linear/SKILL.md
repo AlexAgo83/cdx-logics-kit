@@ -15,13 +15,13 @@ description: >-
 
 ## List issues for a team
 ```bash
-python3 logics/skills/logics-connector-linear/scripts/linear_list_issues.py \
+python logics/skills/logics-connector-linear/scripts/linear_list_issues.py \
   --team-id "$LINEAR_API_TEAM_ID" --limit 50
 ```
 
 ## Import a Linear issue into Logics backlog
 ```bash
-python3 logics/skills/logics-connector-linear/scripts/linear_to_backlog.py \
+python logics/skills/logics-connector-linear/scripts/linear_to_backlog.py \
   --issue "CIR-42"
 ```
 

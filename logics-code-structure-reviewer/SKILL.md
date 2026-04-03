@@ -10,13 +10,13 @@ description: Detect the repository's likely stack/framework (heuristics) and gen
 Print a Markdown report to stdout:
 
 ```bash
-python3 logics/skills/logics-code-structure-reviewer/scripts/code_structure_review.py
+python logics/skills/logics-code-structure-reviewer/scripts/code_structure_review.py
 ```
 
 Write the report to a file:
 
 ```bash
-python3 logics/skills/logics-code-structure-reviewer/scripts/code_structure_review.py --out logics/CODE_REVIEW.md
+python logics/skills/logics-code-structure-reviewer/scripts/code_structure_review.py --out logics/CODE_REVIEW.md
 ```
 
 ## Useful flags

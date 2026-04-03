@@ -8,8 +8,8 @@ description: Add ownership and success metrics to Logics backlog/spec docs. Use 
 ## Add a section automatically
 
 ```bash
-python3 logics/skills/logics-metrics-owner/scripts/add_owner_metrics.py logics/backlog/item_001_foo.md --owner \"@name\"
-python3 logics/skills/logics-metrics-owner/scripts/add_owner_metrics.py logics/specs/spec_003_baz.md
+python logics/skills/logics-metrics-owner/scripts/add_owner_metrics.py logics/backlog/item_001_foo.md --owner \"@name\"
+python logics/skills/logics-metrics-owner/scripts/add_owner_metrics.py logics/specs/spec_003_baz.md
 ```
 
 ## Add to backlog/spec

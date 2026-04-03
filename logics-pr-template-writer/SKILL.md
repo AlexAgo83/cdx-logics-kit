@@ -8,6 +8,6 @@ description: Generate a pull request description from a Logics task. Use when Co
 ## Generate from a task
 
 ```bash
-python3 logics/skills/logics-pr-template-writer/scripts/generate_pr_template.py logics/tasks/task_000_example.md --out PR.md
+python logics/skills/logics-pr-template-writer/scripts/generate_pr_template.py logics/tasks/task_000_example.md --out PR.md
 ```
 

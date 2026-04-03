@@ -8,8 +8,8 @@ description: Estimate effort and complexity for Logics backlog items and tasks. 
 ## Add an estimate section automatically
 
 ```bash
-python3 logics/skills/logics-estimation-helper/scripts/add_estimate.py logics/backlog/item_001_foo.md --size M
-python3 logics/skills/logics-estimation-helper/scripts/add_estimate.py logics/tasks/task_002_bar.md --points 3
+python logics/skills/logics-estimation-helper/scripts/add_estimate.py logics/backlog/item_001_foo.md --size M
+python logics/skills/logics-estimation-helper/scripts/add_estimate.py logics/tasks/task_002_bar.md --points 3
 ```
 
 ## Output format

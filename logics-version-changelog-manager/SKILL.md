@@ -13,13 +13,13 @@ Versioned release notes live in `changelogs/`.
 ## Generate the changelog for the current version
 
 ```bash
-python3 logics-version-changelog-manager/scripts/generate_version_changelog.py
+python logics-version-changelog-manager/scripts/generate_version_changelog.py
 ```
 
 ## Generate for an explicit version and previous tag
 
 ```bash
-python3 logics-version-changelog-manager/scripts/generate_version_changelog.py \
+python logics-version-changelog-manager/scripts/generate_version_changelog.py \
   --version 1.0.1 \
   --previous-tag v1.0.0
 ```

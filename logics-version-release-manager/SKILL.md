@@ -13,13 +13,13 @@ The release notes source of truth lives in `changelogs/CHANGELOGS_<version>.md`.
 ## Dry-run a release
 
 ```bash
-python3 logics-version-release-manager/scripts/publish_version_release.py --dry-run
+python logics-version-release-manager/scripts/publish_version_release.py --dry-run
 ```
 
 ## Publish a release
 
 ```bash
-python3 logics-version-release-manager/scripts/publish_version_release.py --create-tag --push
+python logics-version-release-manager/scripts/publish_version_release.py --create-tag --push
 ```
 
 ## Notes

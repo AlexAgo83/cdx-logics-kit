@@ -13,5 +13,5 @@ It is separate from the kit repository release flow, which now uses `VERSION` an
 ## Run
 
 ```bash
-python3 logics/skills/logics-release-notes/scripts/generate_release_notes.py --out logics/RELEASE_NOTES.md
+python logics/skills/logics-release-notes/scripts/generate_release_notes.py --out logics/RELEASE_NOTES.md
 ```

@@ -8,7 +8,7 @@ description: Write architecture decision records (ADR) in `logics/architecture`.
 ## Create a new ADR
 
 ```bash
-python3 logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy" --out-dir logics/architecture
+python logics/skills/logics-architecture-decision-writer/scripts/new_adr.py --title "Choose cache strategy" --out-dir logics/architecture
 ```
 
 ## DAT-style structure

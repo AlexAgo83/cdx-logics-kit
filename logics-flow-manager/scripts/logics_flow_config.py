@@ -42,8 +42,8 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
         },
         "ollama_host": "http://127.0.0.1:11434",
         "timeout_seconds": 20.0,
-        "audit_log": "logics/hybrid_assist_audit.jsonl",
-        "measurement_log": "logics/hybrid_assist_measurements.jsonl",
+        "audit_log": "logics/.cache/hybrid_assist_audit.jsonl",
+        "measurement_log": "logics/.cache/hybrid_assist_measurements.jsonl",
     },
 }
 

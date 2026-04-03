@@ -8,7 +8,7 @@ description: Build and maintain relationships across Logics documents. Use when 
 ## Generate a relationship report
 
 ```bash
-python3 logics/skills/logics-relationship-linker/scripts/link_relations.py --out logics/RELATIONSHIPS.md
+python logics/skills/logics-relationship-linker/scripts/link_relations.py --out logics/RELATIONSHIPS.md
 ```
 
 ## Conventions

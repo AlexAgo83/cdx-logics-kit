@@ -8,7 +8,7 @@ description: Create lightweight functional specs inside this repo. Use when Code
 ## Create a spec doc
 
 ```bash
-python3 logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "..." --from-version X.X.X
+python logics/skills/logics-spec-writer/scripts/logics_spec.py new --title "..." --from-version X.X.X
 ```
 
 ## Fill it from inputs

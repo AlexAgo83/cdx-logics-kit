@@ -16,5 +16,5 @@ For kit releases, use:
 ## Generate from release notes
 
 ```bash
-python3 logics/skills/logics-changelog-curator/scripts/curate_changelog.py --in logics/RELEASE_NOTES.md --out logics/CHANGELOG.md
+python logics/skills/logics-changelog-curator/scripts/curate_changelog.py --in logics/RELEASE_NOTES.md --out logics/CHANGELOG.md
 ```
