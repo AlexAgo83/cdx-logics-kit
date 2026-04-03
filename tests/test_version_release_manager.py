@@ -50,7 +50,7 @@ class VersionReleaseManagerTest(unittest.TestCase):
         commands = self.module.build_release_commands(
             version="1.0.1",
             notes_file=Path("changelogs/CHANGELOGS_1_0_1.md"),
-            title="Stable v1.0.1",
+            title="v1.0.1",
             create_tag=True,
             push=True,
             draft=True,
@@ -76,6 +76,7 @@ class VersionReleaseManagerTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         output = stdout.getvalue()
         self.assertIn("gh release create v1.0.1", output)
+        self.assertIn("--title v1.0.1", output)
 
     def test_non_dry_run_requires_clean_git(self) -> None:
         self.write("VERSION", "1.0.1\n")

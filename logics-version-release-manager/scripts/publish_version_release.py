@@ -118,7 +118,7 @@ def main(argv: list[str]) -> int:
     if not notes_file.is_file():
         raise SystemExit(f"Missing release notes file: {notes_file}")
 
-    title = args.title or f"Stable {tag_name}"
+    title = args.title or tag_name
     if not args.dry_run:
         ensure_clean_git(repo_root)
         if tag_exists(repo_root, tag_name) and args.create_tag:
