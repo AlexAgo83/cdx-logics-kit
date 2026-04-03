@@ -13,7 +13,7 @@ If your environment only exposes `python3` or `py -3`, substitute that launcher.
 - Ask 3–7 clarifying questions (user, problem, constraints, success signal, urgency).
 - Decide whether this is a request, a bug report, or an architecture note.
 - Create a request doc using `logics-flow-manager`:
-  - `python logics/skills/logics-flow-manager/scripts/logics_flow.py new request --title "..."`.
+  - `python logics/skills/logics.py flow new request --title "..."`.
 - Fill `# Needs` with 1–5 bullet needs.
 - Fill `# Context` with constraints, references, and any relevant links.
 - Set `Understanding` and `Confidence` realistically; keep them updated as you learn.

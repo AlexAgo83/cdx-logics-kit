@@ -18,8 +18,8 @@ If your environment only exposes `python3` or `py -3`, substitute that launcher.
   - A `# Validation` section using relevant commands (`npm run lint`, `npm run tests`, `npm run typecheck`, `npm run build`).
   - A short `# Report` updated as work progresses.
 - Generate tasks:
-  - `python logics/skills/logics-flow-manager/scripts/logics_flow.py promote backlog-to-task logics/backlog/<item_file>.md`
-  - Or `python logics/skills/logics-flow-manager/scripts/logics_flow.py new task --title "..."`
+  - `python logics/skills/logics.py flow promote backlog-to-task logics/backlog/<item_file>.md`
+  - Or `python logics/skills/logics.py flow new task --title "..."`
 
 ## Avoid
 

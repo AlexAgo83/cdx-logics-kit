@@ -15,8 +15,8 @@ If your environment only exposes `python3` or `py -3`, substitute that launcher.
 - Write objective `# Acceptance criteria` (testable checks).
 - Set `# Priority` (Impact/Urgency) and add dependencies/risks in `# Notes`.
 - Create the backlog doc:
-  - `python logics/skills/logics-flow-manager/scripts/logics_flow.py promote request-to-backlog logics/request/<req_file>.md`
-  - Or `python logics/skills/logics-flow-manager/scripts/logics_flow.py new backlog --title "..."`
+  - `python logics/skills/logics.py flow promote request-to-backlog logics/request/<req_file>.md`
+  - Or `python logics/skills/logics.py flow new backlog --title "..."`
 
 ## Outcome
 
