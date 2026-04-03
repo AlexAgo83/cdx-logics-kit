@@ -100,6 +100,26 @@ AI_KEYWORD_STOPWORDS = {
     "when",
     "with",
 }
+MARKDOWN_LINK_PATTERN = re.compile(r"^\[[^\]]+\]\(([^)]+)\)$")
+REPO_PATH_STARTERS = (
+    "logics/",
+    "src/",
+    "media/",
+    "tests/",
+    "scripts/",
+    "debug/",
+    "changelogs/",
+    ".github/",
+    ".vscode/",
+    ".claude/",
+    "README.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "package.json",
+    "VERSION",
+    ".gitattributes",
+    ".vscodeignore",
+)
 
 @dataclass(frozen=True)
 class PlannedDoc:
@@ -324,8 +344,30 @@ def _apply_ai_context_values(
 def _normalize_reference_item(item: str) -> str:
     value = item.strip()
     if value.startswith("`") and value.endswith("`"):
-        return value[1:-1].strip()
-    return value
+        value = value[1:-1].strip()
+    match = MARKDOWN_LINK_PATTERN.match(value)
+    if match is not None:
+        value = match.group(1).strip()
+    return _repo_relative_path_hint(value)
+
+
+def _repo_relative_path_hint(value: str) -> str:
+    candidate = value.strip().strip("<>")
+    if not candidate:
+        return candidate
+    if candidate.startswith("file://"):
+        candidate = candidate.removeprefix("file://")
+    normalized = candidate.replace("\\", "/").split("?", 1)[0].split("#", 1)[0]
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", normalized):
+        return value.strip()
+    for starter in REPO_PATH_STARTERS:
+        if normalized == starter or normalized.startswith(starter):
+            return normalized
+        marker = f"/{starter}"
+        index = normalized.find(marker)
+        if index != -1:
+            return normalized[index + 1 :]
+    return normalized
 
 
 def _has_frontend_signals(*parts: str) -> bool:

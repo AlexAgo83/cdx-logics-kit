@@ -585,6 +585,48 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("# References", task_text)
             self.assertIn("- `logics/skills/logics-ui-steering/SKILL.md`", task_text)
 
+    def test_promotion_normalizes_repo_absolute_markdown_references_to_relative_paths(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            request = repo / "logics" / "request" / "req_000_reference_cleanup.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_reference_cleanup - Reference cleanup",
+                    "> From version: 1.10.5",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Keep references short.",
+                    "",
+                    "# References",
+                    "- [README](/Users/alexandreagostini/Documents/cdx-logics-vscode/README.md)",
+                    "- [flow skill](/Users/alexandreagostini/Documents/cdx-logics-vscode/logics/skills/logics-flow-manager/SKILL.md#L1)",
+                ],
+            )
+
+            backlog_result = subprocess.run(
+                [sys.executable, str(script), "promote", "request-to-backlog", str(request)],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(backlog_result.returncode, 0, backlog_result.stderr)
+
+            backlog = repo / "logics" / "backlog" / "item_000_reference_cleanup.md"
+            backlog_text = backlog.read_text(encoding="utf-8")
+            self.assertIn("- `README.md`", backlog_text)
+            self.assertIn("- `logics/skills/logics-flow-manager/SKILL.md`", backlog_text)
+            self.assertNotIn("/Users/alexandreagostini/Documents", backlog_text)
+
     def test_promotions_generate_context_aware_mermaid_signatures(self) -> None:
         script = self._script()
 

@@ -17,6 +17,7 @@ description: >-
 - Keep workflow docs in `logics/request/`, `logics/backlog/`, `logics/tasks/`.
 - Use companion docs in `logics/product/` for structuring product framing and `logics/architecture/` for structuring technical decisions.
 - Use numeric IDs and slugs in filenames: `req_001_my_title.md`, `item_002_some_scope.md`, `task_003_do_the_work.md`.
+- When mentioning files in generated docs, use repo-relative paths such as `logics/...` or `src/...`, never absolute filesystem paths such as `/Users/...`.
 - Keep indicators at the top:
   - `From version: X.X.X`
   - `Status: Draft | Ready | In progress | Blocked | Done | Archived`
