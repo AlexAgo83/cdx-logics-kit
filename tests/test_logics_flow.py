@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import http.server
 import json
 import os
@@ -21,6 +22,21 @@ class LogicsFlowTest(unittest.TestCase):
 
     def _flow_manager_root(self) -> Path:
         return Path(__file__).resolve().parents[1] / "logics-flow-manager"
+
+    def _hybrid_module(self):
+        module_path = self._flow_manager_root() / "scripts" / "logics_flow_hybrid.py"
+        spec = importlib.util.spec_from_file_location("logics_flow_hybrid_test", module_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(module_path.parent))
+        try:
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+        finally:
+            sys.modules.pop(spec.name, None)
+            sys.path.pop(0)
+        return module
 
     def _fixtures_root(self) -> Path:
         return Path(__file__).resolve().parent / "fixtures"
@@ -2691,6 +2707,58 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("required_keys", payload["raw_result"])
             self.assertEqual(payload["transport"]["diagnostic"]["error_code"], "hybrid_missing_field")
             self.assertEqual(payload["transport"]["upstream_transport"], "ollama")
+
+    def test_validate_hybrid_result_rejects_generic_commit_subject(self) -> None:
+        hybrid = self._hybrid_module()
+
+        with self.assertRaises(hybrid.HybridAssistError) as context:
+            hybrid.validate_hybrid_result(
+                "commit-message",
+                {
+                    "subject": "Update plugin hybrid assist surfaces",
+                    "body": "Changes touch `src/logicsWebviewHtml.ts`.",
+                    "scope": "root",
+                    "confidence": 0.72,
+                    "rationale": "Generic fallback",
+                },
+                {},
+                context_bundle={
+                    "git_snapshot": {
+                        "changed_paths": [
+                            "src/logicsWebviewHtml.ts",
+                            "media/toolsPanelLayout.js",
+                            "tests/webview.harness-core.test.ts",
+                        ]
+                    }
+                },
+            )
+
+        self.assertEqual(context.exception.code, "hybrid_generic_subject")
+
+    def test_build_fallback_result_prefers_specific_tools_panel_subject(self) -> None:
+        hybrid = self._hybrid_module()
+
+        result = hybrid.build_fallback_result(
+            "commit-message",
+            context_bundle={
+                "repo_root": ".",
+                "git_snapshot": {
+                    "changed_paths": [
+                        "media/css/toolbar.css",
+                        "media/toolsPanelLayout.js",
+                        "src/logicsWebviewHtml.ts",
+                        "tests/webview.harness-core.test.ts",
+                    ],
+                    "touches_plugin": True,
+                    "touches_runtime": False,
+                    "touches_tests": True,
+                    "doc_only": False,
+                },
+            },
+            docs_by_ref={},
+        )
+
+        self.assertEqual(result["subject"], "Refine tools panel navigation and test coverage")
 
     def test_assist_run_commit_message_distinguishes_transport_unavailability_from_semantic_failure(self) -> None:
         script = self._script()

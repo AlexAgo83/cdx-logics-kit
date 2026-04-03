@@ -71,6 +71,12 @@ BACKEND_POLICY_MODES = (
     BACKEND_POLICY_CODEX_ONLY,
     BACKEND_POLICY_DETERMINISTIC,
 )
+GENERIC_COMMIT_SUBJECTS = {
+    "update plugin hybrid assist surfaces",
+    "update logics docs and runtime surfaces",
+    "add hybrid assist runtime and plugin surfaces",
+    "add hybrid assist runtime flows",
+}
 
 FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
     "commit-message": {
@@ -857,7 +863,61 @@ def _normalize_string_list(value: Any, key: str, *, min_items: int = 1) -> list[
     return normalized
 
 
-def validate_hybrid_result(flow_name: str, payload: dict[str, Any], docs_by_ref: dict[str, WorkflowDocModel]) -> dict[str, Any]:
+def _looks_generic_commit_subject(subject: str) -> bool:
+    normalized = " ".join(subject.split()).strip().lower()
+    if normalized in GENERIC_COMMIT_SUBJECTS:
+        return True
+    if "surfaces" in normalized:
+        return True
+    return False
+
+
+def _infer_commit_focus_from_paths(changed_paths: list[str]) -> str | None:
+    lowered_paths = [path.lower() for path in changed_paths]
+    if any("tools" in path or "toolbar" in path for path in lowered_paths):
+        return "tools panel navigation"
+    if any("activity" in path for path in lowered_paths):
+        return "activity panel rendering"
+    if any("webview" in path for path in lowered_paths):
+        return "plugin webview behavior"
+    if any("environment" in path for path in lowered_paths):
+        return "environment diagnostics"
+    if any(path.startswith("tests/") or "/tests/" in path for path in lowered_paths):
+        return "test coverage"
+    return None
+
+
+def _build_deterministic_commit_subject(git_snapshot: dict[str, Any]) -> str:
+    changed_paths = list(git_snapshot.get("changed_paths", []))
+    if changed_paths and all(path.startswith("logics/skills/") or path == "logics/skills" for path in changed_paths):
+        return "Update Logics skills submodule pointer"
+
+    focus = _infer_commit_focus_from_paths(changed_paths)
+    if focus:
+        if git_snapshot.get("touches_tests") and focus != "test coverage":
+            return f"Refine {focus} and test coverage"
+        return f"Refine {focus}"
+
+    if git_snapshot.get("touches_runtime") and git_snapshot.get("touches_plugin"):
+        return "Update hybrid assist runtime and plugin integration"
+    if git_snapshot.get("touches_plugin") and git_snapshot.get("touches_tests"):
+        return "Refine plugin webview and test coverage"
+    if git_snapshot.get("touches_plugin"):
+        return "Refine plugin webview behavior"
+    if git_snapshot.get("touches_runtime"):
+        return "Update hybrid assist runtime flows"
+    if git_snapshot.get("doc_only"):
+        return "Update Logics planning and workflow docs"
+    return "Update repository files"
+
+
+def validate_hybrid_result(
+    flow_name: str,
+    payload: dict[str, Any],
+    docs_by_ref: dict[str, WorkflowDocModel],
+    *,
+    context_bundle: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     contract = FLOW_CONTRACTS.get(flow_name)
     if contract is None:
         raise HybridAssistError("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
@@ -888,6 +948,15 @@ def validate_hybrid_result(flow_name: str, payload: dict[str, Any], docs_by_ref:
         if not isinstance(subject, str) or not subject.strip():
             raise HybridAssistError("hybrid_invalid_subject", "`subject` must be a non-empty string.")
         normalized["subject"] = " ".join(subject.split())[:72]
+        if _looks_generic_commit_subject(normalized["subject"]):
+            details: dict[str, Any] = {"subject": normalized["subject"]}
+            if context_bundle is not None:
+                details["changed_paths"] = list(context_bundle.get("git_snapshot", {}).get("changed_paths", []))[:8]
+            raise HybridAssistError(
+                "hybrid_generic_subject",
+                "`subject` is too generic for a commit message; name the real changed area.",
+                details=details,
+            )
         body = payload["body"]
         if not isinstance(body, str):
             raise HybridAssistError("hybrid_invalid_body", "`body` must be a string.")
@@ -1970,15 +2039,7 @@ def build_fallback_result(
     changed_paths = list(git_snapshot.get("changed_paths", []))
     if flow_name == "commit-message":
         scope = "submodule" if changed_paths and all(path.startswith("logics/skills/") or path == "logics/skills" for path in changed_paths) else "root"
-        subject = "Update Logics docs and runtime surfaces"
-        if git_snapshot.get("touches_plugin") and git_snapshot.get("touches_runtime"):
-            subject = "Add hybrid assist runtime and plugin surfaces"
-        elif git_snapshot.get("touches_plugin"):
-            subject = "Update plugin hybrid assist surfaces"
-        elif git_snapshot.get("touches_runtime"):
-            subject = "Add hybrid assist runtime flows"
-        elif git_snapshot.get("doc_only"):
-            subject = "Update Logics planning and workflow docs"
+        subject = _build_deterministic_commit_subject(git_snapshot)
         return {
             "subject": subject[:72],
             "body": _summarize_changed_paths(context_bundle),

@@ -762,7 +762,7 @@ def _run_hybrid_assist(
                 timeout_seconds=timeout_seconds,
             )
             raw_payload = transport["result_payload"]
-            validated = validate_hybrid_result(flow_name, raw_payload, docs_by_ref)
+            validated = validate_hybrid_result(flow_name, raw_payload, docs_by_ref, context_bundle=context_bundle)
         except HybridAssistError as exc:
             if requested_backend != "auto":
                 raise
