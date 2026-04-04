@@ -22,9 +22,27 @@ python logics-version-release-manager/scripts/publish_version_release.py --dry-r
 python logics-version-release-manager/scripts/publish_version_release.py --create-tag --push
 ```
 
-## Check the release surface with the shared AI runtime
+## Prepare and publish a release with the shared AI runtime
 
-Before publishing, keep the deterministic release script as the source of truth, then use the shared hybrid assist runtime to review the changelog/release contract and the commit checkpoint:
+`flow assist prepare-release` is the preferred end-to-end release helper. It chains `release-changelog-status`, `validation-checklist`, and `diff-risk` checks before invoking the publish script:
+
+```bash
+# Check readiness only (default suggestion-only mode)
+python logics/skills/logics.py flow assist prepare-release --format json
+
+# Dry-run the publish commands without executing them
+python logics/skills/logics.py flow assist prepare-release --execution-mode execute --dry-run --format json
+
+# Publish: create tag, push, and create GitHub release
+python logics/skills/logics.py flow assist prepare-release --execution-mode execute --push --format json
+
+# Publish as a draft release
+python logics/skills/logics.py flow assist prepare-release --execution-mode execute --push --draft --format json
+```
+
+The `ready` key in the JSON output is `true` only when the curated changelog exists and the working tree is clean. The publish script is not invoked when `ready` is `false`.
+
+## Check the release surface individually
 
 ```bash
 python logics/skills/logics.py flow assist release-changelog-status --format json
@@ -33,7 +51,7 @@ python logics/skills/logics.py flow assist commit-all
 
 ## Notes
 
-- The script reads `VERSION` by default.
+- The script reads `VERSION` by default; override with `--version X.Y.Z`.
 - It expects a matching changelog entry under `changelogs/`.
 - It can create the annotated tag, push `main` and the tag, then publish the GitHub release via `gh`.
-- `flow assist commit-all` is the preferred commit helper when the shared AI runtime is healthy; the publish script itself stays deterministic.
+- `flow assist prepare-release` is the preferred release helper; the publish script itself stays deterministic.

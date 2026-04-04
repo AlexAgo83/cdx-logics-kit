@@ -25,6 +25,7 @@ Cross-platform launcher:
 - The user asks what the next workflow step should be.
 - The user wants to triage a request or backlog item.
 - The user wants a compact handoff packet or a bounded split suggestion.
+- The user says `prepare release`, `publish release`, or asks for a release readiness check.
 
 ## Rules
 
@@ -35,9 +36,12 @@ Cross-platform launcher:
   - `python logics/skills/logics.py flow assist next-step <ref>`
   - `python logics/skills/logics.py flow assist triage <ref>`
   - `python logics/skills/logics.py flow assist handoff <ref>`
+  - `python logics/skills/logics.py flow assist prepare-release`
 - Keep risky execution bounded:
   - default to `suggestion-only`
   - use `--execution-mode execute` only when the operator intent is explicit
+  - for `prepare-release --execution-mode execute`, add `--push` to actually tag and publish; omit `--push` to dry-run only
+  - add `--draft` to create a draft GitHub release instead of publishing immediately
 - Keep the runtime shared:
   - do not reimplement hybrid logic in agent-specific prompts
   - keep Codex and Claude paths thin over the same command surface

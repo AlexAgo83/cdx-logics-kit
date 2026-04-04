@@ -802,6 +802,8 @@ def _run_hybrid_assist(
         validated = {"decision": decision.to_dict(), "mapped_command": mapped_command}
     elif flow_name == "commit-all":
         raise SystemExit("Internal error: commit-all should route through cmd_assist_commit_all.")
+    elif flow_name == "prepare-release":
+        raise SystemExit("Internal error: prepare-release should route through cmd_assist_prepare_release.")
 
     result_status = "degraded" if degraded_reasons else "ok"
     audit_path = (repo_root / audit_log).resolve()
@@ -981,6 +983,105 @@ def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
         "backend_used": plan_payload["backend_used"],
         "audit_log": plan_payload["audit_log"],
         "measurement_log": plan_payload["measurement_log"],
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
+        "ok": True,
+    }
+    if args.format == "text":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
+def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    base_kwargs = {
+        "repo_root": repo_root,
+        "requested_backend": args.backend or _hybrid_default_backend(config),
+        "requested_model_profile": getattr(args, "model_profile", None),
+        "requested_model": args.model,
+        "ollama_host": args.ollama_host or _hybrid_default_host(config),
+        "timeout_seconds": args.timeout or _hybrid_default_timeout(config),
+        "context_mode": args.context_mode,
+        "profile": args.profile,
+        "include_graph": args.include_graph,
+        "include_registry": args.include_registry,
+        "include_doctor": args.include_doctor,
+        "execution_mode": "suggestion-only",
+        "audit_log": args.audit_log or _hybrid_audit_log(config),
+        "measurement_log": args.measurement_log or _hybrid_measurement_log(config),
+        "config": config,
+        "dry_run": args.dry_run,
+    }
+
+    # Capture the git snapshot before any assist calls so audit log creation does not
+    # pollute the working-tree status check.
+    git_snapshot = collect_git_snapshot(repo_root)
+
+    # release-changelog-status is policy-deterministic; always use auto so the backend
+    # policy routes it correctly regardless of what the operator requested.
+    changelog_status_payload = _run_hybrid_assist(
+        flow_name="release-changelog-status", ref=None, **{**base_kwargs, "requested_backend": "auto"}
+    )
+    validation_payload = _run_hybrid_assist(flow_name="validation-checklist", ref=None, **base_kwargs)
+    diff_risk_payload = _run_hybrid_assist(flow_name="diff-risk", ref=None, **base_kwargs)
+
+    changelog_ready = bool(changelog_status_payload["result"].get("exists", False))
+    has_uncommitted = bool(git_snapshot.get("has_changes", False))
+    ready = changelog_ready and not has_uncommitted
+
+    publish_result = None
+    executed = False
+
+    if args.execution_mode == "execute":
+        publish_script = (
+            repo_root / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
+        )
+        if not publish_script.is_file():
+            publish_result = {"ok": False, "error": f"Publish script not found: {publish_script}"}
+        elif not ready:
+            blocking: list[str] = []
+            if not changelog_ready:
+                blocking.append("changelog not ready")
+            if has_uncommitted:
+                blocking.append("uncommitted changes present")
+            publish_result = {"ok": False, "error": "Release prerequisites not met.", "blocking": blocking}
+        else:
+            cmd = [sys.executable, str(publish_script)]
+            version_override = getattr(args, "version", None)
+            if version_override:
+                cmd += ["--version", version_override]
+            if getattr(args, "draft", False):
+                cmd += ["--draft"]
+            if getattr(args, "push", False):
+                cmd += ["--create-tag", "--push"]
+            if args.dry_run:
+                cmd += ["--dry-run"]
+            completed = subprocess.run(cmd, cwd=repo_root, text=True, capture_output=True, check=False)
+            publish_result = {
+                "ok": completed.returncode == 0,
+                "returncode": completed.returncode,
+                "stdout": completed.stdout.strip(),
+                "stderr": completed.stderr.strip(),
+                "command": cmd,
+            }
+            executed = completed.returncode == 0
+
+    payload = {
+        "command": "assist",
+        "assist_kind": "prepare-release",
+        "flow": "prepare-release",
+        "changelog_status": changelog_status_payload["result"],
+        "validation_checklist": validation_payload["result"],
+        "diff_risk": diff_risk_payload["result"],
+        "git_snapshot": git_snapshot,
+        "ready": ready,
+        "executed": executed,
+        "execution_mode": args.execution_mode,
+        "publish_result": publish_result,
+        "backend_requested": changelog_status_payload["backend_requested"],
+        "backend_used": changelog_status_payload["backend_used"],
+        "audit_log": changelog_status_payload["audit_log"],
+        "measurement_log": changelog_status_payload["measurement_log"],
         "config_path": _rel(repo_root, config_path) if config_path is not None else None,
         "ok": True,
     }
@@ -1947,6 +2048,30 @@ def build_parser() -> argparse.ArgumentParser:
     commit_all.add_argument("--format", choices=("text", "json"), default="text")
     commit_all.add_argument("--dry-run", action="store_true")
     commit_all.set_defaults(func=cmd_assist_commit_all)
+
+    prepare_release = assist_sub.add_parser(
+        "prepare-release",
+        help="Check release prerequisites and optionally publish the release using the shared hybrid assist runtime.",
+    )
+    prepare_release.add_argument("--backend", choices=REQUESTED_BACKEND_CHOICES)
+    prepare_release.add_argument("--model-profile")
+    prepare_release.add_argument("--model")
+    prepare_release.add_argument("--ollama-host")
+    prepare_release.add_argument("--timeout", type=float)
+    prepare_release.add_argument("--context-mode", choices=("summary-only", "diff-first", "full"))
+    prepare_release.add_argument("--profile", choices=("tiny", "normal", "deep"))
+    prepare_release.add_argument("--include-graph", action="store_true", default=None)
+    prepare_release.add_argument("--include-registry", action="store_true", default=None)
+    prepare_release.add_argument("--include-doctor", action="store_true", default=None)
+    prepare_release.add_argument("--execution-mode", choices=("suggestion-only", "execute"), default="suggestion-only")
+    prepare_release.add_argument("--push", action="store_true", default=False, help="Create tag, push, and publish the GitHub release (execute mode only).")
+    prepare_release.add_argument("--draft", action="store_true", default=False, help="Create a draft GitHub release (execute mode only).")
+    prepare_release.add_argument("--version", default=None, help="Override the version to release.")
+    prepare_release.add_argument("--audit-log")
+    prepare_release.add_argument("--measurement-log")
+    prepare_release.add_argument("--format", choices=("text", "json"), default="text")
+    prepare_release.add_argument("--dry-run", action="store_true")
+    prepare_release.set_defaults(func=cmd_assist_prepare_release)
 
     sync_parser = sub.add_parser("sync", help="Sync workflow metadata and closure transitions.")
     sync_sub = sync_parser.add_subparsers(dest="sync_kind", required=True)
