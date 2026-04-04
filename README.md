@@ -418,12 +418,20 @@ Check release readiness and optionally publish using the shared hybrid assist ru
 # Check readiness (changelog present + clean tree)
 python logics/skills/logics.py flow assist prepare-release --format json
 
-# Dry-run the publish commands
+# Dry-run the prep step (generate changelog if missing, refresh README badge)
 python logics/skills/logics.py flow assist prepare-release --execution-mode execute --dry-run
 
+# Run the prep step for real
+python logics/skills/logics.py flow assist prepare-release --execution-mode execute
+
+# Dry-run the publish commands
+python logics/skills/logics.py flow assist publish-release --execution-mode execute --dry-run
+
 # Publish: create tag, push, and create GitHub release
-python logics/skills/logics.py flow assist prepare-release --execution-mode execute --push
+python logics/skills/logics.py flow assist publish-release --execution-mode execute --push
 ```
+
+If a local `release` branch exists, `publish-release` also warns when that branch is behind the current branch and suggests a command to fast-forward it before publishing.
 
 ## Indicators
 

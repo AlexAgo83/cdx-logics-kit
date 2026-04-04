@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import shlex
 import subprocess
 import sys
 import time
@@ -121,6 +122,84 @@ def _rel(repo_root: Path, path: Path) -> str:
 def _rdict(v: object) -> dict[str, object]:
     """Narrow an object-typed payload value to dict[str, object] for attribute access."""
     return v if isinstance(v, dict) else {}
+
+
+def _git_capture(repo_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+
+def _git_current_branch(repo_root: Path) -> str | None:
+    completed = _git_capture(repo_root, "branch", "--show-current")
+    if completed.returncode != 0:
+        return None
+    branch = completed.stdout.strip()
+    return branch or None
+
+
+def _git_local_branch_exists(repo_root: Path, branch_name: str) -> bool:
+    completed = _git_capture(repo_root, "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}")
+    return completed.returncode == 0
+
+
+def _git_is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool | None:
+    completed = _git_capture(repo_root, "merge-base", "--is-ancestor", ancestor, descendant)
+    if completed.returncode == 0:
+        return True
+    if completed.returncode == 1:
+        return False
+    return None
+
+
+def _release_branch_status(repo_root: Path, branch_name: str = "release") -> dict[str, object]:
+    current_branch = _git_current_branch(repo_root)
+    status: dict[str, object] = {"name": branch_name, "exists": False}
+    if current_branch:
+        status["current_branch"] = current_branch
+
+    if not _git_local_branch_exists(repo_root, branch_name):
+        return status
+
+    status["exists"] = True
+    if current_branch == branch_name:
+        status["needs_update"] = False
+        return status
+
+    release_contains_head = _git_is_ancestor(repo_root, "HEAD", branch_name)
+    release_is_ancestor = _git_is_ancestor(repo_root, branch_name, "HEAD")
+    if release_contains_head is None or release_is_ancestor is None:
+        status["needs_update"] = False
+        return status
+
+    status["needs_update"] = not release_contains_head
+    status["can_fast_forward"] = release_is_ancestor and not release_contains_head
+
+    if not status["needs_update"]:
+        return status
+
+    source_branch = current_branch or "current branch"
+    if status["can_fast_forward"]:
+        quoted_release = shlex.quote(branch_name)
+        quoted_source = shlex.quote(source_branch)
+        status["suggestion"] = (
+            f"Branch '{branch_name}' is behind '{source_branch}'. Consider updating it before publishing."
+        )
+        status["command"] = (
+            f"git switch {quoted_release} && git merge --ff-only {quoted_source}"
+            f" && git switch {quoted_source} && git push origin {quoted_release}"
+        )
+    else:
+        status["suggestion"] = (
+            f"Branch '{branch_name}' does not contain '{source_branch}'. Review its divergence before publishing."
+        )
+
+    return status
 
 
 def _effective_config(repo_root: Path) -> tuple[dict[str, object], Path | None]:
@@ -1147,6 +1226,7 @@ def cmd_assist_publish_release(args: argparse.Namespace) -> dict[str, object]:
         flow_name="release-changelog-status", ref=None, **base_kwargs
     )
     changelog_status = _rdict(changelog_status_payload["result"])
+    release_branch = _release_branch_status(repo_root)
     changelog_ready = bool(changelog_status.get("exists", False))
     has_uncommitted = bool(git_snapshot.get("has_changes", False))
     ready = changelog_ready and not has_uncommitted
@@ -1191,11 +1271,19 @@ def cmd_assist_publish_release(args: argparse.Namespace) -> dict[str, object]:
         # suggestion-only: show what would be done
         version = str(changelog_status.get("version", "0.0.0"))
         tag = str(changelog_status.get("tag", f"v{version}"))
+        release_note = str(release_branch.get("suggestion", "")).strip()
+        release_command = str(release_branch.get("command", "")).strip()
+        release_guidance = ""
+        if release_note:
+            release_guidance = f"\n{release_note}"
+            if release_command:
+                release_guidance += f"\nSuggested command: {release_command}"
         publish_result = {
             "ok": True,
             "suggestion": (
                 f"When ready, run: flow assist publish-release --execution-mode execute --push"
                 f"\nThis will create tag {tag}, push main+tag, and publish the GitHub release."
+                f"{release_guidance}"
                 if ready
                 else f"Release is not ready yet. Run 'flow assist prepare-release --execution-mode execute' first."
             ),
@@ -1207,6 +1295,7 @@ def cmd_assist_publish_release(args: argparse.Namespace) -> dict[str, object]:
         "assist_kind": "publish-release",
         "flow": "publish-release",
         "changelog_status": changelog_status,
+        "release_branch": release_branch,
         "git_snapshot": git_snapshot,
         "ready": ready,
         "executed": executed,
