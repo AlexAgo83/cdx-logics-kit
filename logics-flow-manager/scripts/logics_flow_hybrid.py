@@ -23,6 +23,38 @@ from logics_flow_dispatcher import (
     extract_json_object,
     validate_dispatcher_decision,
 )
+from logics_flow_hybrid_core import (
+    apply_legacy_default_model_impl,
+    build_deterministic_commit_subject_impl,
+    build_flow_backend_policy_impl,
+    build_flow_contract_impl,
+    build_shared_hybrid_contract_impl,
+    default_context_spec_impl,
+    default_hybrid_model_profiles_impl,
+    infer_commit_focus_from_paths_impl,
+    infer_model_family_impl,
+    looks_generic_commit_subject_impl,
+    merge_hybrid_model_profiles_impl,
+    normalize_confidence_impl,
+    normalize_string_list_impl,
+    resolve_hybrid_model_selection_impl,
+    validate_hybrid_result_impl,
+)
+from logics_flow_hybrid_observability import (
+    append_jsonl_record_impl,
+    build_hybrid_audit_record_impl,
+    build_hybrid_roi_report_impl,
+    build_measurement_record_impl,
+    build_runtime_status_impl,
+    collect_git_snapshot_impl,
+    load_jsonl_records_impl,
+)
+from logics_flow_hybrid_transport import (
+    build_hybrid_messages_impl,
+    json_request_impl,
+    probe_ollama_backend_impl,
+    run_ollama_hybrid_impl,
+)
 from logics_flow_models import WorkflowDocModel
 
 
@@ -390,75 +422,38 @@ class HybridBackendStatus:
 
 
 def default_context_spec(flow_name: str) -> dict[str, Any]:
-    if flow_name not in FLOW_CONTEXT_PROFILES:
-        raise HybridAssistError("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
-    return dict(FLOW_CONTEXT_PROFILES[flow_name])
+    return default_context_spec_impl(
+        flow_name,
+        flow_context_profiles=FLOW_CONTEXT_PROFILES,
+        error_cls=HybridAssistError,
+    )
 
 
 def build_flow_backend_policy(flow_name: str) -> dict[str, str]:
-    if flow_name not in FLOW_CONTRACTS:
-        raise HybridAssistError("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
-    policy = FLOW_BACKEND_POLICIES.get(flow_name)
-    if policy is None:
-        raise HybridAssistError("hybrid_missing_backend_policy", f"Missing backend policy for flow `{flow_name}`.")
-    mode = str(policy.get("mode", "")).strip()
-    auto_backend = str(policy.get("auto_backend", "")).strip()
-    if mode not in BACKEND_POLICY_MODES:
-        raise HybridAssistError(
-            "hybrid_invalid_backend_policy",
-            f"Flow `{flow_name}` uses unsupported backend policy mode `{mode}`.",
-        )
-    if auto_backend not in SUPPORTED_BACKEND_NAMES:
-        raise HybridAssistError(
-            "hybrid_invalid_backend_policy",
-            f"Flow `{flow_name}` uses unsupported auto backend `{auto_backend}`.",
-        )
-    return {
-        "mode": mode,
-        "auto_backend": auto_backend,
-        "fallback_policy": str(policy.get("fallback_policy", "")).strip(),
-        "selection_summary": str(policy.get("selection_summary", "")).strip(),
-    }
+    return build_flow_backend_policy_impl(
+        flow_name,
+        flow_contracts=FLOW_CONTRACTS,
+        flow_backend_policies=FLOW_BACKEND_POLICIES,
+        backend_policy_modes=BACKEND_POLICY_MODES,
+        supported_backend_names=SUPPORTED_BACKEND_NAMES,
+        error_cls=HybridAssistError,
+    )
 
 
 def default_hybrid_model_profiles() -> dict[str, dict[str, Any]]:
-    return deepcopy(DEFAULT_HYBRID_MODEL_PROFILES)
+    return default_hybrid_model_profiles_impl(default_profiles=DEFAULT_HYBRID_MODEL_PROFILES)
 
 
 def infer_model_family(model: str) -> str:
-    normalized = model.strip().lower()
-    if normalized.startswith("deepseek"):
-        return "deepseek"
-    if normalized.startswith("qwen"):
-        return "qwen"
-    return "custom"
+    return infer_model_family_impl(model)
 
 
 def merge_hybrid_model_profiles(overrides: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-    profiles = default_hybrid_model_profiles()
-    if not isinstance(overrides, dict):
-        return profiles
-    for raw_name, raw_profile in overrides.items():
-        if not isinstance(raw_name, str) or not raw_name.strip():
-            continue
-        profile_name = raw_name.strip()
-        current = deepcopy(profiles.get(profile_name, {}))
-        if not isinstance(raw_profile, dict):
-            profiles[profile_name] = current
-            continue
-        model = str(raw_profile.get("model", current.get("model", ""))).strip()
-        family = str(raw_profile.get("family", current.get("family", infer_model_family(model)))).strip() or infer_model_family(model)
-        description = str(raw_profile.get("description", current.get("description", ""))).strip()
-        example_tags = raw_profile.get("example_tags", current.get("example_tags", []))
-        if not isinstance(example_tags, list):
-            example_tags = []
-        profiles[profile_name] = {
-            "family": family or "custom",
-            "model": model,
-            "description": description or f"{profile_name} local model profile.",
-            "example_tags": [str(tag).strip() for tag in example_tags if str(tag).strip()],
-        }
-    return profiles
+    return merge_hybrid_model_profiles_impl(
+        overrides,
+        default_profiles=DEFAULT_HYBRID_MODEL_PROFILES,
+        infer_model_family=infer_model_family,
+    )
 
 
 def apply_legacy_default_model(
@@ -467,21 +462,12 @@ def apply_legacy_default_model(
     default_profile: str,
     legacy_default_model: str | None,
 ) -> dict[str, dict[str, Any]]:
-    if not legacy_default_model:
-        return profiles
-    resolved = deepcopy(profiles)
-    profile = deepcopy(resolved.get(default_profile, {}))
-    profile["family"] = str(profile.get("family") or infer_model_family(legacy_default_model))
-    profile["model"] = legacy_default_model
-    profile["description"] = str(profile.get("description") or f"{default_profile} local model profile.")
-    example_tags = profile.get("example_tags", [])
-    if not isinstance(example_tags, list):
-        example_tags = []
-    if legacy_default_model not in example_tags:
-        example_tags = [legacy_default_model, *example_tags]
-    profile["example_tags"] = [str(tag).strip() for tag in example_tags if str(tag).strip()]
-    resolved[default_profile] = profile
-    return resolved
+    return apply_legacy_default_model_impl(
+        profiles,
+        default_profile=default_profile,
+        legacy_default_model=legacy_default_model,
+        infer_model_family=infer_model_family,
+    )
 
 
 def resolve_hybrid_model_selection(
@@ -491,85 +477,43 @@ def resolve_hybrid_model_selection(
     requested_profile: str | None = None,
     requested_model: str | None = None,
 ) -> dict[str, Any]:
-    profile_name = (requested_profile or default_profile).strip()
-    if profile_name not in configured_profiles:
-        raise HybridAssistError(
-            "hybrid_unknown_model_profile",
-            f"Unknown hybrid model profile `{profile_name}`.",
-            details={"known_profiles": sorted(configured_profiles.keys())},
-        )
-    spec = deepcopy(configured_profiles[profile_name])
-    configured_model = str(spec.get("model", "")).strip()
-    if not configured_model:
-        raise HybridAssistError(
-            "hybrid_invalid_model_profile",
-            f"Hybrid model profile `{profile_name}` is missing a configured model tag.",
-        )
-    resolved_model = (requested_model or configured_model).strip()
-    if not resolved_model:
-        raise HybridAssistError("hybrid_invalid_model", "Hybrid model selection resolved to an empty model tag.")
-    family = str(spec.get("family") or infer_model_family(resolved_model)).strip() or infer_model_family(resolved_model)
-    return {
-        "name": profile_name,
-        "family": family,
-        "configured_model": configured_model,
-        "resolved_model": resolved_model,
-        "description": str(spec.get("description", "")).strip(),
-        "example_tags": [str(tag).strip() for tag in spec.get("example_tags", []) if str(tag).strip()],
-    }
+    return resolve_hybrid_model_selection_impl(
+        configured_profiles=configured_profiles,
+        default_profile=default_profile,
+        requested_profile=requested_profile,
+        requested_model=requested_model,
+        infer_model_family=infer_model_family,
+        error_cls=HybridAssistError,
+    )
 
 
 def build_shared_hybrid_contract() -> dict[str, Any]:
-    return {
-        "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
-        "backends": list(SUPPORTED_BACKEND_NAMES),
-        "safety_classes": list(SAFETY_CLASSES),
-        "backend_policy_modes": list(BACKEND_POLICY_MODES),
-        "result_statuses": list(RESULT_STATUSES),
-        "model_profiles": default_hybrid_model_profiles(),
-        "flows": {
-            flow: {
-                "summary": contract["summary"],
-                "safety_class": contract["safety_class"],
-                "required_keys": list(contract["required_keys"]),
-                "backend_policy": build_flow_backend_policy(flow),
-            }
-            for flow, contract in sorted(FLOW_CONTRACTS.items())
-        },
-    }
+    return build_shared_hybrid_contract_impl(
+        schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
+        supported_backend_names=SUPPORTED_BACKEND_NAMES,
+        safety_classes=SAFETY_CLASSES,
+        backend_policy_modes=BACKEND_POLICY_MODES,
+        result_statuses=RESULT_STATUSES,
+        flow_contracts=FLOW_CONTRACTS,
+        default_hybrid_model_profiles=default_hybrid_model_profiles,
+        build_flow_backend_policy=build_flow_backend_policy,
+    )
 
 
 def build_flow_contract(flow_name: str) -> dict[str, Any]:
-    contract = FLOW_CONTRACTS.get(flow_name)
-    if contract is None:
-        raise HybridAssistError("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
-    payload = {
-        "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
-        "flow": flow_name,
-        "summary": contract["summary"],
-        "safety_class": contract["safety_class"],
-        "required_keys": list(contract["required_keys"]),
-        "backend_policy": build_flow_backend_policy(flow_name),
-    }
-    for key in ("scope_enum", "overall_enum", "classification_enum", "risk_enum", "strategy_enum"):
-        if key in contract:
-            payload[key] = list(contract[key])
-    if flow_name == "next-step":
-        payload["allowed_actions"] = list(ALLOWED_DISPATCH_ACTIONS)
-        payload["safe_sync_kinds"] = list(SAFE_SYNC_KINDS)
-    return payload
+    return build_flow_contract_impl(
+        flow_name,
+        schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
+        flow_contracts=FLOW_CONTRACTS,
+        allowed_dispatch_actions=ALLOWED_DISPATCH_ACTIONS,
+        safe_sync_kinds=SAFE_SYNC_KINDS,
+        build_flow_backend_policy=build_flow_backend_policy,
+        error_cls=HybridAssistError,
+    )
 
 
 def _json_request(host: str, path: str, *, payload: dict[str, Any] | None = None, timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS) -> dict[str, Any]:
-    encoded = json.dumps(payload).encode("utf-8") if payload is not None else None
-    req = urllib_request.Request(
-        f"{host.rstrip('/')}{path}",
-        data=encoded,
-        headers={"Content-Type": "application/json"},
-        method="POST" if payload is not None else "GET",
-    )
-    with urllib_request.urlopen(req, timeout=timeout_seconds) as response:
-        return json.loads(response.read().decode("utf-8"))
+    return json_request_impl(host, path, payload=payload, timeout_seconds=timeout_seconds)
 
 
 def probe_ollama_backend(
@@ -583,168 +527,31 @@ def probe_ollama_backend(
     model: str = DEFAULT_HYBRID_MODEL,
     timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
 ) -> HybridBackendStatus:
-    normalized_host = host.strip() or os.environ.get("OLLAMA_HOST", DEFAULT_HYBRID_HOST)
-    if not normalized_host.startswith(("http://", "https://")):
-        normalized_host = f"http://{normalized_host}"
-    normalized_host = normalized_host.rstrip("/")
-    reasons: list[str] = []
-    version: str | None = None
-    response_time_ms: float | None = None
-    reachable = False
-    model_available = False
-    flow_policy = build_flow_backend_policy(flow_name) if flow_name else None
-    policy_mode = flow_policy["mode"] if flow_policy else None
-
-    if policy_mode == BACKEND_POLICY_DETERMINISTIC:
-        return HybridBackendStatus(
-            requested_backend=requested_backend,
-            selected_backend="deterministic",
-            host=normalized_host,
-            model_profile=model_profile,
-            model_family=model_family,
-            configured_model=configured_model,
-            model=model,
-            ollama_reachable=False,
-            model_available=False,
-            healthy=True,
-            reasons=[],
-            response_time_ms=None,
-            version=None,
-            selection_reason="policy-deterministic",
-            policy_mode=policy_mode,
-        )
-
-    try:
-        started = datetime.now(timezone.utc)
-        version_payload = _json_request(normalized_host, "/api/version", timeout_seconds=timeout_seconds)
-        elapsed = datetime.now(timezone.utc) - started
-        response_time_ms = round(elapsed.total_seconds() * 1000, 3)
-        version = str(version_payload.get("version", "")) or None
-        reachable = True
-        tags_payload = _json_request(normalized_host, "/api/tags", timeout_seconds=timeout_seconds)
-        models = tags_payload.get("models", [])
-        names = {
-            str(item.get("name", "")).strip()
-            for item in models
-            if isinstance(item, dict) and str(item.get("name", "")).strip()
-        }
-        model_available = model in names
-        if not model_available:
-            reasons.append("ollama-model-missing")
-    except urllib_error.URLError:
-        reasons.append("ollama-unreachable")
-    except urllib_error.HTTPError as exc:
-        reasons.append(f"ollama-http-{exc.code}")
-    except Exception:
-        reasons.append("ollama-probe-failed")
-
-    effective_reasons = list(reasons)
-    selection_reason = None
-    selected_backend = requested_backend
-    healthy = reachable and model_available
-    if policy_mode == BACKEND_POLICY_CODEX_ONLY and requested_backend == "ollama":
-        raise HybridAssistError(
-            "hybrid_backend_policy_violation",
-            f"Flow `{flow_name}` is policy-routed away from Ollama.",
-            details={"flow": flow_name, "policy_mode": policy_mode, "requested_backend": requested_backend},
-        )
-    if requested_backend == "auto":
-        if policy_mode == BACKEND_POLICY_CODEX_ONLY:
-            selected_backend = "codex"
-            selection_reason = "policy-codex-only"
-            effective_reasons = []
-        else:
-            selected_backend = "ollama" if healthy else "codex"
-            if selected_backend == "ollama":
-                selection_reason = "auto-healthy-ollama"
-                effective_reasons = []
-            else:
-                selection_reason = "auto-fallback-codex"
-    elif requested_backend == "ollama" and not healthy:
-        raise HybridAssistError(
-            "hybrid_ollama_unavailable",
-            f"Ollama backend was requested explicitly but `{model}` is not healthy at {normalized_host}.",
-            details={"host": normalized_host, "model": model, "reasons": reasons},
-        )
-    elif requested_backend == "ollama":
-        selected_backend = "ollama"
-        selection_reason = "explicit-backend"
-        effective_reasons = []
-    elif requested_backend == "codex":
-        selected_backend = "codex"
-        selection_reason = "explicit-backend"
-        effective_reasons = []
-
-    if selected_backend == "codex" and requested_backend == "auto" and policy_mode != BACKEND_POLICY_CODEX_ONLY and not effective_reasons:
-        effective_reasons.append("ollama-not-selected")
-    return HybridBackendStatus(
+    return probe_ollama_backend_impl(
         requested_backend=requested_backend,
-        selected_backend=selected_backend,
-        host=normalized_host,
+        flow_name=flow_name,
+        host=host.strip() or os.environ.get("OLLAMA_HOST", DEFAULT_HYBRID_HOST),
         model_profile=model_profile,
         model_family=model_family,
         configured_model=configured_model,
         model=model,
-        ollama_reachable=reachable,
-        model_available=model_available,
-        healthy=healthy,
-        reasons=effective_reasons,
-        response_time_ms=response_time_ms,
-        version=version,
-        selection_reason=selection_reason,
-        policy_mode=policy_mode,
+        timeout_seconds=timeout_seconds,
+        default_hybrid_host=DEFAULT_HYBRID_HOST,
+        backend_policy_deterministic=BACKEND_POLICY_DETERMINISTIC,
+        backend_policy_codex_only=BACKEND_POLICY_CODEX_ONLY,
+        error_cls=HybridAssistError,
+        backend_status_cls=HybridBackendStatus,
+        build_flow_backend_policy=build_flow_backend_policy,
+        json_request=lambda request_host, request_path: _json_request(
+            request_host,
+            request_path,
+            timeout_seconds=timeout_seconds,
+        ),
     )
 
 
 def build_hybrid_messages(flow_name: str, context_bundle: dict[str, Any]) -> list[dict[str, str]]:
-    contract = context_bundle["contract"]
-    required_keys = ", ".join(contract["required_keys"])
-    contract_metadata_keys = [
-        key
-        for key in sorted(contract)
-        if key not in {"required_keys"} and key not in contract["required_keys"]
-    ]
-    instruction_lines = [
-        f"Flow: {flow_name}.",
-        f"Return exactly one JSON object with only these top-level keys: {required_keys}.",
-        "The contract block below describes the required answer shape. It is not the answer itself.",
-        "Do not echo the contract or copy metadata field names into the answer.",
-        "`confidence` must be a numeric value between 0.0 and 1.0. Do not use words like low, medium, or high.",
-    ]
-    if contract_metadata_keys:
-        instruction_lines.append(
-            "Do not include contract metadata keys such as: " + ", ".join(contract_metadata_keys) + "."
-        )
-    if flow_name == "commit-message":
-        instruction_lines.extend(
-            [
-                "Set `scope` to one of: " + ", ".join(contract["scope_enum"]) + ".",
-                "`subject` must be a concise commit subject line.",
-                "`body` must be a short explanatory paragraph and may be empty if the diff is trivial.",
-            ]
-        )
-    elif flow_name == "commit-plan":
-        instruction_lines.extend(
-            [
-                "Set `strategy` to one of: " + ", ".join(contract["strategy_enum"]) + ".",
-                "`steps` must be a non-empty JSON array of objects with keys: scope, summary, paths.",
-                "Each step `scope` must be `root` or `submodule` and `paths` must be a non-empty array of strings.",
-            ]
-        )
-    system = (
-        "You are a bounded hybrid delivery assistant for the Logics workflow. "
-        "Reply with one JSON object only. "
-        "Do not use markdown fences. "
-        "Stay within the supplied contract. "
-        "Prefer conservative short outputs over speculative ones."
-    )
-    user = (
-        "Return a JSON instance that satisfies the contract.\n\n"
-        f"Answer rules:\n{chr(10).join('- ' + line for line in instruction_lines)}\n\n"
-        f"Hybrid contract:\n{json.dumps(contract, indent=2, sort_keys=True)}\n\n"
-        f"Context bundle:\n{json.dumps(context_bundle, indent=2, sort_keys=True)}"
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    return build_hybrid_messages_impl(flow_name, context_bundle)
 
 
 def run_ollama_hybrid(
@@ -755,160 +562,40 @@ def run_ollama_hybrid(
     context_bundle: dict[str, Any],
     timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    messages = build_hybrid_messages(flow_name, context_bundle)
-    request_payload = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "options": {"temperature": 0},
-    }
-    try:
-        response_payload = _json_request(host, "/api/chat", payload=request_payload, timeout_seconds=timeout_seconds)
-    except urllib_error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise HybridAssistError(
-            "hybrid_ollama_http_error",
-            f"Ollama returned HTTP {exc.code}: {body or exc.reason}",
-            details={"host": host, "model": model, "flow": flow_name},
-        ) from exc
-    except urllib_error.URLError as exc:
-        raise HybridAssistError(
-            "hybrid_ollama_unreachable",
-            f"Could not reach Ollama at {host}: {exc.reason}",
-            details={"host": host, "model": model, "flow": flow_name},
-        ) from exc
-    except socket.timeout as exc:
-        raise HybridAssistError(
-            "hybrid_ollama_timeout",
-            f"Ollama request to {host} timed out after {timeout_seconds:.1f}s.",
-            details={"host": host, "model": model, "flow": flow_name, "timeout_seconds": timeout_seconds},
-        ) from exc
-
-    content = ""
-    if isinstance(response_payload, dict):
-        message = response_payload.get("message")
-        if isinstance(message, dict):
-            content = str(message.get("content", "")).strip()
-    if not content:
-        raise HybridAssistError(
-            "hybrid_ollama_empty_response",
-            "Ollama returned an empty hybrid assist response.",
-            details={"host": host, "model": model, "flow": flow_name},
-        )
-    try:
-        result_payload = extract_json_object(content)
-    except Exception as exc:  # noqa: BLE001
-        message = exc.args[0] if exc.args else str(exc)
-        raise HybridAssistError(
-            "hybrid_invalid_json",
-            f"Ollama returned a response that did not decode to a JSON object: {message}",
-            details={
-                "host": host,
-                "model": model,
-                "flow": flow_name,
-                "raw_content_preview": _bounded_diagnostic_value(content),
-            },
-        ) from exc
-    return {
-        "transport": "ollama",
-        "host": host,
-        "model": model,
-        "messages": messages,
-        "request_payload": request_payload,
-        "response_payload": response_payload,
-        "raw_content": content,
-        "result_payload": result_payload,
-    }
+    return run_ollama_hybrid_impl(
+        host=host,
+        model=model,
+        flow_name=flow_name,
+        context_bundle=context_bundle,
+        timeout_seconds=timeout_seconds,
+        error_cls=HybridAssistError,
+        json_request=_json_request,
+        extract_json_object=extract_json_object,
+        build_hybrid_messages=build_hybrid_messages,
+    )
 
 
 def _normalize_confidence(raw_value: Any) -> float:
-    if isinstance(raw_value, str):
-        normalized = raw_value.strip().lower()
-        string_confidence_map = {
-            "low": 0.4,
-            "medium": 0.65,
-            "med": 0.65,
-            "high": 0.85,
-        }
-        if normalized in string_confidence_map:
-            raw_value = string_confidence_map[normalized]
-        else:
-            try:
-                raw_value = float(normalized)
-            except ValueError as exc:
-                raise HybridAssistError(
-                    "hybrid_invalid_confidence",
-                    "Confidence must be numeric or one of low, medium, high.",
-                ) from exc
-    if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
-        raise HybridAssistError("hybrid_invalid_confidence", "Confidence must be numeric.")
-    value = float(raw_value)
-    if value > 1.0 and value <= 100.0:
-        value = value / 100.0
-    if value < 0.0 or value > 1.0:
-        raise HybridAssistError("hybrid_invalid_confidence", "Confidence must be between 0.0 and 1.0.")
-    return round(value, 4)
+    return normalize_confidence_impl(raw_value, error_cls=HybridAssistError)
 
 
 def _normalize_string_list(value: Any, key: str, *, min_items: int = 1) -> list[str]:
-    if not isinstance(value, list):
-        raise HybridAssistError("hybrid_invalid_list", f"`{key}` must be an array of strings.")
-    normalized = []
-    for item in value:
-        if not isinstance(item, str) or not item.strip():
-            raise HybridAssistError("hybrid_invalid_list", f"`{key}` must contain only non-empty strings.")
-        normalized.append(" ".join(item.split()))
-    if len(normalized) < min_items:
-        raise HybridAssistError("hybrid_invalid_list", f"`{key}` must contain at least {min_items} item(s).")
-    return normalized
+    return normalize_string_list_impl(value, key, min_items=min_items, error_cls=HybridAssistError)
 
 
 def _looks_generic_commit_subject(subject: str) -> bool:
-    normalized = " ".join(subject.split()).strip().lower()
-    if normalized in GENERIC_COMMIT_SUBJECTS:
-        return True
-    if "surfaces" in normalized:
-        return True
-    return False
+    return looks_generic_commit_subject_impl(subject, generic_commit_subjects=GENERIC_COMMIT_SUBJECTS)
 
 
 def _infer_commit_focus_from_paths(changed_paths: list[str]) -> str | None:
-    lowered_paths = [path.lower() for path in changed_paths]
-    if any("tools" in path or "toolbar" in path for path in lowered_paths):
-        return "tools panel navigation"
-    if any("activity" in path for path in lowered_paths):
-        return "activity panel rendering"
-    if any("webview" in path for path in lowered_paths):
-        return "plugin webview behavior"
-    if any("environment" in path for path in lowered_paths):
-        return "environment diagnostics"
-    if any(path.startswith("tests/") or "/tests/" in path for path in lowered_paths):
-        return "test coverage"
-    return None
+    return infer_commit_focus_from_paths_impl(changed_paths)
 
 
 def _build_deterministic_commit_subject(git_snapshot: dict[str, Any]) -> str:
-    changed_paths = list(git_snapshot.get("changed_paths", []))
-    if changed_paths and all(path.startswith("logics/skills/") or path == "logics/skills" for path in changed_paths):
-        return "Update Logics skills submodule pointer"
-
-    focus = _infer_commit_focus_from_paths(changed_paths)
-    if focus:
-        if git_snapshot.get("touches_tests") and focus != "test coverage":
-            return f"Refine {focus} and test coverage"
-        return f"Refine {focus}"
-
-    if git_snapshot.get("touches_runtime") and git_snapshot.get("touches_plugin"):
-        return "Update hybrid assist runtime and plugin integration"
-    if git_snapshot.get("touches_plugin") and git_snapshot.get("touches_tests"):
-        return "Refine plugin webview and test coverage"
-    if git_snapshot.get("touches_plugin"):
-        return "Refine plugin webview behavior"
-    if git_snapshot.get("touches_runtime"):
-        return "Update hybrid assist runtime flows"
-    if git_snapshot.get("doc_only"):
-        return "Update Logics planning and workflow docs"
-    return "Update repository files"
+    return build_deterministic_commit_subject_impl(
+        git_snapshot,
+        infer_commit_focus_from_paths=_infer_commit_focus_from_paths,
+    )
 
 
 def validate_hybrid_result(
@@ -918,278 +605,18 @@ def validate_hybrid_result(
     *,
     context_bundle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    contract = FLOW_CONTRACTS.get(flow_name)
-    if contract is None:
-        raise HybridAssistError("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
-    required = set(contract["required_keys"])
-    missing = sorted(required - set(payload))
-    if missing:
-        raise HybridAssistError(
-            "hybrid_missing_field",
-            f"Hybrid assist payload is missing required field(s): {', '.join(missing)}.",
-            details={"missing_fields": missing, "flow": flow_name},
-        )
-
-    if flow_name == "next-step":
-        decision = validate_dispatcher_decision(payload, docs_by_ref)
-        return decision.to_dict()
-
-    normalized: dict[str, Any] = {}
-    for key in required:
-        normalized[key] = payload[key]
-    normalized["confidence"] = _normalize_confidence(payload["confidence"])
-    rationale = payload["rationale"]
-    if not isinstance(rationale, str) or not rationale.strip():
-        raise HybridAssistError("hybrid_invalid_rationale", "`rationale` must be a non-empty string.")
-    normalized["rationale"] = " ".join(rationale.split())[:500]
-
-    if flow_name == "commit-message":
-        subject = payload["subject"]
-        if not isinstance(subject, str) or not subject.strip():
-            raise HybridAssistError("hybrid_invalid_subject", "`subject` must be a non-empty string.")
-        normalized["subject"] = " ".join(subject.split())[:72]
-        if _looks_generic_commit_subject(normalized["subject"]):
-            details: dict[str, Any] = {"subject": normalized["subject"]}
-            if context_bundle is not None:
-                details["changed_paths"] = list(context_bundle.get("git_snapshot", {}).get("changed_paths", []))[:8]
-            raise HybridAssistError(
-                "hybrid_generic_subject",
-                "`subject` is too generic for a commit message; name the real changed area.",
-                details=details,
-            )
-        body = payload["body"]
-        if not isinstance(body, str):
-            raise HybridAssistError("hybrid_invalid_body", "`body` must be a string.")
-        normalized["body"] = body.strip()[:400]
-        scope = payload["scope"]
-        if scope not in contract["scope_enum"]:
-            raise HybridAssistError("hybrid_invalid_scope", f"`scope` must be one of {', '.join(contract['scope_enum'])}.")
-        normalized["scope"] = scope
-        return normalized
-
-    if flow_name in {"pr-summary", "changelog-summary"}:
-        title = payload["title"]
-        if not isinstance(title, str) or not title.strip():
-            raise HybridAssistError("hybrid_invalid_title", "`title` must be a non-empty string.")
-        normalized["title"] = " ".join(title.split())[:120]
-        list_key = "highlights" if flow_name == "pr-summary" else "entries"
-        normalized[list_key] = _normalize_string_list(payload[list_key], list_key)
-        summary_key = "summary"
-        if flow_name == "pr-summary":
-            summary = payload["summary"]
-            if not isinstance(summary, str) or not summary.strip():
-                raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-            normalized[summary_key] = " ".join(summary.split())[:500]
-        return normalized
-
-    if flow_name == "validation-summary":
-        overall = payload["overall"]
-        if overall not in contract["overall_enum"]:
-            raise HybridAssistError("hybrid_invalid_overall", f"`overall` must be one of {', '.join(contract['overall_enum'])}.")
-        normalized["overall"] = overall
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["highlights"] = _normalize_string_list(payload["highlights"], "highlights")
-        normalized["commands"] = _normalize_string_list(payload["commands"], "commands")
-        return normalized
-
-    if flow_name == "triage":
-        target_ref = payload["target_ref"]
-        if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
-            raise HybridAssistError("hybrid_invalid_target_ref", "`target_ref` must resolve to a known workflow doc.")
-        classification = payload["classification"]
-        if classification not in contract["classification_enum"]:
-            raise HybridAssistError(
-                "hybrid_invalid_classification",
-                f"`classification` must be one of {', '.join(contract['classification_enum'])}.",
-            )
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["target_ref"] = target_ref
-        normalized["classification"] = classification
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["next_actions"] = _normalize_string_list(payload["next_actions"], "next_actions")
-        return normalized
-
-    if flow_name == "handoff-packet":
-        target_ref = payload["target_ref"]
-        if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
-            raise HybridAssistError("hybrid_invalid_target_ref", "`target_ref` must resolve to a known workflow doc.")
-        normalized["target_ref"] = target_ref
-        for key in ("goal", "why_now"):
-            value = payload[key]
-            if not isinstance(value, str) or not value.strip():
-                raise HybridAssistError("hybrid_invalid_field", f"`{key}` must be a non-empty string.")
-            normalized[key] = " ".join(value.split())[:400]
-        normalized["files_of_interest"] = _normalize_string_list(payload["files_of_interest"], "files_of_interest")
-        normalized["validation_targets"] = _normalize_string_list(payload["validation_targets"], "validation_targets")
-        normalized["risks"] = _normalize_string_list(payload["risks"], "risks")
-        return normalized
-
-    if flow_name == "suggest-split":
-        target_ref = payload["target_ref"]
-        if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
-            raise HybridAssistError("hybrid_invalid_target_ref", "`target_ref` must resolve to a known workflow doc.")
-        normalized["target_ref"] = target_ref
-        normalized["suggested_titles"] = _normalize_string_list(payload["suggested_titles"], "suggested_titles")
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["summary"] = " ".join(summary.split())[:500]
-        return normalized
-
-    if flow_name == "diff-risk":
-        risk = payload["risk"]
-        if risk not in contract["risk_enum"]:
-            raise HybridAssistError("hybrid_invalid_risk", f"`risk` must be one of {', '.join(contract['risk_enum'])}.")
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["risk"] = risk
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["drivers"] = _normalize_string_list(payload["drivers"], "drivers")
-        return normalized
-
-    if flow_name == "commit-plan":
-        strategy = payload["strategy"]
-        if strategy not in contract["strategy_enum"]:
-            raise HybridAssistError(
-                "hybrid_invalid_strategy",
-                f"`strategy` must be one of {', '.join(contract['strategy_enum'])}.",
-            )
-        steps = payload["steps"]
-        if not isinstance(steps, list) or not steps:
-            raise HybridAssistError("hybrid_invalid_steps", "`steps` must be a non-empty array.")
-        normalized_steps = []
-        for step in steps:
-            if not isinstance(step, dict):
-                raise HybridAssistError("hybrid_invalid_steps", "Each commit-plan step must be a JSON object.")
-            scope = step.get("scope")
-            summary = step.get("summary")
-            paths = step.get("paths")
-            if scope not in {"root", "submodule"}:
-                raise HybridAssistError("hybrid_invalid_steps", "Each commit-plan step requires scope=root|submodule.")
-            if not isinstance(summary, str) or not summary.strip():
-                raise HybridAssistError("hybrid_invalid_steps", "Each commit-plan step requires a non-empty summary.")
-            normalized_steps.append(
-                {
-                    "scope": scope,
-                    "summary": " ".join(summary.split())[:240],
-                    "paths": _normalize_string_list(paths, "paths"),
-                }
-            )
-        normalized["strategy"] = strategy
-        normalized["steps"] = normalized_steps
-        return normalized
-
-    if flow_name == "closure-summary":
-        target_ref = payload["target_ref"]
-        if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
-            raise HybridAssistError("hybrid_invalid_target_ref", "`target_ref` must resolve to a known workflow doc.")
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["target_ref"] = target_ref
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["delivered"] = _normalize_string_list(payload["delivered"], "delivered")
-        normalized["validations"] = _normalize_string_list(payload["validations"], "validations")
-        normalized["remaining_risks"] = _normalize_string_list(payload["remaining_risks"], "remaining_risks")
-        return normalized
-
-    if flow_name == "validation-checklist":
-        profile = payload["profile"]
-        if not isinstance(profile, str) or not profile.strip():
-            raise HybridAssistError("hybrid_invalid_profile", "`profile` must be a non-empty string.")
-        normalized["profile"] = " ".join(profile.split())[:120]
-        normalized["checks"] = _normalize_string_list(payload["checks"], "checks")
-        return normalized
-
-    if flow_name == "doc-consistency":
-        overall = payload["overall"]
-        if overall not in contract["overall_enum"]:
-            raise HybridAssistError("hybrid_invalid_overall", f"`overall` must be one of {', '.join(contract['overall_enum'])}.")
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["overall"] = overall
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["issues"] = _normalize_string_list(payload["issues"], "issues")
-        normalized["follow_up"] = _normalize_string_list(payload["follow_up"], "follow_up")
-        return normalized
-
-    if flow_name == "changed-surface-summary":
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["changed_paths"] = _normalize_string_list(payload["changed_paths"], "changed_paths")
-        normalized["categories"] = _normalize_string_list(payload["categories"], "categories")
-        return normalized
-
-    if flow_name == "release-changelog-status":
-        for key in ("tag", "version", "relative_path", "summary"):
-            value = payload[key]
-            if not isinstance(value, str) or not value.strip():
-                raise HybridAssistError("hybrid_invalid_field", f"`{key}` must be a non-empty string.")
-            normalized[key] = " ".join(value.split())[:240]
-        exists = payload["exists"]
-        if not isinstance(exists, bool):
-            raise HybridAssistError("hybrid_invalid_field", "`exists` must be a boolean.")
-        normalized["exists"] = exists
-        return normalized
-
-    if flow_name == "test-impact-summary":
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["commands"] = _normalize_string_list(payload["commands"], "commands")
-        normalized["targeted_tests"] = _normalize_string_list(payload["targeted_tests"], "targeted_tests")
-        return normalized
-
-    if flow_name == "hybrid-insights-explainer":
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["strengths"] = _normalize_string_list(payload["strengths"], "strengths")
-        normalized["concerns"] = _normalize_string_list(payload["concerns"], "concerns")
-        normalized["next_actions"] = _normalize_string_list(payload["next_actions"], "next_actions")
-        return normalized
-
-    if flow_name == "windows-compat-risk":
-        risk = payload["risk"]
-        if risk not in contract["risk_enum"]:
-            raise HybridAssistError("hybrid_invalid_risk", f"`risk` must be one of {', '.join(contract['risk_enum'])}.")
-        summary = payload["summary"]
-        if not isinstance(summary, str) or not summary.strip():
-            raise HybridAssistError("hybrid_invalid_summary", "`summary` must be a non-empty string.")
-        normalized["risk"] = risk
-        normalized["summary"] = " ".join(summary.split())[:500]
-        normalized["drivers"] = _normalize_string_list(payload["drivers"], "drivers")
-        return normalized
-
-    if flow_name == "review-checklist":
-        profile = payload["profile"]
-        if not isinstance(profile, str) or not profile.strip():
-            raise HybridAssistError("hybrid_invalid_profile", "`profile` must be a non-empty string.")
-        normalized["profile"] = " ".join(profile.split())[:120]
-        normalized["checks"] = _normalize_string_list(payload["checks"], "checks")
-        return normalized
-
-    if flow_name == "doc-link-suggestion":
-        target_ref = payload["target_ref"]
-        if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
-            raise HybridAssistError("hybrid_invalid_target_ref", "`target_ref` must resolve to a known workflow doc.")
-        normalized["target_ref"] = target_ref
-        normalized["missing_links"] = _normalize_string_list(payload["missing_links"], "missing_links")
-        normalized["suggested_follow_up"] = _normalize_string_list(payload["suggested_follow_up"], "suggested_follow_up")
-        return normalized
-
-    raise HybridAssistError("hybrid_unhandled_flow", f"Unhandled hybrid assist flow `{flow_name}`.")
+    return validate_hybrid_result_impl(
+        flow_name,
+        payload,
+        docs_by_ref,
+        context_bundle=context_bundle,
+        flow_contracts=FLOW_CONTRACTS,
+        error_cls=HybridAssistError,
+        validate_dispatcher_decision=validate_dispatcher_decision,
+        normalize_confidence=_normalize_confidence,
+        normalize_string_list=lambda value, key: _normalize_string_list(value, key),
+        looks_generic_commit_subject=_looks_generic_commit_subject,
+    )
 
 
 def _bounded_diagnostic_value(
@@ -1281,30 +708,11 @@ def build_hybrid_failure_raw_payload(
 
 
 def append_jsonl_record(path: Path, record: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    append_jsonl_record_impl(path, record)
 
 
 def load_jsonl_records(path: Path) -> tuple[list[dict[str, Any]], int]:
-    if not path.is_file():
-        return [], 0
-    records: list[dict[str, Any]] = []
-    invalid_lines = 0
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            invalid_lines += 1
-            continue
-        if isinstance(payload, dict):
-            records.append(payload)
-        else:
-            invalid_lines += 1
-    return records, invalid_lines
+    return load_jsonl_records_impl(path)
 
 
 def _parse_recorded_at(value: Any) -> datetime | None:
@@ -1425,236 +833,15 @@ def build_hybrid_roi_report(
     recent_limit: int = DEFAULT_HYBRID_ROI_RECENT_LIMIT,
     window_days: int = DEFAULT_HYBRID_ROI_WINDOW_DAYS,
 ) -> dict[str, Any]:
-    effective_recent_limit = max(1, recent_limit)
-    effective_window_days = max(1, window_days)
-    audit_records, audit_invalid_lines = load_jsonl_records(audit_log)
-    measurement_records, measurement_invalid_lines = load_jsonl_records(measurement_log)
-    now = datetime.now(timezone.utc)
-    window_start = now - timedelta(days=effective_window_days)
-
-    measurement_records_sorted = sorted(
-        measurement_records,
-        key=lambda record: _parse_recorded_at(record.get("recorded_at")) or datetime.min.replace(tzinfo=timezone.utc),
+    return build_hybrid_roi_report_impl(
+        repo_root=repo_root,
+        audit_log=audit_log,
+        measurement_log=measurement_log,
+        recent_limit=recent_limit,
+        window_days=window_days,
+        schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
+        default_estimated_remote_tokens_per_local_run=DEFAULT_ESTIMATED_REMOTE_TOKENS_PER_LOCAL_RUN,
     )
-    audit_records_sorted = sorted(
-        audit_records,
-        key=lambda record: _parse_recorded_at(record.get("recorded_at")) or datetime.min.replace(tzinfo=timezone.utc),
-    )
-
-    total_runs = len(measurement_records_sorted)
-    by_flow: dict[str, dict[str, Any]] = {}
-    backend_requested_counter: Counter[str] = Counter()
-    backend_used_counter: Counter[str] = Counter()
-    result_status_counter: Counter[str] = Counter()
-    recent_result_distribution_counter: Counter[str] = Counter()
-    degraded_reason_counter: Counter[str] = Counter()
-    fallback_reason_counter: Counter[str] = Counter()
-    review_recommended_count = 0
-    degraded_count = 0
-    fallback_count = 0
-    local_runs_count = 0
-
-    for record in measurement_records_sorted:
-        flow = _normalize_reason_label(record.get("flow"), fallback="unknown-flow")
-        requested_backend = _normalize_reason_label(record.get("backend_requested"), fallback="unknown")
-        used_backend = _normalize_reason_label(record.get("backend_used"), fallback="unknown")
-        result_status = _normalize_reason_label(record.get("result_status"), fallback="unknown")
-        review_recommended = _measurement_review_recommended(record)
-        degraded_reasons = [
-            _normalize_reason_label(reason)
-            for reason in record.get("degraded_reasons", [])
-            if _normalize_reason_label(reason)
-        ]
-        recorded_at = _parse_recorded_at(record.get("recorded_at"))
-
-        backend_requested_counter[requested_backend] += 1
-        backend_used_counter[used_backend] += 1
-        result_status_counter[result_status] += 1
-        if used_backend == "ollama":
-            local_runs_count += 1
-        if review_recommended:
-            review_recommended_count += 1
-        if result_status == "degraded" or degraded_reasons:
-            degraded_count += 1
-        if _fallback_triggered(record):
-            fallback_count += 1
-
-        if recorded_at is not None and recorded_at >= window_start:
-            recent_result_distribution_counter[result_status] += 1
-
-        for reason in degraded_reasons:
-            degraded_reason_counter[reason] += 1
-
-        flow_bucket = by_flow.setdefault(
-            flow,
-            {
-                "run_count": 0,
-                "backend_requested": {},
-                "backend_used": {},
-                "result_statuses": {},
-                "fallback_count": 0,
-                "degraded_count": 0,
-                "review_recommended_count": 0,
-            },
-        )
-        flow_bucket["run_count"] += 1
-        flow_bucket["backend_requested"][requested_backend] = flow_bucket["backend_requested"].get(requested_backend, 0) + 1
-        flow_bucket["backend_used"][used_backend] = flow_bucket["backend_used"].get(used_backend, 0) + 1
-        flow_bucket["result_statuses"][result_status] = flow_bucket["result_statuses"].get(result_status, 0) + 1
-        if _fallback_triggered(record):
-            flow_bucket["fallback_count"] += 1
-        if result_status == "degraded" or degraded_reasons:
-            flow_bucket["degraded_count"] += 1
-        if review_recommended:
-            flow_bucket["review_recommended_count"] += 1
-
-    for flow_bucket in by_flow.values():
-        run_count = int(flow_bucket["run_count"])
-        flow_bucket["fallback_rate"] = _round_rate(int(flow_bucket["fallback_count"]), run_count)
-        flow_bucket["degraded_rate"] = _round_rate(int(flow_bucket["degraded_count"]), run_count)
-        flow_bucket["review_recommended_rate"] = _round_rate(int(flow_bucket["review_recommended_count"]), run_count)
-
-    recent_runs: list[dict[str, Any]] = []
-    for audit_record in reversed(audit_records_sorted):
-        backend = audit_record.get("backend")
-        backend_requested = "unknown"
-        backend_used = "unknown"
-        if isinstance(backend, dict):
-            backend_requested = _normalize_reason_label(backend.get("requested_backend"), fallback="unknown")
-            backend_used = _normalize_reason_label(backend.get("selected_backend"), fallback="unknown")
-            backend_reason_values = backend.get("reasons")
-            if isinstance(backend_reason_values, list):
-                for reason in backend_reason_values:
-                    if backend_used == "codex" and backend_requested in {"auto", "ollama"}:
-                        fallback_reason_counter[_normalize_reason_label(reason)] += 1
-        transport = audit_record.get("transport") if isinstance(audit_record.get("transport"), dict) else {}
-        if backend_used == "codex" and backend_requested in {"auto", "ollama"}:
-            transport_reason = transport.get("reason") if isinstance(transport, dict) else None
-            fallback_reason_counter[_normalize_reason_label(transport_reason)] += 1
-        recent_runs.append(
-            {
-                "recorded_at": audit_record.get("recorded_at"),
-                "flow": _normalize_reason_label(audit_record.get("flow"), fallback="unknown-flow"),
-                "result_status": _normalize_reason_label(audit_record.get("result_status"), fallback="unknown"),
-                "backend_requested": backend_requested,
-                "backend_used": backend_used,
-                "degraded_reasons": [
-                    _normalize_reason_label(reason)
-                    for reason in audit_record.get("degraded_reasons", [])
-                    if _normalize_reason_label(reason)
-                ],
-                "review_recommended": _audit_review_recommended(audit_record),
-                "safety_class": _normalize_reason_label(audit_record.get("safety_class"), fallback="unknown"),
-                "seed_ref": (
-                    audit_record.get("context_summary", {}).get("seed_ref")
-                    if isinstance(audit_record.get("context_summary"), dict)
-                    else None
-                ),
-                "transport": transport if isinstance(transport, dict) else {},
-                "validated_summary": _summarize_validated_payload(audit_record.get("validated_payload", {}))
-                if isinstance(audit_record.get("validated_payload"), dict)
-                else "",
-                "validated_excerpt": _build_validated_excerpt(audit_record.get("validated_payload")),
-            }
-        )
-        if len(recent_runs) >= effective_recent_limit:
-            break
-
-    total_audit_runs = len(audit_records_sorted)
-    recent_runs.reverse()
-    fallback_heavy = _round_rate(fallback_count, total_runs) >= 0.25 if total_runs else False
-    degraded_heavy = _round_rate(degraded_count, total_runs) >= 0.2 if total_runs else False
-    review_heavy = _round_rate(review_recommended_count, total_runs) >= 0.35 if total_runs else False
-    local_offload_rate = _round_rate(local_runs_count, total_runs)
-    estimated_remote_token_avoidance = local_runs_count * DEFAULT_ESTIMATED_REMOTE_TOKENS_PER_LOCAL_RUN
-
-    health_summary: list[str] = []
-    if total_runs == 0:
-        health_summary.append("No hybrid assist measurement records are available yet.")
-    else:
-        if fallback_heavy:
-            health_summary.append("Fallback routing is elevated, which suggests local backend instability or explicit codex preference.")
-        if degraded_heavy:
-            health_summary.append("Degraded outcomes are elevated and should be reviewed before treating the ROI proxies as healthy.")
-        if review_heavy:
-            health_summary.append("Review-recommended outcomes are frequent, so operator follow-up remains important.")
-        if not health_summary:
-            health_summary.append("Recent hybrid assist activity looks operationally healthy under the current bounded metrics.")
-
-    return {
-        "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
-        "report_kind": "hybrid-assist-roi-report",
-        "generated_at": now.isoformat(),
-        "ok": True,
-        "sources": {
-            "audit_log": audit_log.relative_to(repo_root).as_posix() if audit_log.is_absolute() else audit_log.as_posix(),
-            "measurement_log": measurement_log.relative_to(repo_root).as_posix()
-            if measurement_log.is_absolute()
-            else measurement_log.as_posix(),
-            "audit_records": total_audit_runs,
-            "measurement_records": total_runs,
-            "invalid_audit_lines": audit_invalid_lines,
-            "invalid_measurement_lines": measurement_invalid_lines,
-        },
-        "limits": {
-            "recent_limit": effective_recent_limit,
-            "window_days": effective_window_days,
-            "window_start": window_start.isoformat(),
-        },
-        "semantics": {
-            "measured": "Values under `measured` come directly from hybrid assist measurement records and recent audit provenance.",
-            "derived": "Values under `derived` are deterministic summaries or rates computed from measured counters.",
-            "estimated": "Values under `estimated` are conservative proxies only. They are not billing truth and must be read alongside degraded and fallback rates.",
-        },
-        "measured": {
-            "totals": {
-                "runs": total_runs,
-                "fallback_runs": fallback_count,
-                "degraded_runs": degraded_count,
-                "review_recommended_runs": review_recommended_count,
-                "local_runs": local_runs_count,
-            },
-            "runs_by_flow": dict(sorted((flow, bucket["run_count"]) for flow, bucket in by_flow.items())),
-            "backend_requested": dict(sorted(backend_requested_counter.items())),
-            "backend_used": dict(sorted(backend_used_counter.items())),
-            "result_statuses": dict(sorted(result_status_counter.items())),
-            "review_recommended_by_flow": {
-                flow: bucket["review_recommended_count"] for flow, bucket in sorted(by_flow.items())
-            },
-            "recent_result_distribution": dict(sorted(recent_result_distribution_counter.items())),
-            "flow_breakdown": dict(sorted(by_flow.items())),
-        },
-        "derived": {
-            "rates": {
-                "fallback_rate": _round_rate(fallback_count, total_runs),
-                "degraded_rate": _round_rate(degraded_count, total_runs),
-                "review_recommended_rate": _round_rate(review_recommended_count, total_runs),
-                "local_offload_rate": local_offload_rate,
-            },
-            "dispatch_split": _counter_to_ranked_items(backend_used_counter),
-            "top_degraded_reasons": _counter_to_ranked_items(degraded_reason_counter, limit=5),
-            "top_fallback_reasons": _counter_to_ranked_items(fallback_reason_counter, limit=5),
-            "health_summary": health_summary,
-            "report_state": {
-                "fallback_heavy": fallback_heavy,
-                "degraded_heavy": degraded_heavy,
-                "review_heavy": review_heavy,
-            },
-        },
-        "estimated": {
-            "assumptions": {
-                "remote_tokens_per_local_run": DEFAULT_ESTIMATED_REMOTE_TOKENS_PER_LOCAL_RUN,
-                "token_avoidance_note": "Each successful local Ollama run is treated as one avoided remote assist dispatch with a conservative illustrative token budget.",
-                "interpretation_note": "Use these proxies for relative trend review only. They are not exact cost or billing metrics.",
-            },
-            "proxies": {
-                "estimated_remote_dispatches_avoided": local_runs_count,
-                "estimated_remote_token_avoidance": estimated_remote_token_avoidance,
-                "estimated_local_offload_share": local_offload_rate,
-            },
-        },
-        "recent_runs": recent_runs,
-    }
 
 
 def _git(repo_root: Path, *argv: str) -> tuple[int, str, str]:
@@ -1685,32 +872,7 @@ def _submodule_has_local_changes(repo_root: Path, rel_path: str) -> bool:
 
 
 def collect_git_snapshot(repo_root: Path) -> dict[str, Any]:
-    status_code, status_out, _status_err = _git(repo_root, "status", "--short")
-    diff_code, diff_out, _diff_err = _git(repo_root, "diff", "--stat")
-    staged_code, staged_out, _staged_err = _git(repo_root, "diff", "--cached", "--stat")
-    changed_paths = []
-    if status_code == 0:
-        for raw in status_out.splitlines():
-            if len(raw) < 4:
-                continue
-            path_text = raw[3:].strip()
-            if " -> " in path_text:
-                path_text = path_text.split(" -> ", 1)[1].strip()
-            if path_text:
-                changed_paths.append(path_text)
-    return {
-        "git_available": status_code == 0,
-        "changed_paths": changed_paths,
-        "unstaged_diff_stat": [line for line in diff_out.splitlines() if line.strip()] if diff_code == 0 else [],
-        "staged_diff_stat": [line for line in staged_out.splitlines() if line.strip()] if staged_code == 0 else [],
-        "has_changes": bool(changed_paths),
-        "doc_only": bool(changed_paths) and all(path.startswith("logics/") or path.endswith(".md") for path in changed_paths),
-        "touches_plugin": any(path.startswith("src/") or path.startswith("media/") or path == "README.md" for path in changed_paths),
-        "touches_runtime": any(path.startswith("logics/skills/") or path == "logics.yaml" for path in changed_paths),
-        "touches_tests": any(path.startswith("tests/") or "/tests/" in path for path in changed_paths),
-        "touches_submodule": any(path == "logics/skills" or path.startswith("logics/skills/") for path in changed_paths),
-        "submodule_has_changes": _submodule_has_local_changes(repo_root, "logics/skills"),
-    }
+    return collect_git_snapshot_impl(repo_root)
 
 
 def build_runtime_status(
@@ -1724,39 +886,20 @@ def build_runtime_status(
     timeout_seconds: float,
     claude_bridge_status: dict[str, Any],
 ) -> dict[str, Any]:
-    backend = probe_ollama_backend(
+    return build_runtime_status_impl(
+        repo_root=repo_root,
         requested_backend=requested_backend,
         host=host,
-        model_profile=str(model_profile["name"]),
-        model_family=str(model_profile["family"]),
-        configured_model=str(model_profile["configured_model"]),
+        model_profile=model_profile,
+        supported_model_profiles=supported_model_profiles,
         model=model,
         timeout_seconds=timeout_seconds,
+        claude_bridge_status=claude_bridge_status,
+        schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
+        flow_contracts=FLOW_CONTRACTS,
+        probe_ollama_backend=probe_ollama_backend,
+        build_flow_backend_policy=build_flow_backend_policy,
     )
-    degraded_reasons = list(backend.reasons)
-    claude_bridge_available = bool(claude_bridge_status.get("available"))
-    return {
-        "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
-        "backend": backend.to_dict(),
-        "active_model_profile": {
-            "name": model_profile["name"],
-            "family": model_profile["family"],
-            "configured_model": model_profile["configured_model"],
-            "resolved_model": model_profile["resolved_model"],
-            "description": model_profile["description"],
-            "example_tags": model_profile["example_tags"],
-        },
-        "supported_model_profiles": supported_model_profiles,
-        "claude_bridge": claude_bridge_status,
-        "claude_bridge_available": claude_bridge_available,
-        "flow_backend_policies": {
-            flow: build_flow_backend_policy(flow)
-            for flow in sorted(FLOW_CONTRACTS.keys())
-        },
-        "windows_safe_entrypoint": "python logics/skills/logics.py flow assist ...",
-        "degraded": bool(degraded_reasons),
-        "degraded_reasons": degraded_reasons,
-    }
 
 
 def build_hybrid_audit_record(
@@ -1771,27 +914,18 @@ def build_hybrid_audit_record(
     degraded_reasons: list[str],
     execution_result: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    return {
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
-        "flow": flow_name,
-        "result_status": result_status,
-        "backend": backend_status.to_dict(),
-        "safety_class": context_bundle["contract"]["safety_class"],
-        "context_summary": {
-            "seed_ref": context_bundle.get("seed_ref"),
-            "context_profile": context_bundle.get("context_profile"),
-            "mode": context_bundle.get("context_pack", {}).get("mode"),
-            "profile": context_bundle.get("context_pack", {}).get("profile"),
-            "doc_count": context_bundle.get("context_pack", {}).get("estimates", {}).get("doc_count"),
-            "changed_paths": len(context_bundle.get("git_snapshot", {}).get("changed_paths", [])),
-        },
-        "raw_payload": raw_payload,
-        "validated_payload": validated_payload,
-        "transport": transport,
-        "degraded_reasons": degraded_reasons,
-        "execution_result": execution_result,
-    }
+    return build_hybrid_audit_record_impl(
+        flow_name=flow_name,
+        result_status=result_status,
+        backend_status=backend_status,
+        context_bundle=context_bundle,
+        raw_payload=raw_payload,
+        validated_payload=validated_payload,
+        transport=transport,
+        degraded_reasons=degraded_reasons,
+        execution_result=execution_result,
+        schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
+    )
 
 
 def build_measurement_record(
@@ -1803,17 +937,15 @@ def build_measurement_record(
     degraded_reasons: list[str],
     review_recommended: bool,
 ) -> dict[str, Any]:
-    return {
-        "recorded_at": datetime.now(timezone.utc).isoformat(),
-        "schema_version": HYBRID_ASSIST_SCHEMA_VERSION,
-        "flow": flow_name,
-        "backend_requested": backend_status.requested_backend,
-        "backend_used": backend_status.selected_backend,
-        "result_status": result_status,
-        "confidence": confidence,
-        "degraded_reasons": degraded_reasons,
-        "review_recommended": review_recommended,
-    }
+    return build_measurement_record_impl(
+        flow_name=flow_name,
+        backend_status=backend_status,
+        result_status=result_status,
+        confidence=confidence,
+        degraded_reasons=degraded_reasons,
+        review_recommended=review_recommended,
+        schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
+    )
 
 
 def _count_section_bullets(doc: WorkflowDocModel, heading: str) -> int:
