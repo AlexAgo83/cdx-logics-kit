@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
+import os
+from pathlib import Path
 import socket
 from typing import Any, Callable
 from urllib import error as urllib_error
@@ -13,6 +15,15 @@ from urllib import request as urllib_request
 class HybridProviderDefinition:
     name: str
     execution_kind: str
+    endpoint: str
+    model_profile: str
+    model_family: str
+    configured_model: str
+    model: str
+    credential_env: str | None = None
+    credential_value: str | None = None
+    credential_present: bool = False
+    enabled: bool = True
 
 
 def bounded_diagnostic_value_impl(
@@ -53,18 +64,65 @@ def json_request_impl(
     host: str,
     request_path: str,
     *,
+    headers: dict[str, str] | None = None,
     payload: dict[str, Any] | None,
     timeout_seconds: float,
 ) -> dict[str, Any]:
     encoded = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request_headers = {"Content-Type": "application/json"}
+    if headers:
+        request_headers.update(headers)
     req = urllib_request.Request(
         f"{host.rstrip('/')}{request_path}",
         data=encoded,
-        headers={"Content-Type": "application/json"},
+        headers=request_headers,
         method="POST" if payload is not None else "GET",
     )
     with urllib_request.urlopen(req, timeout=timeout_seconds) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def normalize_provider_endpoint_impl(endpoint: str, *, default_scheme: str = "https://") -> str:
+    normalized = endpoint.strip()
+    if not normalized:
+        return normalized
+    if not normalized.startswith(("http://", "https://")):
+        normalized = f"{default_scheme}{normalized}"
+    return normalized.rstrip("/")
+
+
+def load_dotenv_values_impl(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, raw_value = stripped.split("=", 1)
+        normalized_key = key.strip()
+        if not normalized_key:
+            continue
+        value = raw_value.strip()
+        if value.startswith(("'", '"')) and value.endswith(("'", '"')) and len(value) >= 2:
+            value = value[1:-1]
+        values[normalized_key] = value
+    return values
+
+
+def load_hybrid_provider_environment_impl(
+    *,
+    repo_root: Path | None,
+    dotenv_path: str,
+    environ: dict[str, str],
+) -> dict[str, str]:
+    resolved = dict(environ)
+    if repo_root is None:
+        return resolved
+    dotenv_values = load_dotenv_values_impl((repo_root / dotenv_path).resolve())
+    for key, value in dotenv_values.items():
+        resolved.setdefault(key, value)
+    return resolved
 
 
 def probe_ollama_backend_impl(
@@ -194,12 +252,203 @@ def probe_ollama_backend_impl(
     )
 
 
-def build_hybrid_provider_registry_impl() -> dict[str, HybridProviderDefinition]:
+def build_hybrid_provider_registry_impl(
+    *,
+    repo_root: Path | None,
+    config: dict[str, Any] | None,
+    requested_backend: str,
+    requested_model: str | None,
+    host: str,
+    default_hybrid_host: str,
+    model_profile: str,
+    model_family: str,
+    configured_model: str,
+    model: str,
+    default_dotenv_path: str = ".env",
+    environ: dict[str, str] | None = None,
+) -> dict[str, HybridProviderDefinition]:
+    provider_config = config.get("hybrid_assist", {}).get("providers", {}) if isinstance(config, dict) else {}
+    hybrid_config = config.get("hybrid_assist", {}) if isinstance(config, dict) else {}
+    dotenv_path = str(hybrid_config.get("env_file", default_dotenv_path)).strip() or default_dotenv_path
+    resolved_environ = load_hybrid_provider_environment_impl(
+        repo_root=repo_root,
+        dotenv_path=dotenv_path,
+        environ=dict(os.environ) if environ is None else dict(environ),
+    )
+
+    ollama_config = provider_config.get("ollama", {}) if isinstance(provider_config, dict) else {}
+    openai_config = provider_config.get("openai", {}) if isinstance(provider_config, dict) else {}
+    gemini_config = provider_config.get("gemini", {}) if isinstance(provider_config, dict) else {}
+
+    ollama_host = normalize_provider_endpoint_impl(
+        host.strip() or str(ollama_config.get("host", "")).strip() or default_hybrid_host,
+        default_scheme="http://",
+    )
+    openai_model = (
+        str(requested_model).strip()
+        if requested_backend == "openai" and str(requested_model or "").strip()
+        else str(openai_config.get("model", "gpt-4.1-mini")).strip() or "gpt-4.1-mini"
+    )
+    gemini_model = (
+        str(requested_model).strip()
+        if requested_backend == "gemini" and str(requested_model or "").strip()
+        else str(gemini_config.get("model", "gemini-2.0-flash")).strip() or "gemini-2.0-flash"
+    )
+    openai_key_env = str(openai_config.get("api_key_env", "OPENAI_API_KEY")).strip() or "OPENAI_API_KEY"
+    gemini_key_env = str(gemini_config.get("api_key_env", "GEMINI_API_KEY")).strip() or "GEMINI_API_KEY"
+
     return {
-        "ollama": HybridProviderDefinition(name="ollama", execution_kind="transport"),
-        "codex": HybridProviderDefinition(name="codex", execution_kind="fallback"),
-        "deterministic": HybridProviderDefinition(name="deterministic", execution_kind="fallback"),
+        "ollama": HybridProviderDefinition(
+            name="ollama",
+            execution_kind="transport",
+            endpoint=ollama_host,
+            model_profile=model_profile,
+            model_family=model_family,
+            configured_model=configured_model,
+            model=model,
+            enabled=bool(ollama_config.get("enabled", True)),
+        ),
+        "openai": HybridProviderDefinition(
+            name="openai",
+            execution_kind="transport",
+            endpoint=normalize_provider_endpoint_impl(
+                str(openai_config.get("base_url", "https://api.openai.com/v1")).strip() or "https://api.openai.com/v1"
+            ),
+            model_profile="openai",
+            model_family="openai",
+            configured_model=str(openai_config.get("model", openai_model)).strip() or openai_model,
+            model=openai_model,
+            credential_env=openai_key_env,
+            credential_value=resolved_environ.get(openai_key_env, "").strip() or None,
+            credential_present=bool(resolved_environ.get(openai_key_env, "").strip()),
+            enabled=bool(openai_config.get("enabled", False)),
+        ),
+        "gemini": HybridProviderDefinition(
+            name="gemini",
+            execution_kind="transport",
+            endpoint=normalize_provider_endpoint_impl(
+                str(gemini_config.get("base_url", "https://generativelanguage.googleapis.com/v1beta")).strip()
+                or "https://generativelanguage.googleapis.com/v1beta"
+            ),
+            model_profile="gemini",
+            model_family="gemini",
+            configured_model=str(gemini_config.get("model", gemini_model)).strip() or gemini_model,
+            model=gemini_model,
+            credential_env=gemini_key_env,
+            credential_value=resolved_environ.get(gemini_key_env, "").strip() or None,
+            credential_present=bool(resolved_environ.get(gemini_key_env, "").strip()),
+            enabled=bool(gemini_config.get("enabled", False)),
+        ),
+        "codex": HybridProviderDefinition(
+            name="codex",
+            execution_kind="fallback",
+            endpoint="",
+            model_profile="codex",
+            model_family="codex",
+            configured_model="codex",
+            model="codex",
+        ),
+        "deterministic": HybridProviderDefinition(
+            name="deterministic",
+            execution_kind="fallback",
+            endpoint="",
+            model_profile="deterministic",
+            model_family="deterministic",
+            configured_model="deterministic",
+            model="deterministic",
+        ),
     }
+
+
+def probe_remote_provider_impl(
+    *,
+    provider: HybridProviderDefinition,
+    requested_backend: str,
+    timeout_seconds: float,
+    backend_status_cls: type[Any],
+    error_cls: type[Exception],
+    json_request: Callable[..., dict[str, Any]],
+) -> Any:
+    reasons: list[str] = []
+    response_time_ms: float | None = None
+    version: str | None = None
+    reachable = False
+    model_available = False
+
+    if not provider.enabled:
+        reasons.append(f"{provider.name}-disabled")
+    if provider.credential_env and not provider.credential_present:
+        reasons.append(f"{provider.name}-missing-credentials")
+
+    if not reasons:
+        try:
+            started = datetime.now(timezone.utc)
+            if provider.name == "openai":
+                payload = json_request(
+                    provider.endpoint,
+                    f"/models/{provider.model}",
+                    headers={"Authorization": f"Bearer {provider.credential_value or ''}"},
+                    payload=None,
+                    timeout_seconds=timeout_seconds,
+                )
+                version = str(payload.get("id", "")).strip() or None
+            elif provider.name == "gemini":
+                model_path = provider.model if provider.model.startswith("models/") else f"models/{provider.model}"
+                payload = json_request(
+                    provider.endpoint,
+                    f"/{model_path}?key={provider.credential_value or ''}",
+                    payload=None,
+                    timeout_seconds=timeout_seconds,
+                )
+                version = str(payload.get("name", "")).strip() or None
+            else:
+                raise error_cls("hybrid_unknown_backend", f"Unknown remote provider `{provider.name}`.")
+            elapsed = datetime.now(timezone.utc) - started
+            response_time_ms = round(elapsed.total_seconds() * 1000, 3)
+            reachable = True
+            model_available = True
+        except urllib_error.HTTPError as exc:
+            if exc.code in {401, 403}:
+                reasons.append(f"{provider.name}-auth-failed")
+            elif exc.code == 404:
+                reasons.append(f"{provider.name}-model-missing")
+            else:
+                reasons.append(f"{provider.name}-http-{exc.code}")
+        except urllib_error.URLError:
+            reasons.append(f"{provider.name}-unreachable")
+        except socket.timeout:
+            reasons.append(f"{provider.name}-timeout")
+        except Exception:
+            reasons.append(f"{provider.name}-probe-failed")
+
+    healthy = reachable and model_available and not reasons
+    if requested_backend == provider.name and not healthy:
+        raise error_cls(
+            "hybrid_provider_unavailable",
+            f"{provider.name} backend is not healthy for model `{provider.model}`.",
+            details={"provider": provider.name, "endpoint": provider.endpoint, "model": provider.model, "reasons": reasons},
+        )
+    return backend_status_cls(
+        requested_backend=requested_backend,
+        selected_backend=provider.name if healthy or requested_backend == provider.name else "codex",
+        host=provider.endpoint,
+        model_profile=provider.model_profile,
+        model_family=provider.model_family,
+        configured_model=provider.configured_model,
+        model=provider.model,
+        ollama_reachable=False,
+        model_available=model_available,
+        healthy=healthy,
+        reasons=[] if healthy else reasons,
+        response_time_ms=response_time_ms,
+        version=version,
+        selection_reason=(
+            "explicit-backend"
+            if requested_backend == provider.name and healthy
+            else (f"auto-healthy-{provider.name}" if requested_backend == "auto" and healthy else None)
+        ),
+        policy_mode=None,
+    )
 
 
 def select_hybrid_backend_impl(
@@ -216,6 +465,7 @@ def select_hybrid_backend_impl(
     provider_registry: dict[str, HybridProviderDefinition],
     build_flow_backend_policy: Callable[[str], dict[str, Any]],
     probe_ollama_backend: Callable[..., Any],
+    probe_remote_provider: Callable[..., Any],
     backend_status_cls: type[Any],
     error_cls: type[Exception],
 ) -> Any:
@@ -233,14 +483,15 @@ def select_hybrid_backend_impl(
         reasons: list[str],
         selection_reason: str,
     ) -> Any:
+        provider = provider_registry.get(provider_name)
         return backend_status_cls(
             requested_backend=requested_backend,
             selected_backend=provider_name,
-            host=normalized_host,
-            model_profile=model_profile,
-            model_family=model_family,
-            configured_model=configured_model,
-            model=model,
+            host=provider.endpoint if provider is not None else normalized_host,
+            model_profile=provider.model_profile if provider is not None else model_profile,
+            model_family=provider.model_family if provider is not None else model_family,
+            configured_model=provider.configured_model if provider is not None else configured_model,
+            model=provider.model if provider is not None else model,
             ollama_reachable=False,
             model_available=provider_name != "ollama",
             healthy=len(reasons) == 0 or provider_name == "deterministic",
@@ -268,11 +519,17 @@ def select_hybrid_backend_impl(
             return probe_ollama_backend(
                 requested_backend="ollama",
                 flow_name=flow_name,
-                host=host,
-                model_profile=model_profile,
-                model_family=model_family,
-                configured_model=configured_model,
-                model=model,
+                host=provider_registry["ollama"].endpoint,
+                model_profile=provider_registry["ollama"].model_profile,
+                model_family=provider_registry["ollama"].model_family,
+                configured_model=provider_registry["ollama"].configured_model,
+                model=provider_registry["ollama"].model,
+                timeout_seconds=timeout_seconds,
+            )
+        if requested_backend in {"openai", "gemini"}:
+            return probe_remote_provider(
+                provider=provider_registry[requested_backend],
+                requested_backend=requested_backend,
                 timeout_seconds=timeout_seconds,
             )
         return build_selected_status(requested_backend, reasons=[], selection_reason="explicit-backend")
@@ -288,11 +545,11 @@ def select_hybrid_backend_impl(
                 status = probe_ollama_backend(
                     requested_backend="auto",
                     flow_name=flow_name,
-                    host=host,
-                    model_profile=model_profile,
-                    model_family=model_family,
-                    configured_model=configured_model,
-                    model=model,
+                    host=provider.endpoint,
+                    model_profile=provider.model_profile,
+                    model_family=provider.model_family,
+                    configured_model=provider.configured_model,
+                    model=provider.model,
                     timeout_seconds=timeout_seconds,
                 )
             except Exception as exc:  # noqa: BLE001
@@ -300,6 +557,21 @@ def select_hybrid_backend_impl(
                 accumulated_reasons.append(str(error_code))
                 continue
             if status.selected_backend == "ollama" and status.healthy:
+                return status
+            accumulated_reasons.extend(list(getattr(status, "reasons", [])))
+            continue
+        if provider.name in {"openai", "gemini"}:
+            try:
+                status = probe_remote_provider(
+                    provider=provider,
+                    requested_backend="auto",
+                    timeout_seconds=timeout_seconds,
+                )
+            except Exception as exc:  # noqa: BLE001
+                error_code = getattr(exc, "code", f"{provider.name}-selection-failed")
+                accumulated_reasons.append(str(error_code))
+                continue
+            if status.selected_backend == provider.name and status.healthy:
                 return status
             accumulated_reasons.extend(list(getattr(status, "reasons", [])))
             continue
@@ -444,6 +716,177 @@ def run_ollama_hybrid_impl(
     }
 
 
+def build_gemini_contents_impl(messages: list[dict[str, str]]) -> list[dict[str, Any]]:
+    contents: list[dict[str, Any]] = []
+    system_parts = [message["content"] for message in messages if message.get("role") == "system" and message.get("content")]
+    user_parts = [message["content"] for message in messages if message.get("role") != "system" and message.get("content")]
+    if system_parts:
+        contents.append({"role": "user", "parts": [{"text": "\n\n".join(system_parts)}]})
+    if user_parts:
+        contents.append({"role": "user", "parts": [{"text": "\n\n".join(user_parts)}]})
+    return contents
+
+
+def run_openai_hybrid_impl(
+    *,
+    provider: HybridProviderDefinition,
+    flow_name: str,
+    context_bundle: dict[str, Any],
+    timeout_seconds: float,
+    error_cls: type[Exception],
+    json_request: Callable[..., dict[str, Any]],
+    extract_json_object: Callable[[str], dict[str, Any]],
+    build_hybrid_messages: Callable[[str, dict[str, Any]], list[dict[str, str]]],
+) -> dict[str, Any]:
+    messages = build_hybrid_messages(flow_name, context_bundle)
+    request_payload = {
+        "model": provider.model,
+        "messages": messages,
+        "temperature": 0,
+    }
+    try:
+        response_payload = json_request(
+            provider.endpoint,
+            "/chat/completions",
+            headers={"Authorization": f"Bearer {provider.credential_value or ''}"},
+            payload=request_payload,
+            timeout_seconds=timeout_seconds,
+        )
+    except urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise error_cls(
+            "hybrid_openai_http_error",
+            f"OpenAI returned HTTP {exc.code}: {body or exc.reason}",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name},
+        ) from exc
+    except urllib_error.URLError as exc:
+        raise error_cls(
+            "hybrid_openai_unreachable",
+            f"Could not reach OpenAI at {provider.endpoint}: {exc.reason}",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name},
+        ) from exc
+    except socket.timeout as exc:
+        raise error_cls(
+            "hybrid_openai_timeout",
+            f"OpenAI request to {provider.endpoint} timed out after {timeout_seconds:.1f}s.",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name, "timeout_seconds": timeout_seconds},
+        ) from exc
+
+    content = ""
+    if isinstance(response_payload, dict):
+        choices = response_payload.get("choices")
+        if isinstance(choices, list) and choices:
+            message = choices[0].get("message")
+            if isinstance(message, dict):
+                content = str(message.get("content", "")).strip()
+    if not content:
+        raise error_cls(
+            "hybrid_openai_empty_response",
+            "OpenAI returned an empty hybrid assist response.",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name},
+        )
+    try:
+        result_payload = extract_json_object(content)
+    except Exception as exc:  # noqa: BLE001
+        message = exc.args[0] if exc.args else str(exc)
+        raise error_cls(
+            "hybrid_invalid_json",
+            f"OpenAI returned a response that did not decode to a JSON object: {message}",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name, "raw_content_preview": bounded_diagnostic_value_impl(content)},
+        ) from exc
+    return {
+        "transport": "openai",
+        "host": provider.endpoint,
+        "model": provider.model,
+        "messages": messages,
+        "request_payload": request_payload,
+        "response_payload": response_payload,
+        "raw_content": content,
+        "result_payload": result_payload,
+    }
+
+
+def run_gemini_hybrid_impl(
+    *,
+    provider: HybridProviderDefinition,
+    flow_name: str,
+    context_bundle: dict[str, Any],
+    timeout_seconds: float,
+    error_cls: type[Exception],
+    json_request: Callable[..., dict[str, Any]],
+    extract_json_object: Callable[[str], dict[str, Any]],
+    build_hybrid_messages: Callable[[str, dict[str, Any]], list[dict[str, str]]],
+) -> dict[str, Any]:
+    messages = build_hybrid_messages(flow_name, context_bundle)
+    request_payload = {
+        "contents": build_gemini_contents_impl(messages),
+        "generationConfig": {"temperature": 0},
+    }
+    model_path = provider.model if provider.model.startswith("models/") else f"models/{provider.model}"
+    try:
+        response_payload = json_request(
+            provider.endpoint,
+            f"/{model_path}:generateContent?key={provider.credential_value or ''}",
+            payload=request_payload,
+            timeout_seconds=timeout_seconds,
+        )
+    except urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise error_cls(
+            "hybrid_gemini_http_error",
+            f"Gemini returned HTTP {exc.code}: {body or exc.reason}",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name},
+        ) from exc
+    except urllib_error.URLError as exc:
+        raise error_cls(
+            "hybrid_gemini_unreachable",
+            f"Could not reach Gemini at {provider.endpoint}: {exc.reason}",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name},
+        ) from exc
+    except socket.timeout as exc:
+        raise error_cls(
+            "hybrid_gemini_timeout",
+            f"Gemini request to {provider.endpoint} timed out after {timeout_seconds:.1f}s.",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name, "timeout_seconds": timeout_seconds},
+        ) from exc
+
+    content = ""
+    if isinstance(response_payload, dict):
+        candidates = response_payload.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            candidate_content = candidates[0].get("content")
+            if isinstance(candidate_content, dict):
+                parts = candidate_content.get("parts")
+                if isinstance(parts, list):
+                    text_parts = [str(part.get("text", "")).strip() for part in parts if isinstance(part, dict) and str(part.get("text", "")).strip()]
+                    content = "\n".join(text_parts).strip()
+    if not content:
+        raise error_cls(
+            "hybrid_gemini_empty_response",
+            "Gemini returned an empty hybrid assist response.",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name},
+        )
+    try:
+        result_payload = extract_json_object(content)
+    except Exception as exc:  # noqa: BLE001
+        message = exc.args[0] if exc.args else str(exc)
+        raise error_cls(
+            "hybrid_invalid_json",
+            f"Gemini returned a response that did not decode to a JSON object: {message}",
+            details={"host": provider.endpoint, "model": provider.model, "flow": flow_name, "raw_content_preview": bounded_diagnostic_value_impl(content)},
+        ) from exc
+    return {
+        "transport": "gemini",
+        "host": provider.endpoint,
+        "model": provider.model,
+        "messages": messages,
+        "request_payload": request_payload,
+        "response_payload": response_payload,
+        "raw_content": content,
+        "result_payload": result_payload,
+    }
+
+
 def execute_hybrid_backend_impl(
     *,
     backend_status: Any,
@@ -455,6 +898,8 @@ def execute_hybrid_backend_impl(
     validation_payload: dict[str, Any] | None,
     provider_registry: dict[str, HybridProviderDefinition],
     run_ollama_hybrid: Callable[..., dict[str, Any]],
+    run_openai_hybrid: Callable[..., dict[str, Any]],
+    run_gemini_hybrid: Callable[..., dict[str, Any]],
     validate_hybrid_result: Callable[..., dict[str, Any]],
     build_hybrid_failure_raw_payload: Callable[..., dict[str, Any] | None],
     build_hybrid_failure_transport: Callable[..., dict[str, Any]],
@@ -475,13 +920,34 @@ def execute_hybrid_backend_impl(
 
     if provider.execution_kind == "transport":
         try:
-            transport = run_ollama_hybrid(
-                host=backend_status.host,
-                model=backend_status.model,
-                flow_name=flow_name,
-                context_bundle=context_bundle,
-                timeout_seconds=timeout_seconds,
-            )
+            if provider.name == "ollama":
+                transport = run_ollama_hybrid(
+                    host=backend_status.host,
+                    model=backend_status.model,
+                    flow_name=flow_name,
+                    context_bundle=context_bundle,
+                    timeout_seconds=timeout_seconds,
+                )
+            elif provider.name == "openai":
+                transport = run_openai_hybrid(
+                    provider=provider,
+                    flow_name=flow_name,
+                    context_bundle=context_bundle,
+                    timeout_seconds=timeout_seconds,
+                )
+            elif provider.name == "gemini":
+                transport = run_gemini_hybrid(
+                    provider=provider,
+                    flow_name=flow_name,
+                    context_bundle=context_bundle,
+                    timeout_seconds=timeout_seconds,
+                )
+            else:
+                raise error_cls(
+                    "hybrid_unknown_backend",
+                    f"Unknown transport provider `{provider.name}`.",
+                    details={"known_backends": sorted(provider_registry.keys())},
+                )
             raw_payload = transport["result_payload"]
             validated = validate_hybrid_result(flow_name, raw_payload, docs_by_ref, context_bundle=context_bundle)
         except error_cls as exc:

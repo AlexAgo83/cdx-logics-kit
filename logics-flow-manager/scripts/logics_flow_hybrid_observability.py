@@ -447,6 +447,8 @@ def build_runtime_status_impl(
     *,
     repo_root: Path,
     requested_backend: str,
+    requested_model: str | None,
+    config: dict[str, Any] | None,
     host: str,
     model_profile: dict[str, Any],
     supported_model_profiles: dict[str, dict[str, Any]],
@@ -455,12 +457,18 @@ def build_runtime_status_impl(
     claude_bridge_status: dict[str, Any],
     schema_version: str,
     flow_contracts: dict[str, dict[str, Any]],
+    provider_registry: dict[str, Any],
+    select_hybrid_backend: Callable[..., Any],
     probe_ollama_backend: Callable[..., Any],
-    build_flow_backend_policy: Callable[[str], dict[str, str]],
+    probe_remote_provider: Callable[..., Any],
+    build_flow_backend_policy: Callable[[str], dict[str, Any]],
 ) -> dict[str, Any]:
-    del repo_root
-    backend = probe_ollama_backend(
+    backend = select_hybrid_backend(
         requested_backend=requested_backend,
+        flow_name="diff-risk",
+        repo_root=repo_root,
+        config=config,
+        requested_model=requested_model,
         host=host,
         model_profile=str(model_profile["name"]),
         model_family=str(model_profile["family"]),
@@ -470,6 +478,50 @@ def build_runtime_status_impl(
     )
     degraded_reasons = list(backend.reasons)
     claude_bridge_available = bool(claude_bridge_status.get("available"))
+    provider_statuses: dict[str, Any] = {}
+    for provider_name, provider in sorted(provider_registry.items()):
+        if provider.execution_kind == "fallback":
+            provider_statuses[provider_name] = {
+                "name": provider.name,
+                "enabled": provider.enabled,
+                "healthy": provider.name in {"codex", "deterministic"},
+                "selected_backend": provider.name,
+                "credential_env": provider.credential_env,
+                "credential_present": provider.credential_present,
+                "endpoint": provider.endpoint,
+                "model": provider.model,
+                "reasons": [],
+            }
+            continue
+        if provider.name == "ollama":
+            status = probe_ollama_backend(
+                requested_backend="auto",
+                host=provider.endpoint,
+                model_profile=provider.model_profile,
+                model_family=provider.model_family,
+                configured_model=provider.configured_model,
+                model=provider.model,
+                timeout_seconds=timeout_seconds,
+            )
+        else:
+            status = probe_remote_provider(
+                provider=provider,
+                requested_backend="auto",
+                timeout_seconds=timeout_seconds,
+            )
+        provider_statuses[provider_name] = {
+            "name": provider.name,
+            "enabled": provider.enabled,
+            "healthy": status.healthy,
+            "selected_backend": status.selected_backend,
+            "credential_env": provider.credential_env,
+            "credential_present": provider.credential_present,
+            "endpoint": provider.endpoint,
+            "model": provider.model,
+            "reasons": list(status.reasons),
+            "response_time_ms": status.response_time_ms,
+            "version": status.version,
+        }
     return {
         "schema_version": schema_version,
         "backend": backend.to_dict(),
@@ -484,6 +536,7 @@ def build_runtime_status_impl(
         "supported_model_profiles": supported_model_profiles,
         "claude_bridge": claude_bridge_status,
         "claude_bridge_available": claude_bridge_available,
+        "providers": provider_statuses,
         "flow_backend_policies": {
             flow: build_flow_backend_policy(flow)
             for flow in sorted(flow_contracts.keys())

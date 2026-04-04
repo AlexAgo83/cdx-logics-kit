@@ -26,6 +26,7 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
         "default_backend": "auto",
         "default_model_profile": "deepseek-coder",
         "default_model": "deepseek-coder-v2:16b",
+        "env_file": ".env",
         "model_profiles": {
             "deepseek-coder": {
                 "family": "deepseek",
@@ -44,6 +45,24 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
         "timeout_seconds": 20.0,
         "audit_log": "logics/.cache/hybrid_assist_audit.jsonl",
         "measurement_log": "logics/.cache/hybrid_assist_measurements.jsonl",
+        "providers": {
+            "ollama": {
+                "enabled": True,
+                "host": "http://127.0.0.1:11434",
+            },
+            "openai": {
+                "enabled": False,
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4.1-mini",
+                "api_key_env": "OPENAI_API_KEY",
+            },
+            "gemini": {
+                "enabled": False,
+                "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                "model": "gemini-2.0-flash",
+                "api_key_env": "GEMINI_API_KEY",
+            },
+        },
     },
 }
 

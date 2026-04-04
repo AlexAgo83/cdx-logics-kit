@@ -48,7 +48,7 @@ def build_flow_backend_policy_impl(
     elif mode == "codex-only":
         provider_order = ["codex"]
     else:
-        provider_order = ["ollama", "codex"]
+        provider_order = ["ollama", "openai", "gemini", "codex"]
 
     configured_provider_order = policy.get("provider_order")
     if isinstance(configured_provider_order, list):

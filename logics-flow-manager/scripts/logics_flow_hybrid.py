@@ -55,7 +55,10 @@ from logics_flow_hybrid_transport import (
     build_hybrid_messages_impl,
     execute_hybrid_backend_impl,
     json_request_impl,
+    probe_remote_provider_impl,
     probe_ollama_backend_impl,
+    run_gemini_hybrid_impl,
+    run_openai_hybrid_impl,
     run_ollama_hybrid_impl,
     select_hybrid_backend_impl,
 )
@@ -96,8 +99,8 @@ SAFETY_CLASSES = (
     SAFETY_CLASS_DETERMINISTIC_RUNNER,
     SAFETY_CLASS_CODEX_ONLY,
 )
-REQUESTED_BACKEND_CHOICES = ("auto", "ollama", "codex")
-SUPPORTED_BACKEND_NAMES = ("auto", "ollama", "codex", "deterministic")
+REQUESTED_BACKEND_CHOICES = ("auto", "ollama", "openai", "gemini", "codex")
+SUPPORTED_BACKEND_NAMES = ("auto", "ollama", "openai", "gemini", "codex", "deterministic")
 RESULT_STATUSES = ("ok", "degraded", "error")
 BACKEND_POLICY_OLLAMA_FIRST = "ollama-first"
 BACKEND_POLICY_CODEX_ONLY = "codex-only"
@@ -516,8 +519,15 @@ def build_flow_contract(flow_name: str) -> dict[str, Any]:
     )
 
 
-def _json_request(host: str, path: str, *, payload: dict[str, Any] | None = None, timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS) -> dict[str, Any]:
-    return json_request_impl(host, path, payload=payload, timeout_seconds=timeout_seconds)
+def _json_request(
+    host: str,
+    path: str,
+    *,
+    headers: dict[str, str] | None = None,
+    payload: dict[str, Any] | None = None,
+    timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    return json_request_impl(host, path, headers=headers, payload=payload, timeout_seconds=timeout_seconds)
 
 
 def probe_ollama_backend(
@@ -554,14 +564,55 @@ def probe_ollama_backend(
     )
 
 
-def build_hybrid_provider_registry() -> dict[str, HybridProviderDefinition]:
-    return build_hybrid_provider_registry_impl()
+def probe_remote_provider(
+    *,
+    provider: HybridProviderDefinition,
+    requested_backend: str,
+    timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
+) -> HybridBackendStatus:
+    return probe_remote_provider_impl(
+        provider=provider,
+        requested_backend=requested_backend,
+        timeout_seconds=timeout_seconds,
+        backend_status_cls=HybridBackendStatus,
+        error_cls=HybridAssistError,
+        json_request=_json_request,
+    )
+
+
+def build_hybrid_provider_registry(
+    *,
+    repo_root: Path | None = None,
+    config: dict[str, Any] | None = None,
+    requested_backend: str = DEFAULT_HYBRID_BACKEND,
+    requested_model: str | None = None,
+    host: str = DEFAULT_HYBRID_HOST,
+    model_profile: str = DEFAULT_HYBRID_MODEL_PROFILE,
+    model_family: str = "deepseek",
+    configured_model: str = DEFAULT_HYBRID_MODEL,
+    model: str = DEFAULT_HYBRID_MODEL,
+) -> dict[str, HybridProviderDefinition]:
+    return build_hybrid_provider_registry_impl(
+        repo_root=repo_root,
+        config=config,
+        requested_backend=requested_backend,
+        requested_model=requested_model,
+        host=host,
+        default_hybrid_host=DEFAULT_HYBRID_HOST,
+        model_profile=model_profile,
+        model_family=model_family,
+        configured_model=configured_model,
+        model=model,
+    )
 
 
 def select_hybrid_backend(
     *,
     requested_backend: str,
     flow_name: str,
+    repo_root: Path | None = None,
+    config: dict[str, Any] | None = None,
+    requested_model: str | None = None,
     host: str = DEFAULT_HYBRID_HOST,
     model_profile: str = DEFAULT_HYBRID_MODEL_PROFILE,
     model_family: str = "deepseek",
@@ -569,6 +620,17 @@ def select_hybrid_backend(
     model: str = DEFAULT_HYBRID_MODEL,
     timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
 ) -> HybridBackendStatus:
+    provider_registry = build_hybrid_provider_registry(
+        repo_root=repo_root,
+        config=config,
+        requested_backend=requested_backend,
+        requested_model=requested_model,
+        host=host,
+        model_profile=model_profile,
+        model_family=model_family,
+        configured_model=configured_model,
+        model=model,
+    )
     return select_hybrid_backend_impl(
         requested_backend=requested_backend,
         flow_name=flow_name,
@@ -579,9 +641,10 @@ def select_hybrid_backend(
         configured_model=configured_model,
         model=model,
         timeout_seconds=timeout_seconds,
-        provider_registry=build_hybrid_provider_registry(),
+        provider_registry=provider_registry,
         build_flow_backend_policy=build_flow_backend_policy,
         probe_ollama_backend=probe_ollama_backend,
+        probe_remote_provider=probe_remote_provider,
         backend_status_cls=HybridBackendStatus,
         error_cls=HybridAssistError,
     )
@@ -612,16 +675,68 @@ def run_ollama_hybrid(
     )
 
 
+def run_openai_hybrid(
+    *,
+    provider: HybridProviderDefinition,
+    flow_name: str,
+    context_bundle: dict[str, Any],
+    timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    return run_openai_hybrid_impl(
+        provider=provider,
+        flow_name=flow_name,
+        context_bundle=context_bundle,
+        timeout_seconds=timeout_seconds,
+        error_cls=HybridAssistError,
+        json_request=_json_request,
+        extract_json_object=extract_json_object,
+        build_hybrid_messages=build_hybrid_messages,
+    )
+
+
+def run_gemini_hybrid(
+    *,
+    provider: HybridProviderDefinition,
+    flow_name: str,
+    context_bundle: dict[str, Any],
+    timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    return run_gemini_hybrid_impl(
+        provider=provider,
+        flow_name=flow_name,
+        context_bundle=context_bundle,
+        timeout_seconds=timeout_seconds,
+        error_cls=HybridAssistError,
+        json_request=_json_request,
+        extract_json_object=extract_json_object,
+        build_hybrid_messages=build_hybrid_messages,
+    )
+
+
 def execute_hybrid_backend(
     *,
     backend_status: HybridBackendStatus,
     requested_backend: str,
     flow_name: str,
     context_bundle: dict[str, Any],
+    repo_root: Path | None = None,
+    config: dict[str, Any] | None = None,
+    requested_model: str | None = None,
     timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
     docs_by_ref: dict[str, WorkflowDocModel],
     validation_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    provider_registry = build_hybrid_provider_registry(
+        repo_root=repo_root,
+        config=config,
+        requested_backend=requested_backend,
+        requested_model=requested_model,
+        host=backend_status.host,
+        model_profile=backend_status.model_profile,
+        model_family=backend_status.model_family,
+        configured_model=backend_status.configured_model,
+        model=backend_status.model,
+    )
     return execute_hybrid_backend_impl(
         backend_status=backend_status,
         requested_backend=requested_backend,
@@ -630,8 +745,10 @@ def execute_hybrid_backend(
         timeout_seconds=timeout_seconds,
         docs_by_ref=docs_by_ref,
         validation_payload=validation_payload,
-        provider_registry=build_hybrid_provider_registry(),
+        provider_registry=provider_registry,
         run_ollama_hybrid=run_ollama_hybrid,
+        run_openai_hybrid=run_openai_hybrid,
+        run_gemini_hybrid=run_gemini_hybrid,
         validate_hybrid_result=validate_hybrid_result,
         build_hybrid_failure_raw_payload=build_hybrid_failure_raw_payload,
         build_hybrid_failure_transport=build_hybrid_failure_transport,
@@ -945,6 +1062,8 @@ def build_runtime_status(
     *,
     repo_root: Path,
     requested_backend: str,
+    requested_model: str | None = None,
+    config: dict[str, Any] | None = None,
     host: str,
     model_profile: dict[str, Any],
     supported_model_profiles: dict[str, dict[str, Any]],
@@ -952,9 +1071,22 @@ def build_runtime_status(
     timeout_seconds: float,
     claude_bridge_status: dict[str, Any],
 ) -> dict[str, Any]:
+    provider_registry = build_hybrid_provider_registry(
+        repo_root=repo_root,
+        config=config,
+        requested_backend=requested_backend,
+        requested_model=requested_model,
+        host=host,
+        model_profile=str(model_profile["name"]),
+        model_family=str(model_profile["family"]),
+        configured_model=str(model_profile["configured_model"]),
+        model=model,
+    )
     return build_runtime_status_impl(
         repo_root=repo_root,
         requested_backend=requested_backend,
+        requested_model=requested_model,
+        config=config,
         host=host,
         model_profile=model_profile,
         supported_model_profiles=supported_model_profiles,
@@ -963,7 +1095,10 @@ def build_runtime_status(
         claude_bridge_status=claude_bridge_status,
         schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
         flow_contracts=FLOW_CONTRACTS,
+        provider_registry=provider_registry,
+        select_hybrid_backend=select_hybrid_backend,
         probe_ollama_backend=probe_ollama_backend,
+        probe_remote_provider=probe_remote_provider,
         build_flow_backend_policy=build_flow_backend_policy,
     )
 
