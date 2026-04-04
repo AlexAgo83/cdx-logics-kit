@@ -1033,9 +1033,13 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
     executed = False
 
     if args.execution_mode == "execute":
-        publish_script = (
-            repo_root / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
-        )
+        # Two candidates, both repo_root-relative:
+        # 1. plugin layout: repo_root/logics/skills/logics-version-release-manager/...
+        # 2. kit-direct layout: repo_root/logics-version-release-manager/...
+        #    (used when repo_root resolves to the kit submodule itself)
+        _plugin_relative = repo_root / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
+        _kit_direct = repo_root / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
+        publish_script = _plugin_relative if _plugin_relative.is_file() else _kit_direct
         if not publish_script.is_file():
             publish_result = {"ok": False, "error": f"Publish script not found: {publish_script}"}
         elif not ready:
