@@ -4568,6 +4568,38 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("updated VERSION to match package.json", payload["prep_steps"])
             self.assertEqual((repo / "VERSION").read_text(encoding="utf-8"), "3.0.2\n")
 
+    def test_assist_prepare_release_execute_bumps_next_version_when_current_is_already_tagged(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.0.3")
+            subprocess.run(["git", "tag", "v3.0.3"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "prepare-release",
+                    "--execution-mode", "execute",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ready"])
+            self.assertEqual(payload["changelog_status"]["version"], "3.0.4")
+            self.assertFalse(payload["changelog_status"]["already_published"])
+            self.assertIn("bumped release version to 3.0.4", payload["prep_steps"])
+            self.assertTrue((repo / "changelogs" / "CHANGELOGS_3_0_4.md").is_file())
+            package_payload = json.loads((repo / "package.json").read_text(encoding="utf-8"))
+            self.assertEqual(package_payload["version"], "3.0.4")
+            self.assertEqual((repo / "VERSION").read_text(encoding="utf-8"), "3.0.4\n")
+
     def test_assist_publish_release_execute_dry_run_invokes_publish_script(self) -> None:
         script = self._script()
 

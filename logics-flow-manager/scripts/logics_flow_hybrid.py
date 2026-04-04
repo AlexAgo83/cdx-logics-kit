@@ -1272,6 +1272,8 @@ def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
     tag_exists_local = _git_tag_exists(repo_root, tag)
     tag_exists_remote = _git_remote_tag_exists(repo_root, tag)
     already_published = tag_exists_local or tag_exists_remote
+    next_version = _next_patch_release_version(version) if version != "0.0.0" else None
+    next_tag = f"v{next_version}" if next_version else None
     readme_badge_ok: bool | None = None
     for readme_name in ("README.md", "readme.md", "Readme.md"):
         readme_path = repo_root / readme_name
@@ -1285,7 +1287,12 @@ def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
             f"VERSION is out of sync with package.json ({version_file_version} vs {package_version}); update VERSION before publishing."
         )
     if already_published:
-        warnings.append(f"{tag} is already tagged or published; bump the version before preparing another release.")
+        if next_tag:
+            warnings.append(
+                f"{tag} is already tagged or published; bump to {next_tag} before preparing another release."
+            )
+        else:
+            warnings.append(f"{tag} is already tagged or published; bump the version before preparing another release.")
     if readme_badge_ok is False:
         warnings.append(f"README version badge may not reflect {tag}; update the badge before publishing.")
     summary_parts = [
@@ -1301,6 +1308,8 @@ def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
         "tag": tag,
         "version": version,
         "version_source": version_source,
+        "next_version": next_version,
+        "next_tag": next_tag,
         "package_version": package_version,
         "version_file_version": version_file_version,
         "version_mismatch": version_mismatch,
@@ -1332,6 +1341,17 @@ def _read_release_package_version(repo_root: Path) -> str | None:
     if not normalized or normalized == "0.0.0":
         return None
     return normalized
+
+
+def _next_patch_release_version(version: str) -> str | None:
+    parts = version.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        major, minor, patch = (int(part) for part in parts)
+    except ValueError:
+        return None
+    return f"{major}.{minor}.{patch + 1}"
 
 
 def _read_release_version_file(repo_root: Path) -> str | None:
