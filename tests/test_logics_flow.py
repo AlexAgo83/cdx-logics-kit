@@ -4549,6 +4549,44 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIsNotNone(payload["publish_result"])
             self.assertTrue(payload["publish_result"]["ok"])
 
+    def test_assist_publish_release_suggestion_only_proposes_release_branch_update_when_stale(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.2.0")
+            subprocess.run(["git", "branch", "release"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            (repo / "CHANGELOG_EXTRA.md").write_text("extra\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "advance current branch"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            current_branch = subprocess.run(
+                ["git", "branch", "--show-current"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            ).stdout.strip()
+
+            result = subprocess.run(
+                [sys.executable, str(script), "assist", "publish-release", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ready"])
+            self.assertEqual(payload["release_branch"]["name"], "release")
+            self.assertTrue(payload["release_branch"]["exists"])
+            self.assertTrue(payload["release_branch"]["needs_update"])
+            self.assertTrue(payload["release_branch"]["can_fast_forward"])
+            self.assertIn(f"behind '{current_branch}'", payload["release_branch"]["suggestion"])
+            self.assertIn("git switch release", payload["release_branch"]["command"])
+
     def test_assist_prepare_release_execute_not_ready_when_uncommitted_changes(self) -> None:
         script = self._script()
 

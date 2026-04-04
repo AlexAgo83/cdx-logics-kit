@@ -6,6 +6,7 @@
 - New `generate-changelog` AI flow (ollama-first, Codex fallback) generates a curated changelog file when one is missing.
 - `prepare-release --execution-mode execute` automatically generates the changelog via AI if missing, updates the README version badge if stale, and commits the prep changes before reporting readiness.
 - New `publish-release` command handles tag creation, branch push, and GitHub release publication.
+- When a local `release` branch exists, `publish-release` now warns if it is behind the current branch and suggests how to update it before publishing.
 
 ## `prepare-release` Refactor
 
@@ -20,6 +21,7 @@
 - In `suggestion-only` mode: reports readiness and shows the command to run.
 - In `execute --push` mode: invokes `publish_version_release.py --create-tag --push`.
 - Supports `--draft`, `--version`, and `--dry-run` flags.
+- If a local `release` branch exists but does not contain the current `HEAD`, the flow surfaces a non-blocking warning and a suggested fast-forward command before publication.
 
 ## New `generate-changelog` Flow
 
@@ -40,15 +42,16 @@
 - `HybridPrepareReleaseResult`: replaced `publish_result` with `prep_steps` and `prep_errors`.
 - New `HybridPublishReleaseResult` type with `changelog_status` and `publish_result`.
 - `parseHybridPublishReleaseResult` parser added.
+- `HybridPublishReleaseResult` now also exposes `release_branch` metadata so thin clients can show the stale-branch warning before the publish confirmation.
 
 ## Tests
 
 - 4 existing tests updated to match the new `prepare-release` payload shape (no `executed`, no `publish_result`).
-- 2 new tests added for `publish-release`: execute dry-run invokes publish script, blocked when uncommitted changes present.
-- 72 tests total, all passing.
+- 3 new tests added for `publish-release`: execute dry-run invokes publish script, blocked when uncommitted changes are present, and suggestion mode warns when a local `release` branch is stale.
+- 73 tests total, all passing.
 
 ## Validation
 
 - `python3 logics/skills/logics.py lint`
 - `python3 logics/skills/logics.py audit --group-by-doc`
-- `python3 logics/skills/tests/test_logics_flow.py` (72 tests, all passing)
+- `python3 -m unittest discover -s logics/skills/tests -p 'test_logics_flow.py'` (73 tests, all passing)
