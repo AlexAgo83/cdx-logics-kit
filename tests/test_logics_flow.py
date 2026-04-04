@@ -2003,6 +2003,9 @@ class LogicsFlowTest(unittest.TestCase):
             bootstrap_payload = json.loads(bootstrap.stdout)
             self.assertTrue(bootstrap_payload["ok"])
             self.assertTrue((repo / "logics.yaml").is_file())
+            self.assertTrue((repo / ".env.local").is_file())
+            self.assertIn("OPENAI_API_KEY=", (repo / ".env.local").read_text(encoding="utf-8"))
+            self.assertIn("GEMINI_API_KEY=", (repo / ".env.local").read_text(encoding="utf-8"))
 
             config_show = subprocess.run(
                 [sys.executable, str(script), "config", "show", "--format", "json"],
@@ -2478,6 +2481,89 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertTrue(payload["providers"]["openai"]["healthy"])
             self.assertTrue(payload["providers"]["openai"]["credential_present"])
             self.assertTrue(payload["providers"]["gemini"]["healthy"])
+            self.assertTrue(payload["providers"]["gemini"]["credential_present"])
+
+    def test_assist_runtime_status_reads_provider_credentials_from_env_local_fallback(self) -> None:
+        script = self._script()
+
+        class RemoteProviderStatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/v1/models/gpt-4.1-mini":
+                    payload = {"id": "gpt-4.1-mini"}
+                elif self.path == "/v1beta/models/gemini-2.0-flash?key=test-gemini":
+                    payload = {"name": "models/gemini-2.0-flash"}
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RemoteProviderStatusHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                (repo / ".env.local").write_text(
+                    "OPENAI_API_KEY=test-openai\nGEMINI_API_KEY=test-gemini\n",
+                    encoding="utf-8",
+                )
+                (repo / "logics.yaml").write_text(
+                    "\n".join(
+                        [
+                            "version: 1",
+                            "hybrid_assist:",
+                            "  providers:",
+                            "    openai:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/v1",
+                            "      model: gpt-4.1-mini",
+                            "    gemini:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/v1beta",
+                            "      model: gemini-2.0-flash",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "runtime-status",
+                        "--backend",
+                        "auto",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend"]["selected_backend"], "openai")
+            self.assertTrue(payload["providers"]["openai"]["credential_present"])
             self.assertTrue(payload["providers"]["gemini"]["credential_present"])
 
     def test_assist_run_commit_message_supports_openai_backend_with_dotenv_credentials(self) -> None:

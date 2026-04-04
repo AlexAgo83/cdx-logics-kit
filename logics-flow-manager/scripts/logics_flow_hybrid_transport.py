@@ -119,7 +119,14 @@ def load_hybrid_provider_environment_impl(
     resolved = dict(environ)
     if repo_root is None:
         return resolved
-    dotenv_values = load_dotenv_values_impl((repo_root / dotenv_path).resolve())
+    normalized_dotenv_path = dotenv_path.strip()
+    if normalized_dotenv_path in {"", ".env", ".env.local"}:
+        dotenv_paths = [(repo_root / ".env").resolve(), (repo_root / ".env.local").resolve()]
+    else:
+        dotenv_paths = [(repo_root / normalized_dotenv_path).resolve()]
+    dotenv_values: dict[str, str] = {}
+    for path in dotenv_paths:
+        dotenv_values.update(load_dotenv_values_impl(path))
     for key, value in dotenv_values.items():
         resolved.setdefault(key, value)
     return resolved

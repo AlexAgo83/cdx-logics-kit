@@ -21,8 +21,18 @@ DEFAULT_DIRS = (
 
 GITIGNORE_COMMENT = "# Generated Logics runtime artifacts"
 GITIGNORE_ENTRIES = (
+    ".env.local",
     "logics/.cache/",
+    "logics/.cache/hybrid_assist_audit.jsonl",
+    "logics/.cache/hybrid_assist_measurements.jsonl",
+    "logics/hybrid_assist_audit.jsonl",
+    "logics/hybrid_assist_measurements.jsonl",
     "logics/mutation_audit.jsonl",
+)
+ENV_COMMENT = "# Generated Logics provider credentials"
+ENV_KEYS = (
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
 )
 
 
@@ -76,6 +86,53 @@ def _missing_gitignore_entries(gitignore_path: Path) -> list[str]:
     return [entry for entry in GITIGNORE_ENTRIES if entry not in existing_lines]
 
 
+def _parse_env_keys(env_path: Path) -> set[str]:
+    if not env_path.exists():
+        return set()
+    keys: set[str] = set()
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _env_paths(repo_root: Path) -> tuple[Path, Path]:
+    return repo_root / ".env", repo_root / ".env.local"
+
+
+def _env_target_and_missing_keys(repo_root: Path) -> tuple[Path, list[str]]:
+    env_path, env_local_path = _env_paths(repo_root)
+    existing_keys = _parse_env_keys(env_path) | _parse_env_keys(env_local_path)
+    missing_keys = [key for key in ENV_KEYS if key not in existing_keys]
+    if env_local_path.exists() or not env_path.exists():
+        return env_local_path, missing_keys
+    return env_path, missing_keys
+
+
+def _render_env(env_path: Path, missing_keys: list[str]) -> str:
+    if env_path.exists():
+        existing_text = env_path.read_text(encoding="utf-8")
+        lines = existing_text.splitlines()
+    else:
+        existing_text = ""
+        lines = []
+
+    if not missing_keys:
+        return existing_text if existing_text.endswith("\n") or not existing_text else existing_text + "\n"
+
+    rendered_lines = list(lines)
+    if rendered_lines and rendered_lines[-1].strip():
+        rendered_lines.append("")
+    if ENV_COMMENT not in {line.strip() for line in rendered_lines}:
+        rendered_lines.append(ENV_COMMENT)
+    rendered_lines.extend(f"{key}=" for key in missing_keys)
+    return "\n".join(rendered_lines) + "\n"
+
+
 def _render_gitignore(gitignore_path: Path) -> str:
     if gitignore_path.exists():
         existing_text = gitignore_path.read_text(encoding="utf-8")
@@ -115,6 +172,10 @@ def _plan_actions(repo_root: Path) -> list[Action]:
     gitignore_path = repo_root / ".gitignore"
     if _missing_gitignore_entries(gitignore_path):
         actions.append(Action("gitignore", gitignore_path))
+
+    env_path, missing_env_keys = _env_target_and_missing_keys(repo_root)
+    if missing_env_keys:
+        actions.append(Action("env", env_path))
 
     # Only add .gitkeep to empty dirs (and never to logics/skills which may be a submodule).
     for rel in DEFAULT_DIRS:
@@ -161,6 +222,13 @@ def _apply(actions: list[Action], dry_run: bool) -> None:
             else:
                 action.path.parent.mkdir(parents=True, exist_ok=True)
                 action.path.write_text(_render_gitignore(action.path), encoding="utf-8")
+        elif action.kind == "env":
+            _, missing_keys = _env_target_and_missing_keys(action.path.parent)
+            if dry_run:
+                print(f"[dry-run] update {action.path} (append provider credential placeholders)")
+            else:
+                action.path.parent.mkdir(parents=True, exist_ok=True)
+                action.path.write_text(_render_env(action.path, missing_keys), encoding="utf-8")
         else:
             raise SystemExit(f"Unknown action: {action.kind}")
 
