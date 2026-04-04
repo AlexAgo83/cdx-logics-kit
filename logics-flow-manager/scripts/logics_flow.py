@@ -1115,6 +1115,8 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
 
     changelog_status = _rdict(changelog_status_payload["result"])
     changelog_ready = bool(changelog_status.get("exists", False))
+    already_published = bool(changelog_status.get("already_published", False))
+    version_mismatch = bool(changelog_status.get("version_mismatch", False))
     has_uncommitted = bool(git_snapshot.get("has_changes", False))
     readme_badge_ok = changelog_status.get("readme_badge_ok")
     version = str(changelog_status.get("version", "0.0.0"))
@@ -1123,6 +1125,15 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
     prep_errors: list[str] = []
 
     if args.execution_mode == "execute":
+        if version_mismatch:
+            version_file = repo_root / "VERSION"
+            if not args.dry_run:
+                version_file.write_text(f"{version}\n", encoding="utf-8")
+                prep_steps.append("updated VERSION to match package.json")
+                version_mismatch = False
+            else:
+                prep_steps.append("(dry-run) would update VERSION to match package.json")
+
         # Step 1: generate changelog via AI if missing
         if not changelog_ready:
             gen_payload = _run_hybrid_assist(flow_name="generate-changelog", ref=None, **base_kwargs)
@@ -1170,8 +1181,10 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
             )
             changelog_status = _rdict(updated_status_payload["result"])
             changelog_ready = bool(changelog_status.get("exists", False))
+            already_published = bool(changelog_status.get("already_published", False))
+            version_mismatch = bool(changelog_status.get("version_mismatch", False))
 
-    ready = changelog_ready and not has_uncommitted
+    ready = changelog_ready and not has_uncommitted and not already_published and not version_mismatch
 
     payload = {
         "command": "assist",
@@ -1228,8 +1241,10 @@ def cmd_assist_publish_release(args: argparse.Namespace) -> dict[str, object]:
     changelog_status = _rdict(changelog_status_payload["result"])
     release_branch = _release_branch_status(repo_root)
     changelog_ready = bool(changelog_status.get("exists", False))
+    already_published = bool(changelog_status.get("already_published", False))
+    version_mismatch = bool(changelog_status.get("version_mismatch", False))
     has_uncommitted = bool(git_snapshot.get("has_changes", False))
-    ready = changelog_ready and not has_uncommitted
+    ready = changelog_ready and not has_uncommitted and not already_published and not version_mismatch
 
     publish_result: dict[str, object] | None = None
     executed = False
@@ -1244,6 +1259,10 @@ def cmd_assist_publish_release(args: argparse.Namespace) -> dict[str, object]:
             blocking: list[str] = []
             if not changelog_ready:
                 blocking.append("changelog not ready — run 'flow assist prepare-release --execution-mode execute' first")
+            if already_published:
+                blocking.append("version already published or tagged — bump the version before publishing again")
+            if version_mismatch:
+                blocking.append("VERSION is out of sync with package.json — run 'flow assist prepare-release --execution-mode execute' first")
             if has_uncommitted:
                 blocking.append("uncommitted changes present")
             publish_result = {"ok": False, "error": "Release prerequisites not met.", "blocking": blocking}

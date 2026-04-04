@@ -90,3 +90,9 @@ class VersionReleaseManagerTest(unittest.TestCase):
                 self.module.main([])
         finally:
             os.chdir(previous_cwd)
+
+    def test_resolve_version_prefers_package_json_when_version_file_is_stale(self) -> None:
+        self.write("VERSION", "1.0.0\n")
+        self.write("package.json", '{"name":"demo","version":"1.0.2"}\n')
+
+        self.assertEqual(self.module.resolve_version(self.repo_root), "1.0.2")
