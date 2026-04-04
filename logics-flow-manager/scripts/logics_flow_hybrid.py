@@ -50,10 +50,14 @@ from logics_flow_hybrid_observability import (
     load_jsonl_records_impl,
 )
 from logics_flow_hybrid_transport import (
+    HybridProviderDefinition,
+    build_hybrid_provider_registry_impl,
     build_hybrid_messages_impl,
+    execute_hybrid_backend_impl,
     json_request_impl,
     probe_ollama_backend_impl,
     run_ollama_hybrid_impl,
+    select_hybrid_backend_impl,
 )
 from logics_flow_models import WorkflowDocModel
 
@@ -252,7 +256,7 @@ FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
     "doc-link-suggestion": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
 }
 
-FLOW_BACKEND_POLICIES: dict[str, dict[str, str]] = {
+FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
     "commit-message": {
         "mode": BACKEND_POLICY_OLLAMA_FIRST,
         "auto_backend": "ollama",
@@ -429,7 +433,7 @@ def default_context_spec(flow_name: str) -> dict[str, Any]:
     )
 
 
-def build_flow_backend_policy(flow_name: str) -> dict[str, str]:
+def build_flow_backend_policy(flow_name: str) -> dict[str, Any]:
     return build_flow_backend_policy_impl(
         flow_name,
         flow_contracts=FLOW_CONTRACTS,
@@ -550,6 +554,39 @@ def probe_ollama_backend(
     )
 
 
+def build_hybrid_provider_registry() -> dict[str, HybridProviderDefinition]:
+    return build_hybrid_provider_registry_impl()
+
+
+def select_hybrid_backend(
+    *,
+    requested_backend: str,
+    flow_name: str,
+    host: str = DEFAULT_HYBRID_HOST,
+    model_profile: str = DEFAULT_HYBRID_MODEL_PROFILE,
+    model_family: str = "deepseek",
+    configured_model: str = DEFAULT_HYBRID_MODEL,
+    model: str = DEFAULT_HYBRID_MODEL,
+    timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
+) -> HybridBackendStatus:
+    return select_hybrid_backend_impl(
+        requested_backend=requested_backend,
+        flow_name=flow_name,
+        host=host,
+        default_hybrid_host=DEFAULT_HYBRID_HOST,
+        model_profile=model_profile,
+        model_family=model_family,
+        configured_model=configured_model,
+        model=model,
+        timeout_seconds=timeout_seconds,
+        provider_registry=build_hybrid_provider_registry(),
+        build_flow_backend_policy=build_flow_backend_policy,
+        probe_ollama_backend=probe_ollama_backend,
+        backend_status_cls=HybridBackendStatus,
+        error_cls=HybridAssistError,
+    )
+
+
 def build_hybrid_messages(flow_name: str, context_bundle: dict[str, Any]) -> list[dict[str, str]]:
     return build_hybrid_messages_impl(flow_name, context_bundle)
 
@@ -572,6 +609,35 @@ def run_ollama_hybrid(
         json_request=_json_request,
         extract_json_object=extract_json_object,
         build_hybrid_messages=build_hybrid_messages,
+    )
+
+
+def execute_hybrid_backend(
+    *,
+    backend_status: HybridBackendStatus,
+    requested_backend: str,
+    flow_name: str,
+    context_bundle: dict[str, Any],
+    timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
+    docs_by_ref: dict[str, WorkflowDocModel],
+    validation_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return execute_hybrid_backend_impl(
+        backend_status=backend_status,
+        requested_backend=requested_backend,
+        flow_name=flow_name,
+        context_bundle=context_bundle,
+        timeout_seconds=timeout_seconds,
+        docs_by_ref=docs_by_ref,
+        validation_payload=validation_payload,
+        provider_registry=build_hybrid_provider_registry(),
+        run_ollama_hybrid=run_ollama_hybrid,
+        validate_hybrid_result=validate_hybrid_result,
+        build_hybrid_failure_raw_payload=build_hybrid_failure_raw_payload,
+        build_hybrid_failure_transport=build_hybrid_failure_transport,
+        build_fallback_result=build_fallback_result,
+        backend_status_cls=HybridBackendStatus,
+        error_cls=HybridAssistError,
     )
 
 

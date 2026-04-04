@@ -25,7 +25,7 @@ def build_flow_backend_policy_impl(
     backend_policy_modes: tuple[str, ...],
     supported_backend_names: tuple[str, ...],
     error_cls: type[Exception],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     if flow_name not in flow_contracts:
         raise error_cls("hybrid_unknown_flow", f"Unknown hybrid assist flow `{flow_name}`.")
     policy = flow_backend_policies.get(flow_name)
@@ -43,11 +43,40 @@ def build_flow_backend_policy_impl(
             "hybrid_invalid_backend_policy",
             f"Flow `{flow_name}` uses unsupported auto backend `{auto_backend}`.",
         )
+    if mode == "deterministic":
+        provider_order = ["deterministic"]
+    elif mode == "codex-only":
+        provider_order = ["codex"]
+    else:
+        provider_order = ["ollama", "codex"]
+
+    configured_provider_order = policy.get("provider_order")
+    if isinstance(configured_provider_order, list):
+        normalized_provider_order = [
+            str(provider_name).strip()
+            for provider_name in configured_provider_order
+            if str(provider_name).strip()
+        ]
+        if normalized_provider_order:
+            provider_order = normalized_provider_order
+
+    configured_allowed_backends = policy.get("allowed_backends")
+    if isinstance(configured_allowed_backends, list):
+        allowed_backends = [
+            str(provider_name).strip()
+            for provider_name in configured_allowed_backends
+            if str(provider_name).strip()
+        ]
+    else:
+        allowed_backends = list(provider_order)
+
     return {
         "mode": mode,
         "auto_backend": auto_backend,
         "fallback_policy": str(policy.get("fallback_policy", "")).strip(),
         "selection_summary": str(policy.get("selection_summary", "")).strip(),
+        "provider_order": provider_order,
+        "allowed_backends": allowed_backends,
     }
 
 
@@ -169,7 +198,7 @@ def build_shared_hybrid_contract_impl(
     result_statuses: tuple[str, ...],
     flow_contracts: dict[str, dict[str, Any]],
     default_hybrid_model_profiles: Callable[[], dict[str, dict[str, Any]]],
-    build_flow_backend_policy: Callable[[str], dict[str, str]],
+    build_flow_backend_policy: Callable[[str], dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "schema_version": schema_version,
@@ -197,7 +226,7 @@ def build_flow_contract_impl(
     flow_contracts: dict[str, dict[str, Any]],
     allowed_dispatch_actions: tuple[str, ...],
     safe_sync_kinds: tuple[str, ...],
-    build_flow_backend_policy: Callable[[str], dict[str, str]],
+    build_flow_backend_policy: Callable[[str], dict[str, Any]],
     error_cls: type[Exception],
 ) -> dict[str, Any]:
     contract = flow_contracts.get(flow_name)

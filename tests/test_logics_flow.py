@@ -2367,6 +2367,34 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["flow_backend_policies"]["changed-surface-summary"]["auto_backend"], "deterministic")
             self.assertEqual(payload["flow_backend_policies"]["windows-compat-risk"]["mode"], "ollama-first")
 
+    def test_build_flow_backend_policy_exposes_provider_order_and_allowed_backends(self) -> None:
+        hybrid = self._hybrid_module()
+
+        next_step_policy = hybrid.build_flow_backend_policy("next-step")
+        self.assertEqual(next_step_policy["provider_order"], ["codex"])
+        self.assertEqual(next_step_policy["allowed_backends"], ["codex"])
+
+        commit_message_policy = hybrid.build_flow_backend_policy("commit-message")
+        self.assertEqual(commit_message_policy["provider_order"], ["ollama", "codex"])
+        self.assertEqual(commit_message_policy["allowed_backends"], ["ollama", "codex"])
+
+        deterministic_policy = hybrid.build_flow_backend_policy("changed-surface-summary")
+        self.assertEqual(deterministic_policy["provider_order"], ["deterministic"])
+        self.assertEqual(deterministic_policy["allowed_backends"], ["deterministic"])
+
+    def test_select_hybrid_backend_rejects_explicit_backend_outside_flow_policy(self) -> None:
+        hybrid = self._hybrid_module()
+
+        with self.assertRaises(hybrid.HybridAssistError) as context:
+            hybrid.select_hybrid_backend(
+                requested_backend="ollama",
+                flow_name="next-step",
+                host="127.0.0.1:11434",
+                model="deepseek-coder-v2:16b",
+            )
+
+        self.assertEqual(context.exception.code, "hybrid_backend_policy_violation")
+
     def test_assist_run_changed_surface_summary_uses_deterministic_backend(self) -> None:
         script = self._script()
 

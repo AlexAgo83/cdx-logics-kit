@@ -8,7 +8,6 @@ import subprocess
 import sys
 import time
 from contextlib import redirect_stdout
-from copy import deepcopy
 from datetime import date
 from pathlib import Path
 
@@ -38,27 +37,22 @@ from logics_flow_hybrid import (
     DEFAULT_HYBRID_ROI_WINDOW_DAYS,
     DEFAULT_HYBRID_TIMEOUT_SECONDS,
     HybridAssistError,
-    HybridBackendStatus,
     apply_legacy_default_model,
     append_jsonl_record,
-    build_hybrid_failure_raw_payload,
-    build_hybrid_failure_transport,
     build_hybrid_roi_report,
     build_flow_contract,
-    build_fallback_result,
     build_hybrid_audit_record,
     build_measurement_record,
     build_runtime_status,
     build_shared_hybrid_contract,
     collect_git_snapshot,
     default_context_spec,
+    execute_hybrid_backend,
     merge_hybrid_model_profiles,
     execute_commit_step,
-    probe_ollama_backend,
     resolve_hybrid_model_selection,
-    run_ollama_hybrid,
+    select_hybrid_backend,
     run_validation_commands,
-    validate_hybrid_result,
 )
 from logics_flow_index import indexed_skill_packages, indexed_workflow_docs, load_runtime_index
 from logics_flow_support import (
@@ -763,7 +757,7 @@ def _run_hybrid_assist(
             measurement_log=(repo_root / measurement_log).resolve(),
         )
 
-    backend_status = probe_ollama_backend(
+    backend_status = select_hybrid_backend(
         requested_backend=requested_backend,
         flow_name=flow_name,
         host=ollama_host,
@@ -773,60 +767,20 @@ def _run_hybrid_assist(
         model=str(model_selection["resolved_model"]),
         timeout_seconds=timeout_seconds,
     )
-    degraded_reasons = list(backend_status.reasons)
-    raw_payload: dict[str, object] | None = None
-    transport: dict[str, object] | None
-    if backend_status.selected_backend == "deterministic":
-        transport = {
-            "transport": "deterministic",
-            "reason": "policy-deterministic",
-            "selected_backend": "deterministic",
-        }
-        validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
-        raw_payload = deepcopy(validated)
-    elif backend_status.selected_backend == "ollama":
-        transport = None
-        try:
-            transport = run_ollama_hybrid(
-                host=backend_status.host,
-                model=backend_status.model,
-                flow_name=flow_name,
-                context_bundle=context_bundle,
-                timeout_seconds=timeout_seconds,
-            )
-            raw_payload = transport["result_payload"]
-            validated = validate_hybrid_result(flow_name, raw_payload, docs_by_ref, context_bundle=context_bundle)
-        except HybridAssistError as exc:
-            if requested_backend != "auto":
-                raise
-            degraded_reasons.append(exc.code)
-            raw_payload = build_hybrid_failure_raw_payload(exc=exc, transport=transport, raw_payload=raw_payload)
-            transport = build_hybrid_failure_transport(exc=exc, transport=transport)
-            validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
-            backend_status = HybridBackendStatus(
-                requested_backend=requested_backend,
-                selected_backend="codex",
-                host=backend_status.host,
-                model_profile=backend_status.model_profile,
-                model_family=backend_status.model_family,
-                configured_model=backend_status.configured_model,
-                model=backend_status.model,
-                ollama_reachable=backend_status.ollama_reachable,
-                model_available=backend_status.model_available,
-                healthy=False,
-                reasons=degraded_reasons,
-                response_time_ms=backend_status.response_time_ms,
-                version=backend_status.version,
-                selection_reason="local-validation-fallback",
-                policy_mode=backend_status.policy_mode,
-            )
-    else:
-        transport = {
-            "transport": "fallback",
-            "reason": degraded_reasons[0] if degraded_reasons else (backend_status.selection_reason or "selected-codex"),
-            "selected_backend": "codex",
-        }
-        validated = build_fallback_result(flow_name, context_bundle=context_bundle, docs_by_ref=docs_by_ref, validation_payload=validation_payload)
+    execution = execute_hybrid_backend(
+        backend_status=backend_status,
+        requested_backend=requested_backend,
+        flow_name=flow_name,
+        context_bundle=context_bundle,
+        timeout_seconds=timeout_seconds,
+        docs_by_ref=docs_by_ref,
+        validation_payload=validation_payload,
+    )
+    backend_status = execution["backend_status"]
+    degraded_reasons = execution["degraded_reasons"]
+    raw_payload = execution["raw_payload"]
+    transport = execution["transport"]
+    validated = execution["validated"]
 
     execution_result = None
     executed = False
