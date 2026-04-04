@@ -4421,5 +4421,139 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(parent_status.stdout.strip(), "")
 
 
+    def _prepare_release_repo(self, repo: Path, version: str) -> None:
+        """Set up a minimal clean git repo for prepare-release tests."""
+        (repo / "logics").mkdir(parents=True, exist_ok=True)
+        (repo / "logics" / ".gitkeep").write_text("", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        (repo / "package.json").write_text(json.dumps({"name": "test-pkg", "version": version}), encoding="utf-8")
+        changelogs_dir = repo / "changelogs"
+        changelogs_dir.mkdir(parents=True, exist_ok=True)
+        (changelogs_dir / f"CHANGELOGS_{version.replace('.', '_')}.md").write_text("# Changelog\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+    def test_assist_prepare_release_suggestion_only_reports_readiness(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "1.2.3")
+
+            result = subprocess.run(
+                [sys.executable, str(script), "assist", "prepare-release", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["assist_kind"], "prepare-release")
+            self.assertTrue(payload["changelog_status"]["exists"])
+            self.assertTrue(payload["ready"])
+            self.assertFalse(payload["executed"])
+            self.assertIsNone(payload["publish_result"])
+
+    def test_assist_prepare_release_not_ready_when_changelog_missing(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True, exist_ok=True)
+            (repo / "logics" / ".gitkeep").write_text("", encoding="utf-8")
+            subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            (repo / "package.json").write_text(json.dumps({"name": "test-pkg", "version": "2.0.0"}), encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            result = subprocess.run(
+                [sys.executable, str(script), "assist", "prepare-release", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["changelog_status"]["exists"])
+            self.assertFalse(payload["ready"])
+
+    def test_assist_prepare_release_execute_dry_run_invokes_publish_script(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.0.0")
+            publish_script = repo / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
+            publish_script.parent.mkdir(parents=True, exist_ok=True)
+            publish_script.write_text(
+                "import sys, json\nprint(json.dumps({'dry_run': True, 'commands': []}))\nsys.exit(0)\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "add publish script"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "prepare-release",
+                    "--execution-mode", "execute",
+                    "--dry-run",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ready"])
+            self.assertTrue(payload["executed"])
+            self.assertIsNotNone(payload["publish_result"])
+            self.assertTrue(payload["publish_result"]["ok"])
+
+    def test_assist_prepare_release_execute_blocked_when_uncommitted_changes(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "4.0.0")
+            publish_script = repo / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
+            publish_script.parent.mkdir(parents=True, exist_ok=True)
+            publish_script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+            (repo / "dirty.txt").write_text("untracked\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "prepare-release",
+                    "--execution-mode", "execute",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["ready"])
+            self.assertFalse(payload["executed"])
+            self.assertFalse(payload["publish_result"]["ok"])
+            self.assertIn("uncommitted changes present", payload["publish_result"]["blocking"])
+
+
 if __name__ == "__main__":
     unittest.main()
