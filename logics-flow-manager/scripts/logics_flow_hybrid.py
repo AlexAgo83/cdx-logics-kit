@@ -1240,21 +1240,32 @@ def _deterministic_categories(git_snapshot: dict[str, Any]) -> list[str]:
 
 
 def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
-    package_json = repo_root / "package.json"
     version = "0.0.0"
+    version_source = "default"
+    package_json = repo_root / "package.json"
+    version_file = repo_root / "VERSION"
     if package_json.is_file():
         try:
             package_payload = json.loads(package_json.read_text(encoding="utf-8"))
             if isinstance(package_payload.get("version"), str):
-                version = package_payload["version"].strip() or version
+                candidate = package_payload["version"].strip()
+                if candidate and candidate != "0.0.0":
+                    version = candidate
+                    version_source = "package.json"
         except json.JSONDecodeError:
             pass
+    if version_source == "default" and version_file.is_file():
+        candidate = version_file.read_text(encoding="utf-8").strip()
+        if candidate:
+            version = candidate
+            version_source = "VERSION"
     tag = f"v{version}"
     relative_path = f"changelogs/CHANGELOGS_{version.replace('.', '_')}.md"
     exists = (repo_root / relative_path).is_file()
     return {
         "tag": tag,
         "version": version,
+        "version_source": version_source,
         "relative_path": relative_path,
         "exists": exists,
         "summary": (
@@ -1263,7 +1274,7 @@ def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
             else f"Curated changelog missing for {tag}; expected {relative_path}."
         ),
         "confidence": 0.92,
-        "rationale": "Deterministic release-changelog status derived from package.json and curated changelog file presence.",
+        "rationale": "Deterministic release-changelog status derived from package.json or VERSION file and curated changelog file presence.",
     }
 
 
