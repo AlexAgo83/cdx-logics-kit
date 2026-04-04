@@ -2831,6 +2831,243 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(CoolingOpenAIHandler.probe_count, 1)
             self.assertTrue((repo / "logics" / ".cache" / "provider_health.json").is_file())
 
+    def test_assist_run_commit_message_auto_falls_through_openai_to_gemini(self) -> None:
+        script = self._script()
+
+        class OrderedRemoteFallbackHandler(http.server.BaseHTTPRequestHandler):
+            openai_probe_count = 0
+            gemini_probe_count = 0
+            gemini_generate_count = 0
+
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path == "/openai/v1/models/gpt-4.1-mini":
+                    OrderedRemoteFallbackHandler.openai_probe_count += 1
+                    encoded = json.dumps({"error": "temporarily unavailable"}).encode("utf-8")
+                    self.send_response(503)
+                elif self.path == "/gemini/v1beta/models/gemini-2.0-flash?key=test-gemini":
+                    OrderedRemoteFallbackHandler.gemini_probe_count += 1
+                    encoded = json.dumps({"name": "models/gemini-2.0-flash"}).encode("utf-8")
+                    self.send_response(200)
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/gemini/v1beta/models/gemini-2.0-flash:generateContent?key=test-gemini":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                OrderedRemoteFallbackHandler.gemini_generate_count += 1
+                encoded = json.dumps(
+                    {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [
+                                        {
+                                            "text": json.dumps(
+                                                {
+                                                    "subject": "Route fallback from OpenAI to Gemini",
+                                                    "body": "Keep ordered remote fallback bounded and provider-aware.",
+                                                    "scope": "root",
+                                                    "confidence": 0.81,
+                                                    "rationale": "Gemini should satisfy the same contract when OpenAI is temporarily unavailable.",
+                                                }
+                                            )
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OrderedRemoteFallbackHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                (repo / ".env").write_text(
+                    "OPENAI_API_KEY=test-openai\nGEMINI_API_KEY=test-gemini\n",
+                    encoding="utf-8",
+                )
+                (repo / "logics.yaml").write_text(
+                    "\n".join(
+                        [
+                            "version: 1",
+                            "hybrid_assist:",
+                            "  providers:",
+                            "    ollama:",
+                            "      enabled: false",
+                            "    openai:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/openai/v1",
+                            "      model: gpt-4.1-mini",
+                            "    gemini:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/gemini/v1beta",
+                            "      model: gemini-2.0-flash",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "commit-message",
+                        "--backend",
+                        "auto",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "gemini")
+            self.assertEqual(payload["result"]["subject"], "Route fallback from OpenAI to Gemini")
+            self.assertEqual(payload["degraded_reasons"], [])
+            self.assertEqual(OrderedRemoteFallbackHandler.openai_probe_count, 1)
+            self.assertEqual(OrderedRemoteFallbackHandler.gemini_probe_count, 1)
+            self.assertEqual(OrderedRemoteFallbackHandler.gemini_generate_count, 1)
+
+    def test_assist_run_commit_message_falls_back_after_invalid_openai_payload(self) -> None:
+        script = self._script()
+
+        class InvalidOpenAIContractHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path != "/v1/models/gpt-4.1-mini":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps({"id": "gpt-4.1-mini"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/v1/chat/completions":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": json.dumps(
+                                        {
+                                            "subject": "Remote payload misses required keys",
+                                            "body": "The shared validator should reject this and fall back safely.",
+                                            "confidence": 0.41,
+                                        }
+                                    ),
+                                }
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), InvalidOpenAIContractHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                (repo / ".env").write_text("OPENAI_API_KEY=test-openai\n", encoding="utf-8")
+                (repo / "logics.yaml").write_text(
+                    "\n".join(
+                        [
+                            "version: 1",
+                            "hybrid_assist:",
+                            "  providers:",
+                            "    ollama:",
+                            "      enabled: false",
+                            "    openai:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/v1",
+                            "      model: gpt-4.1-mini",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "commit-message",
+                        "--backend",
+                        "auto",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_requested"], "auto")
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertEqual(payload["result_status"], "degraded")
+            self.assertIn("hybrid_missing_field", payload["degraded_reasons"])
+            self.assertIsInstance(payload["raw_result"], dict)
+            self.assertEqual(payload["raw_result"]["subject"], "Remote payload misses required keys")
+            self.assertEqual(payload["transport"]["diagnostic"]["error_code"], "hybrid_missing_field")
+            self.assertEqual(payload["transport"]["upstream_transport"], "openai")
+
     def test_assist_run_changed_surface_summary_uses_deterministic_backend(self) -> None:
         script = self._script()
 
