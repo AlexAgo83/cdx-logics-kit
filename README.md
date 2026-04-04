@@ -88,6 +88,7 @@ python logics/skills/logics.py bootstrap
 ```
 
 Bootstrap now also seeds a repo-native `logics.yaml` file with defaults for split policy, bulk-mutation mode, and the incremental runtime index path.
+When provider placeholders are missing, bootstrap now scans every root-level `.env*` file, appends the missing keys where needed, and creates `.env.local` only when no env file exists yet.
 
 ## Usage (inside the project repo)
 
@@ -388,6 +389,7 @@ The canonical kit version lives in [`VERSION`](VERSION).
 
 Versioned release notes live in [`changelogs/`](changelogs/):
 
+- [`changelogs/CHANGELOGS_1_9_1.md`](changelogs/CHANGELOGS_1_9_1.md)
 - [`changelogs/CHANGELOGS_1_9_0.md`](changelogs/CHANGELOGS_1_9_0.md)
 - [`changelogs/CHANGELOGS_1_8_0.md`](changelogs/CHANGELOGS_1_8_0.md)
 - [`changelogs/CHANGELOGS_1_7_1.md`](changelogs/CHANGELOGS_1_7_1.md)
@@ -412,13 +414,15 @@ Generate or refresh the changelog for the current version:
 python logics/skills/logics-version-changelog-manager/scripts/generate_version_changelog.py
 ```
 
+Version resolution now prefers `package.json` when it exists and falls back to `VERSION` otherwise. For kit-style repositories without `package.json`, `VERSION` remains the canonical source.
+
 Check release readiness and optionally publish using the shared hybrid assist runtime:
 
 ```bash
-# Check readiness (changelog present + clean tree)
+# Check readiness (changelog present + clean tree + unpublished target version)
 python logics/skills/logics.py flow assist prepare-release --format json
 
-# Dry-run the prep step (generate changelog if missing, refresh README badge)
+# Dry-run the prep step (auto-bump if current version is already published, generate changelog if missing, refresh README badge)
 python logics/skills/logics.py flow assist prepare-release --execution-mode execute --dry-run
 
 # Run the prep step for real
@@ -430,6 +434,10 @@ python logics/skills/logics.py flow assist publish-release --execution-mode exec
 # Publish: create tag, push, and create GitHub release
 python logics/skills/logics.py flow assist publish-release --execution-mode execute --push
 ```
+
+`prepare-release` now refuses to reuse an already-published tag. When the current version is already tagged or published, it proposes the next patch version and can update the local release artifacts before re-checking readiness.
+
+`publish-release` also blocks when the target version is already published or when `package.json` and `VERSION` disagree, so release publication cannot proceed with stale metadata.
 
 If a local `release` branch exists, `publish-release` also warns when that branch is behind the current branch and suggests a command to fast-forward it before publishing.
 
