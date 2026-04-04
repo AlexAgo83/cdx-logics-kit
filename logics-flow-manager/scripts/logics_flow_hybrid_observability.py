@@ -115,7 +115,21 @@ def _normalize_reason_label(value: Any, fallback: str = "unspecified") -> str:
 def _fallback_triggered(record: dict[str, Any]) -> bool:
     requested = _stringify_scalar(record.get("backend_requested") or record.get("requested_backend"))
     used = _stringify_scalar(record.get("backend_used") or record.get("selected_backend"))
-    return used == "codex" and requested in {"auto", "ollama"}
+    return used == "codex" and requested in {"auto", "ollama", "openai", "gemini"}
+
+
+def _execution_path_label(requested_backend: str, used_backend: str) -> str:
+    if used_backend == "ollama":
+        return "local"
+    if used_backend in {"openai", "gemini"}:
+        return "remote"
+    if used_backend == "deterministic":
+        return "deterministic"
+    if used_backend == "codex" and requested_backend in {"auto", "ollama", "openai", "gemini"}:
+        return "fallback"
+    if used_backend == "codex":
+        return "codex-direct"
+    return "unknown"
 
 
 def _measurement_review_recommended(record: dict[str, Any]) -> bool:
@@ -175,6 +189,7 @@ def build_hybrid_roi_report_impl(
     by_flow: dict[str, dict[str, Any]] = {}
     backend_requested_counter: Counter[str] = Counter()
     backend_used_counter: Counter[str] = Counter()
+    execution_path_counter: Counter[str] = Counter()
     result_status_counter: Counter[str] = Counter()
     recent_result_distribution_counter: Counter[str] = Counter()
     degraded_reason_counter: Counter[str] = Counter()
@@ -188,6 +203,10 @@ def build_hybrid_roi_report_impl(
         flow = _normalize_reason_label(record.get("flow"), fallback="unknown-flow")
         requested_backend = _normalize_reason_label(record.get("backend_requested"), fallback="unknown")
         used_backend = _normalize_reason_label(record.get("backend_used"), fallback="unknown")
+        execution_path = _normalize_reason_label(
+            record.get("execution_path"),
+            fallback=_execution_path_label(requested_backend, used_backend),
+        )
         result_status = _normalize_reason_label(record.get("result_status"), fallback="unknown")
         review_recommended = _measurement_review_recommended(record)
         degraded_reasons = [
@@ -199,6 +218,7 @@ def build_hybrid_roi_report_impl(
 
         backend_requested_counter[requested_backend] += 1
         backend_used_counter[used_backend] += 1
+        execution_path_counter[execution_path] += 1
         result_status_counter[result_status] += 1
         if used_backend == "ollama":
             local_runs_count += 1
@@ -221,6 +241,7 @@ def build_hybrid_roi_report_impl(
                 "run_count": 0,
                 "backend_requested": {},
                 "backend_used": {},
+                "execution_paths": {},
                 "result_statuses": {},
                 "fallback_count": 0,
                 "degraded_count": 0,
@@ -230,6 +251,7 @@ def build_hybrid_roi_report_impl(
         flow_bucket["run_count"] += 1
         flow_bucket["backend_requested"][requested_backend] = flow_bucket["backend_requested"].get(requested_backend, 0) + 1
         flow_bucket["backend_used"][used_backend] = flow_bucket["backend_used"].get(used_backend, 0) + 1
+        flow_bucket["execution_paths"][execution_path] = flow_bucket["execution_paths"].get(execution_path, 0) + 1
         flow_bucket["result_statuses"][result_status] = flow_bucket["result_statuses"].get(result_status, 0) + 1
         if _fallback_triggered(record):
             flow_bucket["fallback_count"] += 1
@@ -268,6 +290,7 @@ def build_hybrid_roi_report_impl(
                 "result_status": _normalize_reason_label(audit_record.get("result_status"), fallback="unknown"),
                 "backend_requested": backend_requested,
                 "backend_used": backend_used,
+                "execution_path": _execution_path_label(backend_requested, backend_used),
                 "degraded_reasons": [
                     _normalize_reason_label(reason)
                     for reason in audit_record.get("degraded_reasons", [])
@@ -347,6 +370,7 @@ def build_hybrid_roi_report_impl(
             "runs_by_flow": dict(sorted((flow, bucket["run_count"]) for flow, bucket in by_flow.items())),
             "backend_requested": dict(sorted(backend_requested_counter.items())),
             "backend_used": dict(sorted(backend_used_counter.items())),
+            "execution_paths": dict(sorted(execution_path_counter.items())),
             "result_statuses": dict(sorted(result_status_counter.items())),
             "review_recommended_by_flow": {
                 flow: bucket["review_recommended_count"] for flow, bucket in sorted(by_flow.items())
@@ -362,6 +386,7 @@ def build_hybrid_roi_report_impl(
                 "local_offload_rate": local_offload_rate,
             },
             "dispatch_split": _counter_to_ranked_items(backend_used_counter),
+            "execution_path_split": _counter_to_ranked_items(execution_path_counter),
             "top_degraded_reasons": _counter_to_ranked_items(degraded_reason_counter, limit=5),
             "top_fallback_reasons": _counter_to_ranked_items(fallback_reason_counter, limit=5),
             "health_summary": health_summary,
@@ -593,12 +618,15 @@ def build_measurement_record_impl(
     review_recommended: bool,
     schema_version: str,
 ) -> dict[str, Any]:
+    requested_backend = _stringify_scalar(backend_status.requested_backend)
+    used_backend = _stringify_scalar(backend_status.selected_backend)
     return {
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "schema_version": schema_version,
         "flow": flow_name,
-        "backend_requested": backend_status.requested_backend,
-        "backend_used": backend_status.selected_backend,
+        "backend_requested": requested_backend,
+        "backend_used": used_backend,
+        "execution_path": _execution_path_label(requested_backend, used_backend),
         "result_status": result_status,
         "confidence": confidence,
         "degraded_reasons": degraded_reasons,
