@@ -206,6 +206,54 @@ def _effective_config(repo_root: Path) -> tuple[dict[str, object], Path | None]:
     return load_repo_config(repo_root)
 
 
+def _next_patch_release_version(version: str) -> str | None:
+    parts = version.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        major, minor, patch = (int(part) for part in parts)
+    except ValueError:
+        return None
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def _update_release_version_artifacts(repo_root: Path, version: str) -> list[str]:
+    updated_paths: list[str] = []
+
+    package_json_path = repo_root / "package.json"
+    if package_json_path.is_file():
+        package_payload = json.loads(package_json_path.read_text(encoding="utf-8"))
+        if package_payload.get("version") != version:
+            package_payload["version"] = version
+            package_json_path.write_text(json.dumps(package_payload, indent=2) + "\n", encoding="utf-8")
+            updated_paths.append(_rel(repo_root, package_json_path))
+
+    package_lock_path = repo_root / "package-lock.json"
+    if package_lock_path.is_file():
+        package_lock_payload = json.loads(package_lock_path.read_text(encoding="utf-8"))
+        changed = False
+        if package_lock_payload.get("version") != version:
+            package_lock_payload["version"] = version
+            changed = True
+        packages_root = package_lock_payload.get("packages")
+        if isinstance(packages_root, dict):
+            root_entry = packages_root.get("")
+            if isinstance(root_entry, dict) and root_entry.get("version") != version:
+                root_entry["version"] = version
+                changed = True
+        if changed:
+            package_lock_path.write_text(json.dumps(package_lock_payload, indent=2) + "\n", encoding="utf-8")
+            updated_paths.append(_rel(repo_root, package_lock_path))
+
+    version_path = repo_root / "VERSION"
+    current_version = version_path.read_text(encoding="utf-8").strip() if version_path.is_file() else None
+    if current_version != version:
+        version_path.write_text(f"{version}\n", encoding="utf-8")
+        updated_paths.append(_rel(repo_root, version_path))
+
+    return updated_paths
+
+
 def _load_workflow_docs(repo_root: Path, *, config: dict[str, object] | None = None, force_reindex: bool = False) -> dict[str, WorkflowDocModel]:
     effective_config = config or _effective_config(repo_root)[0]
     docs, _stats = indexed_workflow_docs(repo_root, config=effective_config, force=force_reindex)
@@ -1125,10 +1173,31 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
     prep_errors: list[str] = []
 
     if args.execution_mode == "execute":
+        if already_published:
+            next_version = str(changelog_status.get("next_version") or "").strip() or _next_patch_release_version(version)
+            if next_version:
+                if not args.dry_run:
+                    updated_paths = _update_release_version_artifacts(repo_root, next_version)
+                    if updated_paths:
+                        prep_steps.append(f"bumped release version to {next_version}")
+                    else:
+                        prep_steps.append(f"release version already aligned at {next_version}")
+                else:
+                    prep_steps.append(f"(dry-run) would bump release version to {next_version}")
+
+                refreshed_status_payload = _run_hybrid_assist(
+                    flow_name="release-changelog-status", ref=None, **{**base_kwargs, "requested_backend": "auto"}
+                )
+                changelog_status = _rdict(refreshed_status_payload["result"])
+                changelog_ready = bool(changelog_status.get("exists", False))
+                already_published = bool(changelog_status.get("already_published", False))
+                version_mismatch = bool(changelog_status.get("version_mismatch", False))
+                readme_badge_ok = changelog_status.get("readme_badge_ok")
+                version = str(changelog_status.get("version", next_version))
+
         if version_mismatch:
-            version_file = repo_root / "VERSION"
             if not args.dry_run:
-                version_file.write_text(f"{version}\n", encoding="utf-8")
+                _update_release_version_artifacts(repo_root, version)
                 prep_steps.append("updated VERSION to match package.json")
                 version_mismatch = False
             else:
