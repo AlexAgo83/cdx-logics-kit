@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -123,6 +123,41 @@ def load_hybrid_provider_environment_impl(
     for key, value in dotenv_values.items():
         resolved.setdefault(key, value)
     return resolved
+
+
+def load_provider_health_state_impl(path: Path, *, now: datetime | None = None) -> dict[str, Any]:
+    current_time = now or datetime.now(timezone.utc)
+    if not path.is_file():
+        return {"providers": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"providers": {}}
+    providers = payload.get("providers", {}) if isinstance(payload, dict) else {}
+    if not isinstance(providers, dict):
+        return {"providers": {}}
+    active: dict[str, Any] = {}
+    for provider_name, entry in providers.items():
+        if not isinstance(entry, dict):
+            continue
+        skip_until_raw = str(entry.get("skip_until", "")).strip()
+        if not skip_until_raw:
+            continue
+        normalized = skip_until_raw[:-1] + "+00:00" if skip_until_raw.endswith("Z") else skip_until_raw
+        try:
+            skip_until = datetime.fromisoformat(normalized)
+        except ValueError:
+            continue
+        if skip_until.tzinfo is None:
+            skip_until = skip_until.replace(tzinfo=timezone.utc)
+        if skip_until > current_time:
+            active[str(provider_name)] = entry
+    return {"providers": active}
+
+
+def save_provider_health_state_impl(path: Path, state: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def probe_ollama_backend_impl(
@@ -365,10 +400,15 @@ def probe_remote_provider_impl(
     provider: HybridProviderDefinition,
     requested_backend: str,
     timeout_seconds: float,
+    provider_health_path: Path | None,
+    cooldown_seconds: int,
     backend_status_cls: type[Any],
     error_cls: type[Exception],
     json_request: Callable[..., dict[str, Any]],
 ) -> Any:
+    now = datetime.now(timezone.utc)
+    health_state = load_provider_health_state_impl(provider_health_path, now=now) if provider_health_path is not None else {"providers": {}}
+    cached_entry = health_state.get("providers", {}).get(provider.name) if isinstance(health_state.get("providers"), dict) else None
     reasons: list[str] = []
     response_time_ms: float | None = None
     version: str | None = None
@@ -379,6 +419,16 @@ def probe_remote_provider_impl(
         reasons.append(f"{provider.name}-disabled")
     if provider.credential_env and not provider.credential_present:
         reasons.append(f"{provider.name}-missing-credentials")
+    if (
+        not reasons
+        and isinstance(cached_entry, dict)
+        and str(cached_entry.get("endpoint", "")).strip() == provider.endpoint
+        and str(cached_entry.get("model", "")).strip() == provider.model
+    ):
+        cached_reasons = [str(reason).strip() for reason in cached_entry.get("reasons", []) if str(reason).strip()]
+        if cached_reasons:
+            reasons.append(f"{provider.name}-cooldown-active")
+            reasons.extend(cached_reasons)
 
     if not reasons:
         try:
@@ -422,6 +472,26 @@ def probe_remote_provider_impl(
             reasons.append(f"{provider.name}-probe-failed")
 
     healthy = reachable and model_available and not reasons
+    should_persist_health = bool(reasons) and reasons[0] not in {
+        f"{provider.name}-disabled",
+        f"{provider.name}-missing-credentials",
+        f"{provider.name}-cooldown-active",
+    }
+    if provider_health_path is not None:
+        providers_state = health_state.setdefault("providers", {})
+        if healthy:
+            providers_state.pop(provider.name, None)
+            save_provider_health_state_impl(provider_health_path, health_state)
+        elif should_persist_health:
+            providers_state[provider.name] = {
+                "provider": provider.name,
+                "endpoint": provider.endpoint,
+                "model": provider.model,
+                "reasons": reasons,
+                "recorded_at": now.isoformat(),
+                "skip_until": (now + timedelta(seconds=max(1, cooldown_seconds))).isoformat(),
+            }
+            save_provider_health_state_impl(provider_health_path, health_state)
     if requested_backend == provider.name and not healthy:
         raise error_cls(
             "hybrid_provider_unavailable",

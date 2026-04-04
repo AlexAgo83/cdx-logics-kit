@@ -45,7 +45,9 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
         "timeout_seconds": 20.0,
         "audit_log": "logics/.cache/hybrid_assist_audit.jsonl",
         "measurement_log": "logics/.cache/hybrid_assist_measurements.jsonl",
+        "provider_health_path": "logics/.cache/provider_health.json",
         "providers": {
+            "readiness_cooldown_seconds": 300,
             "ollama": {
                 "enabled": True,
                 "host": "http://127.0.0.1:11434",

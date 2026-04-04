@@ -2734,6 +2734,103 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["error_code"], "hybrid_provider_unavailable")
             self.assertIn("openai-missing-credentials", payload["details"]["reasons"])
 
+    def test_assist_run_auto_skips_remote_provider_during_cooldown_after_failed_probe(self) -> None:
+        script = self._script()
+
+        class CoolingOpenAIHandler(http.server.BaseHTTPRequestHandler):
+            probe_count = 0
+
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path != "/v1/models/gpt-4.1-mini":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                CoolingOpenAIHandler.probe_count += 1
+                encoded = json.dumps({"error": "temporarily unavailable"}).encode("utf-8")
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), CoolingOpenAIHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                (repo / ".env").write_text("OPENAI_API_KEY=test-openai\n", encoding="utf-8")
+                (repo / "logics.yaml").write_text(
+                    "\n".join(
+                        [
+                            "version: 1",
+                            "hybrid_assist:",
+                            "  providers:",
+                            "    readiness_cooldown_seconds: 300",
+                            "    openai:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/v1",
+                            "      model: gpt-4.1-mini",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+                first = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "commit-message",
+                        "--backend",
+                        "auto",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+                second = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "run",
+                        "commit-message",
+                        "--backend",
+                        "auto",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            first_payload = json.loads(first.stdout)
+            second_payload = json.loads(second.stdout)
+            self.assertIn("openai-http-503", first_payload["degraded_reasons"])
+            self.assertIn("openai-cooldown-active", second_payload["degraded_reasons"])
+            self.assertEqual(CoolingOpenAIHandler.probe_count, 1)
+            self.assertTrue((repo / "logics" / ".cache" / "provider_health.json").is_file())
+
     def test_assist_run_changed_surface_summary_uses_deterministic_backend(self) -> None:
         script = self._script()
 

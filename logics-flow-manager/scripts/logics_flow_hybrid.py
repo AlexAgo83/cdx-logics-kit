@@ -568,12 +568,20 @@ def probe_remote_provider(
     *,
     provider: HybridProviderDefinition,
     requested_backend: str,
+    repo_root: Path | None = None,
+    config: dict[str, Any] | None = None,
     timeout_seconds: float = DEFAULT_HYBRID_TIMEOUT_SECONDS,
 ) -> HybridBackendStatus:
+    hybrid_config = config.get("hybrid_assist", {}) if isinstance(config, dict) else {}
+    provider_config = hybrid_config.get("providers", {}) if isinstance(hybrid_config, dict) else {}
+    health_path = str(hybrid_config.get("provider_health_path", "logics/.cache/provider_health.json")).strip() or "logics/.cache/provider_health.json"
+    cooldown_seconds = int(provider_config.get("readiness_cooldown_seconds", 300)) if isinstance(provider_config, dict) else 300
     return probe_remote_provider_impl(
         provider=provider,
         requested_backend=requested_backend,
         timeout_seconds=timeout_seconds,
+        provider_health_path=(repo_root / health_path).resolve() if repo_root is not None else None,
+        cooldown_seconds=cooldown_seconds,
         backend_status_cls=HybridBackendStatus,
         error_cls=HybridAssistError,
         json_request=_json_request,
@@ -644,7 +652,13 @@ def select_hybrid_backend(
         provider_registry=provider_registry,
         build_flow_backend_policy=build_flow_backend_policy,
         probe_ollama_backend=probe_ollama_backend,
-        probe_remote_provider=probe_remote_provider,
+        probe_remote_provider=lambda *, provider, requested_backend, timeout_seconds: probe_remote_provider(
+            provider=provider,
+            requested_backend=requested_backend,
+            repo_root=repo_root,
+            config=config,
+            timeout_seconds=timeout_seconds,
+        ),
         backend_status_cls=HybridBackendStatus,
         error_cls=HybridAssistError,
     )
@@ -1098,7 +1112,13 @@ def build_runtime_status(
         provider_registry=provider_registry,
         select_hybrid_backend=select_hybrid_backend,
         probe_ollama_backend=probe_ollama_backend,
-        probe_remote_provider=probe_remote_provider,
+        probe_remote_provider=lambda *, provider, requested_backend, timeout_seconds: probe_remote_provider(
+            provider=provider,
+            requested_backend=requested_backend,
+            repo_root=repo_root,
+            config=config,
+            timeout_seconds=timeout_seconds,
+        ),
         build_flow_backend_policy=build_flow_backend_policy,
     )
 
