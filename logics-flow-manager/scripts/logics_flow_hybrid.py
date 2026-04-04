@@ -1252,28 +1252,26 @@ def _deterministic_categories(git_snapshot: dict[str, Any]) -> list[str]:
 
 
 def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
-    version = "0.0.0"
-    version_source = "default"
     package_json = repo_root / "package.json"
     version_file = repo_root / "VERSION"
-    if package_json.is_file():
-        try:
-            package_payload = json.loads(package_json.read_text(encoding="utf-8"))
-            if isinstance(package_payload.get("version"), str):
-                candidate = package_payload["version"].strip()
-                if candidate and candidate != "0.0.0":
-                    version = candidate
-                    version_source = "package.json"
-        except json.JSONDecodeError:
-            pass
-    if version_source == "default" and version_file.is_file():
-        candidate = version_file.read_text(encoding="utf-8").strip()
-        if candidate:
-            version = candidate
-            version_source = "VERSION"
+    package_version = _read_release_package_version(repo_root)
+    version_file_version = _read_release_version_file(repo_root)
+    version_source = "default"
+    version = "0.0.0"
+    if package_version:
+        version = package_version
+        version_source = "package.json"
+    elif version_file_version:
+        version = version_file_version
+        version_source = "VERSION"
+
+    version_mismatch = bool(package_version and version_file_version and package_version != version_file_version)
     tag = f"v{version}"
     relative_path = f"changelogs/CHANGELOGS_{version.replace('.', '_')}.md"
     exists = (repo_root / relative_path).is_file()
+    tag_exists_local = _git_tag_exists(repo_root, tag)
+    tag_exists_remote = _git_remote_tag_exists(repo_root, tag)
+    already_published = tag_exists_local or tag_exists_remote
     readme_badge_ok: bool | None = None
     for readme_name in ("README.md", "readme.md", "Readme.md"):
         readme_path = repo_root / readme_name
@@ -1282,10 +1280,20 @@ def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
             readme_badge_ok = f"version-v{version}" in readme_text or f"version/{version}" in readme_text or f"v{version}" in readme_text
             break
     warnings: list[str] = []
+    if version_mismatch:
+        warnings.append(
+            f"VERSION is out of sync with package.json ({version_file_version} vs {package_version}); update VERSION before publishing."
+        )
+    if already_published:
+        warnings.append(f"{tag} is already tagged or published; bump the version before preparing another release.")
     if readme_badge_ok is False:
         warnings.append(f"README version badge may not reflect {tag}; update the badge before publishing.")
     summary_parts = [
-        f"Curated changelog ready for {tag}." if exists else f"Curated changelog missing for {tag}; expected {relative_path}."
+        (
+            f"Curated changelog ready for {tag}."
+            if exists
+            else f"Curated changelog missing for {tag}; expected {relative_path}."
+        )
     ]
     if warnings:
         summary_parts.extend(warnings)
@@ -1293,14 +1301,95 @@ def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
         "tag": tag,
         "version": version,
         "version_source": version_source,
+        "package_version": package_version,
+        "version_file_version": version_file_version,
+        "version_mismatch": version_mismatch,
         "relative_path": relative_path,
         "exists": exists,
+        "tag_exists_local": tag_exists_local,
+        "tag_exists_remote": tag_exists_remote,
+        "already_published": already_published,
         "readme_badge_ok": readme_badge_ok,
         "warnings": warnings,
         "summary": " ".join(summary_parts),
         "confidence": 0.92,
         "rationale": "Deterministic release-changelog status derived from package.json or VERSION file and curated changelog file presence.",
     }
+
+
+def _read_release_package_version(repo_root: Path) -> str | None:
+    package_json = repo_root / "package.json"
+    if not package_json.is_file():
+        return None
+    try:
+        package_payload = json.loads(package_json.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    candidate = package_payload.get("version")
+    if not isinstance(candidate, str):
+        return None
+    normalized = candidate.strip()
+    if not normalized or normalized == "0.0.0":
+        return None
+    return normalized
+
+
+def _read_release_version_file(repo_root: Path) -> str | None:
+    version_file = repo_root / "VERSION"
+    if not version_file.is_file():
+        return None
+    candidate = version_file.read_text(encoding="utf-8").strip()
+    return candidate or None
+
+
+def _git_tag_exists(repo_root: Path, tag: str) -> bool:
+    completed = subprocess.run(
+        ["git", "tag", "--list", tag],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    return completed.returncode == 0 and completed.stdout.strip() == tag
+
+
+def _git_remote_tag_exists(repo_root: Path, tag: str) -> bool:
+    remote = _git_default_remote(repo_root)
+    if not remote:
+        return False
+    try:
+        completed = subprocess.run(
+            ["git", "ls-remote", "--tags", "--refs", remote, f"refs/tags/{tag}"],
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+    return completed.returncode == 0 and bool(completed.stdout.strip())
+
+
+def _git_default_remote(repo_root: Path) -> str | None:
+    completed = subprocess.run(
+        ["git", "remote"],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    remotes = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    if not remotes:
+        return None
+    if "origin" in remotes:
+        return "origin"
+    return remotes[0]
 
 
 def _deterministic_test_impact_summary(repo_root: Path, changed_paths: list[str]) -> dict[str, Any]:

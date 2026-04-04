@@ -4513,6 +4513,61 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["prep_steps"], [])
             self.assertNotIn("publish_result", payload)
 
+    def test_assist_prepare_release_not_ready_when_version_is_already_tagged(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.0.1")
+            subprocess.run(["git", "tag", "v3.0.1"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            result = subprocess.run(
+                [sys.executable, str(script), "assist", "prepare-release", "--format", "json"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["changelog_status"]["exists"])
+            self.assertTrue(payload["changelog_status"]["already_published"])
+            self.assertTrue(payload["changelog_status"]["tag_exists_local"])
+            self.assertFalse(payload["ready"])
+            self.assertIn("already tagged or published", payload["changelog_status"]["summary"])
+
+    def test_assist_prepare_release_syncs_version_file_when_package_json_is_newer(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.0.2")
+            (repo / "VERSION").write_text("3.0.1\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "add stale VERSION"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "prepare-release",
+                    "--execution-mode", "execute",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["changelog_status"]["version_mismatch"])
+            self.assertTrue(payload["ready"])
+            self.assertIn("updated VERSION to match package.json", payload["prep_steps"])
+            self.assertEqual((repo / "VERSION").read_text(encoding="utf-8"), "3.0.2\n")
+
     def test_assist_publish_release_execute_dry_run_invokes_publish_script(self) -> None:
         script = self._script()
 
@@ -4548,6 +4603,74 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertTrue(payload["executed"])
             self.assertIsNotNone(payload["publish_result"])
             self.assertTrue(payload["publish_result"]["ok"])
+
+    def test_assist_publish_release_execute_blocks_when_version_is_already_tagged(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.1.1")
+            publish_script = repo / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
+            publish_script.parent.mkdir(parents=True, exist_ok=True)
+            publish_script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "commit", "-m", "add publish script"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            subprocess.run(["git", "tag", "v3.1.1"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "publish-release",
+                    "--execution-mode", "execute",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["ready"])
+            self.assertFalse(payload["executed"])
+            self.assertFalse(payload["publish_result"]["ok"])
+            self.assertTrue(
+                any("version already published or tagged" in entry for entry in payload["publish_result"]["blocking"])
+            )
+
+    def test_assist_publish_release_blocks_when_version_file_is_out_of_sync(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.1.2")
+            publish_script = repo / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
+            publish_script.parent.mkdir(parents=True, exist_ok=True)
+            publish_script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
+            (repo / "VERSION").write_text("3.1.1\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "publish-release",
+                    "--execution-mode", "execute",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["ready"])
+            self.assertFalse(payload["executed"])
+            self.assertFalse(payload["publish_result"]["ok"])
+            self.assertTrue(
+                any("VERSION is out of sync with package.json" in entry for entry in payload["publish_result"]["blocking"])
+            )
 
     def test_assist_publish_release_suggestion_only_proposes_release_branch_update_when_stale(self) -> None:
         script = self._script()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -39,6 +40,30 @@ def read_version(repo_root: Path) -> str:
     if not version_path.is_file():
         raise SystemExit(f"Missing VERSION file at {version_path}")
     return normalize_version(version_path.read_text(encoding="utf-8").strip())
+
+
+def read_package_version(repo_root: Path) -> str | None:
+    package_json_path = repo_root / "package.json"
+    if not package_json_path.is_file():
+        return None
+    try:
+        payload = json.loads(package_json_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    candidate = payload.get("version")
+    if not isinstance(candidate, str):
+        return None
+    normalized = candidate.strip()
+    if not normalized:
+        return None
+    return normalize_version(normalized)
+
+
+def resolve_version(repo_root: Path) -> str:
+    package_version = read_package_version(repo_root)
+    if package_version:
+        return package_version
+    return read_version(repo_root)
 
 
 def version_to_tag(version: str) -> str:
@@ -169,7 +194,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     repo_root = find_repo_root(Path.cwd())
-    version = normalize_version(args.version) if args.version else read_version(repo_root)
+    version = normalize_version(args.version) if args.version else resolve_version(repo_root)
     current_tag = version_to_tag(version)
     previous_tag = args.previous_tag or detect_previous_tag(repo_root, current_tag)
     output_path = Path(args.out).resolve() if args.out else changelog_path_for_version(repo_root, version)

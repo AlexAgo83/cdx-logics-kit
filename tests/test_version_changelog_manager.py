@@ -72,3 +72,9 @@ class VersionChangelogManagerTest(unittest.TestCase):
     def test_normalize_version_rejects_invalid_values(self) -> None:
         with self.assertRaises(SystemExit):
             self.module.normalize_version("1.0")
+
+    def test_resolve_version_prefers_package_json_when_version_file_is_stale(self) -> None:
+        self.write("VERSION", "1.0.0\n")
+        self.write("package.json", '{"name":"demo","version":"1.0.2"}\n')
+
+        self.assertEqual(self.module.resolve_version(self.repo_root), "1.0.2")
