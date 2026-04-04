@@ -22,8 +22,18 @@ python logics-version-release-manager/scripts/publish_version_release.py --dry-r
 python logics-version-release-manager/scripts/publish_version_release.py --create-tag --push
 ```
 
+## Check the release surface with the shared AI runtime
+
+Before publishing, keep the deterministic release script as the source of truth, then use the shared hybrid assist runtime to review the changelog/release contract and the commit checkpoint:
+
+```bash
+python logics/skills/logics.py flow assist release-changelog-status --format json
+python logics/skills/logics.py flow assist commit-all
+```
+
 ## Notes
 
 - The script reads `VERSION` by default.
 - It expects a matching changelog entry under `changelogs/`.
 - It can create the annotated tag, push `main` and the tag, then publish the GitHub release via `gh`.
+- `flow assist commit-all` is the preferred commit helper when the shared AI runtime is healthy; the publish script itself stays deterministic.

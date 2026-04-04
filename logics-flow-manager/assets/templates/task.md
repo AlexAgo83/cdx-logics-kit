@@ -21,6 +21,8 @@
 - Each completed wave should leave the repository in a coherent, commit-ready state.
 - Update the linked Logics docs during the wave that changes the behavior, not only at final closure.
 - Prefer a reviewed commit checkpoint at the end of each meaningful wave instead of accumulating several undocumented partial states.
+- If the shared AI runtime is active and healthy, use `python logics/skills/logics.py flow assist commit-all` to prepare the commit checkpoint for each meaningful step, item, or wave.
+- Do not mark a wave or step complete until the relevant automated tests and quality checks have been run successfully.
 
 # AC Traceability
 {{AC_TRACEABILITY_PLACEHOLDER}}
@@ -53,6 +55,7 @@
 # Definition of Done (DoD)
 - [ ] Scope implemented and acceptance criteria covered.
 - [ ] Validation commands executed and results captured.
+- [ ] No wave or step was closed before the relevant automated tests and quality checks passed.
 - [ ] Linked request/backlog/task docs updated during completed waves and at closure.
 - [ ] Each completed wave left a commit-ready checkpoint or an explicit exception is documented.
 - [ ] Status is `Done` and progress is `100%`.
