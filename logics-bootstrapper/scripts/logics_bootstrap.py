@@ -100,17 +100,31 @@ def _parse_env_keys(env_path: Path) -> set[str]:
     return keys
 
 
-def _env_paths(repo_root: Path) -> tuple[Path, Path]:
-    return repo_root / ".env", repo_root / ".env.local"
+def _env_file_priority(path: Path) -> tuple[int, str]:
+    if path.name == ".env.local":
+        return (0, path.name)
+    if path.name == ".env":
+        return (1, path.name)
+    return (2, path.name)
 
 
-def _env_target_and_missing_keys(repo_root: Path) -> tuple[Path, list[str]]:
-    env_path, env_local_path = _env_paths(repo_root)
-    existing_keys = _parse_env_keys(env_path) | _parse_env_keys(env_local_path)
-    missing_keys = [key for key in ENV_KEYS if key not in existing_keys]
-    if env_local_path.exists() or not env_path.exists():
-        return env_local_path, missing_keys
-    return env_path, missing_keys
+def _env_targets(repo_root: Path) -> list[Path]:
+    env_files = sorted(
+        [
+            path
+            for path in repo_root.iterdir()
+            if path.is_file() and path.name.startswith(".env")
+        ],
+        key=_env_file_priority,
+    )
+    if env_files:
+        return env_files
+    return [repo_root / ".env.local"]
+
+
+def _missing_keys_for_env_path(env_path: Path) -> list[str]:
+    existing_keys = _parse_env_keys(env_path)
+    return [key for key in ENV_KEYS if key not in existing_keys]
 
 
 def _render_env(env_path: Path, missing_keys: list[str]) -> str:
@@ -173,9 +187,9 @@ def _plan_actions(repo_root: Path) -> list[Action]:
     if _missing_gitignore_entries(gitignore_path):
         actions.append(Action("gitignore", gitignore_path))
 
-    env_path, missing_env_keys = _env_target_and_missing_keys(repo_root)
-    if missing_env_keys:
-        actions.append(Action("env", env_path))
+    for env_path in _env_targets(repo_root):
+        if _missing_keys_for_env_path(env_path):
+            actions.append(Action("env", env_path))
 
     # Only add .gitkeep to empty dirs (and never to logics/skills which may be a submodule).
     for rel in DEFAULT_DIRS:
@@ -223,7 +237,7 @@ def _apply(actions: list[Action], dry_run: bool) -> None:
                 action.path.parent.mkdir(parents=True, exist_ok=True)
                 action.path.write_text(_render_gitignore(action.path), encoding="utf-8")
         elif action.kind == "env":
-            _, missing_keys = _env_target_and_missing_keys(action.path.parent)
+            missing_keys = _missing_keys_for_env_path(action.path)
             if dry_run:
                 print(f"[dry-run] update {action.path} (append provider credential placeholders)")
             else:

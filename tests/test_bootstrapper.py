@@ -140,7 +140,7 @@ class BootstrapperTest(unittest.TestCase):
             self.assertIn("GEMINI_API_KEY=", env_text)
             self.assertFalse((repo / ".env.local").exists())
 
-    def test_bootstrap_does_not_add_empty_local_placeholders_when_env_already_has_provider_keys(self) -> None:
+    def test_bootstrap_updates_all_existing_env_files_with_missing_provider_placeholders(self) -> None:
         script = Path(__file__).resolve().parents[1] / "logics-bootstrapper" / "scripts" / "logics_bootstrap.py"
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -150,6 +150,7 @@ class BootstrapperTest(unittest.TestCase):
                 encoding="utf-8",
             )
             (repo / ".env.local").write_text("# local overrides\n", encoding="utf-8")
+            (repo / ".env.production").write_text("OPENAI_API_KEY=prod-key\n", encoding="utf-8")
 
             completed = subprocess.run(
                 [sys.executable, str(script)],
@@ -161,7 +162,14 @@ class BootstrapperTest(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual((repo / ".env.local").read_text(encoding="utf-8"), "# local overrides\n")
+            env_local_text = (repo / ".env.local").read_text(encoding="utf-8")
+            self.assertIn("# local overrides\n", env_local_text)
+            self.assertIn("OPENAI_API_KEY=", env_local_text)
+            self.assertIn("GEMINI_API_KEY=", env_local_text)
+
+            env_production_text = (repo / ".env.production").read_text(encoding="utf-8")
+            self.assertIn("OPENAI_API_KEY=prod-key", env_production_text)
+            self.assertIn("GEMINI_API_KEY=", env_production_text)
 
 
 if __name__ == "__main__":
