@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
-  <img src="https://img.shields.io/badge/version-v1.7.1-4C8BF5" alt="Version" />
+  <img src="https://img.shields.io/badge/version-v1.8.0-4C8BF5" alt="Version" />
   <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/workflow-request--backlog--task--spec-2EA44F" alt="Workflow" />
   <img src="https://img.shields.io/badge/AI-context%20memory-FFB000" alt="AI Context Memory" />
@@ -388,6 +388,7 @@ The canonical kit version lives in [`VERSION`](VERSION).
 
 Versioned release notes live in [`changelogs/`](changelogs/):
 
+- [`changelogs/CHANGELOGS_1_8_0.md`](changelogs/CHANGELOGS_1_8_0.md)
 - [`changelogs/CHANGELOGS_1_7_1.md`](changelogs/CHANGELOGS_1_7_1.md)
 - [`changelogs/CHANGELOGS_1_7_0.md`](changelogs/CHANGELOGS_1_7_0.md)
 - [`changelogs/CHANGELOGS_1_6_2.md`](changelogs/CHANGELOGS_1_6_2.md)
@@ -410,10 +411,17 @@ Generate or refresh the changelog for the current version:
 python logics/skills/logics-version-changelog-manager/scripts/generate_version_changelog.py
 ```
 
-Dry-run the GitHub release flow from the current `VERSION` and matching `changelogs/` entry:
+Check release readiness and optionally publish using the shared hybrid assist runtime:
 
 ```bash
-python logics/skills/logics-version-release-manager/scripts/publish_version_release.py --dry-run
+# Check readiness (changelog present + clean tree)
+python logics/skills/logics.py flow assist prepare-release --format json
+
+# Dry-run the publish commands
+python logics/skills/logics.py flow assist prepare-release --execution-mode execute --dry-run
+
+# Publish: create tag, push, and create GitHub release
+python logics/skills/logics.py flow assist prepare-release --execution-mode execute --push
 ```
 
 ## Indicators

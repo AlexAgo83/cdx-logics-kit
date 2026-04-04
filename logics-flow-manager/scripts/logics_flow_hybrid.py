@@ -1262,17 +1262,30 @@ def _resolve_release_changelog_status(repo_root: Path) -> dict[str, Any]:
     tag = f"v{version}"
     relative_path = f"changelogs/CHANGELOGS_{version.replace('.', '_')}.md"
     exists = (repo_root / relative_path).is_file()
+    readme_badge_ok: bool | None = None
+    for readme_name in ("README.md", "readme.md", "Readme.md"):
+        readme_path = repo_root / readme_name
+        if readme_path.is_file():
+            readme_text = readme_path.read_text(encoding="utf-8", errors="replace")
+            readme_badge_ok = f"version-v{version}" in readme_text or f"version/{version}" in readme_text or f"v{version}" in readme_text
+            break
+    warnings: list[str] = []
+    if readme_badge_ok is False:
+        warnings.append(f"README version badge may not reflect {tag}; update the badge before publishing.")
+    summary_parts = [
+        f"Curated changelog ready for {tag}." if exists else f"Curated changelog missing for {tag}; expected {relative_path}."
+    ]
+    if warnings:
+        summary_parts.extend(warnings)
     return {
         "tag": tag,
         "version": version,
         "version_source": version_source,
         "relative_path": relative_path,
         "exists": exists,
-        "summary": (
-            f"Curated changelog ready for {tag}."
-            if exists
-            else f"Curated changelog missing for {tag}; expected {relative_path}."
-        ),
+        "readme_badge_ok": readme_badge_ok,
+        "warnings": warnings,
+        "summary": " ".join(summary_parts),
         "confidence": 0.92,
         "rationale": "Deterministic release-changelog status derived from package.json or VERSION file and curated changelog file presence.",
     }
