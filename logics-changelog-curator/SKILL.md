@@ -18,3 +18,11 @@ For kit releases, use:
 ```bash
 python logics/skills/logics-changelog-curator/scripts/curate_changelog.py --in logics/RELEASE_NOTES.md --out logics/CHANGELOG.md
 ```
+
+## Review with the shared AI runtime
+
+The curation script stays deterministic. When you want a bounded wording review after generation, use:
+
+```bash
+python logics/skills/logics.py flow assist summarize-changelog --format json
+```

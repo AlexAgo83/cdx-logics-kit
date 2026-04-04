@@ -13,8 +13,8 @@
 {{PROBLEM_PLACEHOLDER}}
 
 # Scope
-- In:
-- Out:
+- In: one coherent delivery slice from the source request.
+- Out: unrelated sibling slices that should stay in separate backlog items instead of widening this doc.
 
 {{MERMAID_BLOCK}}
 

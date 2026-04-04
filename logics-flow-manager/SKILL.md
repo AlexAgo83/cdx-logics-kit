@@ -100,6 +100,13 @@ python logics/skills/logics.py flow promote request-to-backlog logics/request/re
 python logics/skills/logics.py flow promote backlog-to-task logics/backlog/item_002_offline_recap_ui.md
 ```
 
+For request -> backlog promotion, default to a split-first mindset:
+
+- use `python logics/skills/logics.py flow assist suggest-split <request-ref> --format json` when the request spans multiple user flows, delivery surfaces, risks, or acceptance criteria;
+- then use `python logics/skills/logics.py flow split request ...` to cover the request with several bounded backlog items;
+- do not compress broad request coverage into only one or two oversized backlog items just to keep the split count low;
+- use direct `promote request-to-backlog` only when the request is already atomic enough to map to one clear backlog slice.
+
 The promotion flow seeds more of the next-stage document automatically:
 - source indicators such as `From version`, `Understanding`, `Confidence`, `Complexity`, and `Theme`;
 - request acceptance criteria into backlog acceptance criteria + AC traceability;
@@ -115,6 +122,7 @@ python logics/skills/logics.py flow split backlog logics/backlog/item_002_exampl
 ```
 
 `logics.yaml` now drives the default split policy. The shipped default is `minimal-coherent`, so keep splits to the smallest coherent slice count unless you explicitly pass `--allow-extra-slices`.
+In practice, request coverage still comes first: if a broad request needs several bounded backlog items, keep the slices explicit instead of collapsing them into one or two large items.
 
 Close docs with automatic transition propagation:
 
@@ -137,6 +145,8 @@ Generated tasks now include explicit wave checkpoints:
 - each completed wave should leave the repository in a coherent, commit-ready state;
 - linked Logics docs should be updated during the wave that changes the behavior;
 - prefer one reviewed commit checkpoint per meaningful wave rather than several undocumented partial states.
+- if the shared AI runtime is active and healthy, use `python logics/skills/logics.py flow assist commit-all` for the commit checkpoint of each meaningful step, item, or wave.
+- do not mark a wave or step complete until the relevant automated tests and quality checks have been run successfully.
 
 Run workflow coherence audit:
 
@@ -211,6 +221,9 @@ After promotion:
 
 - Ensure the backlog item has clear acceptance criteria + priority.
 - Ensure the task has a step-by-step plan and at least 1–2 validation commands relevant to the work.
+- Ensure broad requests are represented by several bounded backlog items rather than one or two oversized slices.
+- Ensure each task explicitly treats successful test execution as a gate before closing any step or wave.
+- Ensure each task uses the shared `flow assist commit-all` checkpoint when the AI runtime is active and healthy.
 - Ensure the source request lists any generated backlog items in its Backlog section.
 - Carry forward any linked `prod_###` and `adr_###` refs so downstream docs keep the product and architecture framing visible.
 

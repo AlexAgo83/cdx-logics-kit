@@ -11,7 +11,7 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
     "workflow": {
         "split": {
             "policy": "minimal-coherent",
-            "max_children_without_override": 2,
+            "max_children_without_override": 4,
         }
     },
     "mutations": {

@@ -421,6 +421,8 @@ def _render_bullet_block(items: Iterable[str], fallback: str) -> str:
 def _render_plan_block(steps: list[str]) -> str:
     rendered = [f"- [ ] {idx}. {step}" for idx, step in enumerate(steps, start=1)]
     rendered.append("- [ ] CHECKPOINT: leave the current wave commit-ready and update the linked Logics docs before continuing.")
+    rendered.append("- [ ] CHECKPOINT: if the shared AI runtime is active and healthy, run `python logics/skills/logics.py flow assist commit-all` for the current step, item, or wave commit checkpoint.")
+    rendered.append("- [ ] GATE: do not close a wave or step until the relevant automated tests and quality checks have been run successfully.")
     rendered.append("- [ ] FINAL: Update related Logics docs")
     return "\n".join(rendered)
 
@@ -428,7 +430,10 @@ def _render_plan_block(steps: list[str]) -> str:
 def _render_validation_block(items: Iterable[str]) -> str:
     cleaned = [item.strip() for item in items if item and item.strip()]
     if not cleaned:
-        cleaned = ["Run the relevant automated tests for the changed surface.", "Run the relevant lint or quality checks."]
+        cleaned = [
+            "Run the relevant automated tests for the changed surface before closing the current wave or step.",
+            "Run the relevant lint or quality checks before closing the current wave or step.",
+        ]
     return "\n".join(f"- {item}" for item in cleaned)
 
 
@@ -764,6 +769,7 @@ def _seed_backlog_from_request(
     if request_ref is not None:
         notes.append(f"- Derived from request `{request_ref}`.")
     notes.append(f"- Source file: `{source_rel}`.")
+    notes.append("- Keep this backlog item as one bounded delivery slice; create sibling backlog items for the remaining request coverage instead of widening this doc.")
     if context_lines:
         notes.append(f"- Request context seeded into this backlog item from `{source_rel}`.")
     values["NOTES_PLACEHOLDER"] = "\n".join(notes)
@@ -812,8 +818,8 @@ def _seed_task_from_backlog(
     )
     values["VALIDATION_BLOCK"] = _render_validation_block(
         [
-            "Run the relevant automated tests for the changed surface.",
-            "Run the relevant lint or quality checks.",
+            "Run the relevant automated tests for the changed surface before closing the current wave or step.",
+            "Run the relevant lint or quality checks before closing the current wave or step.",
             "Confirm the completed wave leaves the repository in a commit-ready state.",
         ]
     )
@@ -1190,12 +1196,12 @@ def _build_template_values(
                 "Checkpoint the wave in a commit-ready state, validate it, and update the linked Logics docs.",
             ]
         ),
-        "VALIDATION_1": "Run the relevant automated tests for the changed surface.",
-        "VALIDATION_2": "Run the relevant lint or quality checks.",
+        "VALIDATION_1": "Run the relevant automated tests for the changed surface before closing the current wave or step.",
+        "VALIDATION_2": "Run the relevant lint or quality checks before closing the current wave or step.",
         "VALIDATION_BLOCK": _render_validation_block(
             [
-                "Run the relevant automated tests for the changed surface.",
-                "Run the relevant lint or quality checks.",
+                "Run the relevant automated tests for the changed surface before closing the current wave or step.",
+                "Run the relevant lint or quality checks before closing the current wave or step.",
                 "Confirm the completed wave leaves the repository in a commit-ready state.",
             ]
         ),

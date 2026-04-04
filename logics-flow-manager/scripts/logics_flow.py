@@ -1195,6 +1195,11 @@ def cmd_promote_request_to_backlog(args: argparse.Namespace) -> None:
     title = _parse_title_from_source(source_path) or "Promoted backlog item"
     repo_root = _find_repo_root(Path.cwd())
     planned = _create_backlog_from_request(repo_root, source_path, title, args)
+    print(
+        "Created a backlog slice from the request. "
+        "If the request spans multiple deliverables, use `python logics/skills/logics.py flow assist suggest-split <request-ref> --format json` "
+        "followed by `python logics/skills/logics.py flow split request ...` so the request is covered by several bounded backlog items instead of one oversized item."
+    )
     return {
         "command": "promote",
         "promotion": "request-to-backlog",
@@ -1743,7 +1748,10 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser = sub.add_parser("promote", help="Promote between Logics stages.")
     promote_sub = promote_parser.add_subparsers(dest="promotion", required=True)
 
-    r2b = promote_sub.add_parser("request-to-backlog", help="Create a backlog item from a request.")
+    r2b = promote_sub.add_parser(
+        "request-to-backlog",
+        help="Create a backlog slice from an already atomic request. Prefer `split request` for broad requests.",
+    )
     r2b.add_argument("source")
     _add_common_doc_args(r2b, "backlog")
     r2b.set_defaults(func=cmd_promote_request_to_backlog)
@@ -1758,7 +1766,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     split_request = split_sub.add_parser("request", help="Split a request into multiple backlog items.")
     split_request.add_argument("source")
-    split_request.add_argument("--title", action="append", required=True, help="Child backlog item title. Repeat the flag for multiple children, keeping the split to the minimum coherent slice count.")
+    split_request.add_argument(
+        "--title",
+        action="append",
+        required=True,
+        help="Child backlog item title. Repeat the flag for multiple bounded slices so the request coverage does not collapse into one or two oversized items.",
+    )
     split_request.add_argument("--allow-extra-slices", action="store_true", help="Override the repo split policy when more child slices are explicitly justified.")
     _add_common_doc_args(split_request, "backlog")
     split_request.set_defaults(func=cmd_split_request)

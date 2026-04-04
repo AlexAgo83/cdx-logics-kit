@@ -24,8 +24,18 @@ python logics-version-changelog-manager/scripts/generate_version_changelog.py \
   --previous-tag v1.0.0
 ```
 
+## Review with the shared AI runtime
+
+Keep the deterministic script as the source of truth for the file generation, then use the shared hybrid assist runtime to review the result:
+
+```bash
+python logics/skills/logics.py flow assist summarize-changelog --format json
+python logics/skills/logics.py flow assist release-changelog-status --format json
+```
+
 ## Notes
 
 - The script writes `changelogs/CHANGELOGS_<version>.md`.
 - It generates a deterministic scaffold from git commits in the selected range.
 - The generated file can be curated further before a GitHub release is published.
+- The AI runtime is a review and curation layer around the generated file, not a replacement for the deterministic changelog scaffold.
