@@ -234,6 +234,11 @@ FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
         "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
         "required_keys": ("target_ref", "missing_links", "suggested_follow_up", "confidence", "rationale"),
     },
+    "generate-changelog": {
+        "summary": "Generate a curated changelog document for the current version from git history and changed surfaces.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("content", "title", "entries", "confidence", "rationale"),
+    },
 }
 
 FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
@@ -257,6 +262,7 @@ FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
     "windows-compat-risk": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": False},
     "review-checklist": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": True, "include_doctor": True},
     "doc-link-suggestion": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
+    "generate-changelog": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": False},
 }
 
 FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
@@ -379,6 +385,12 @@ FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
         "auto_backend": "ollama",
         "fallback_policy": "validate-local-payload-against-workflow-refs-then-bounded-codex-fallback",
         "selection_summary": "Keep doc-link suggestions local-first while validating the output against actual workflow references.",
+    },
+    "generate-changelog": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep changelog generation local-first; fall back to Codex if local payload fails validation.",
     },
 }
 
@@ -1698,6 +1710,28 @@ def build_fallback_result(
             "suggested_follow_up": suggested_follow_up,
             "confidence": 0.61,
             "rationale": "Fallback doc-link suggestion is derived from the existing workflow reference graph.",
+        }
+    if flow_name == "generate-changelog":
+        version_info = _resolve_release_changelog_status(Path(context_bundle.get("repo_root", ".")))
+        version = version_info.get("version", "0.0.0")
+        tag = version_info.get("tag", f"v{version}")
+        entries: list[str] = []
+        if git_snapshot.get("touches_plugin"):
+            entries.append("Expose new action surfaces in the VS Code plugin.")
+        if git_snapshot.get("touches_runtime"):
+            entries.append("Add bounded hybrid assist flows and delivery automation.")
+        if git_snapshot.get("touches_tests"):
+            entries.append("Add or update integration tests for the new flows.")
+        if not entries:
+            entries.append("Delivery automation and workflow surface updates.")
+        content_lines = [f"# Changelog (`{tag}`)", "", "## Highlights", ""]
+        content_lines += [f"- {e}" for e in entries]
+        return {
+            "content": "\n".join(content_lines),
+            "title": f"Release {tag}",
+            "entries": entries,
+            "confidence": 0.6,
+            "rationale": "Fallback changelog generated from changed-path categories when AI runtime is unavailable.",
         }
     raise HybridAssistError("hybrid_unhandled_flow", f"Unhandled hybrid assist flow `{flow_name}`.")
 

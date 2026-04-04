@@ -4456,8 +4456,8 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["assist_kind"], "prepare-release")
             self.assertTrue(payload["changelog_status"]["exists"])
             self.assertTrue(payload["ready"])
-            self.assertFalse(payload["executed"])
-            self.assertIsNone(payload["publish_result"])
+            self.assertIn("prep_steps", payload)
+            self.assertNotIn("publish_result", payload)
 
     def test_assist_prepare_release_not_ready_when_changelog_missing(self) -> None:
         script = self._script()
@@ -4487,12 +4487,38 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertFalse(payload["changelog_status"]["exists"])
             self.assertFalse(payload["ready"])
 
-    def test_assist_prepare_release_execute_dry_run_invokes_publish_script(self) -> None:
+    def test_assist_prepare_release_execute_reports_ready_when_already_prepared(self) -> None:
         script = self._script()
 
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             self._prepare_release_repo(repo, "3.0.0")
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "prepare-release",
+                    "--execution-mode", "execute",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ready"])
+            self.assertEqual(payload["prep_steps"], [])
+            self.assertNotIn("publish_result", payload)
+
+    def test_assist_publish_release_execute_dry_run_invokes_publish_script(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "3.1.0")
             publish_script = repo / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
             publish_script.parent.mkdir(parents=True, exist_ok=True)
             publish_script.write_text(
@@ -4504,7 +4530,7 @@ class LogicsFlowTest(unittest.TestCase):
 
             result = subprocess.run(
                 [
-                    sys.executable, str(script), "assist", "prepare-release",
+                    sys.executable, str(script), "assist", "publish-release",
                     "--execution-mode", "execute",
                     "--dry-run",
                     "--format", "json",
@@ -4523,12 +4549,38 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIsNotNone(payload["publish_result"])
             self.assertTrue(payload["publish_result"]["ok"])
 
-    def test_assist_prepare_release_execute_blocked_when_uncommitted_changes(self) -> None:
+    def test_assist_prepare_release_execute_not_ready_when_uncommitted_changes(self) -> None:
         script = self._script()
 
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             self._prepare_release_repo(repo, "4.0.0")
+            (repo / "dirty.txt").write_text("untracked\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable, str(script), "assist", "prepare-release",
+                    "--execution-mode", "execute",
+                    "--format", "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["ready"])
+            self.assertNotIn("publish_result", payload)
+
+    def test_assist_publish_release_execute_blocked_when_uncommitted_changes(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._prepare_release_repo(repo, "4.1.0")
             publish_script = repo / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
             publish_script.parent.mkdir(parents=True, exist_ok=True)
             publish_script.write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
@@ -4536,7 +4588,7 @@ class LogicsFlowTest(unittest.TestCase):
 
             result = subprocess.run(
                 [
-                    sys.executable, str(script), "assist", "prepare-release",
+                    sys.executable, str(script), "assist", "publish-release",
                     "--execution-mode", "execute",
                     "--format", "json",
                 ],

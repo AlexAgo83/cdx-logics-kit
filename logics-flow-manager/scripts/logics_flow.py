@@ -118,6 +118,11 @@ def _rel(repo_root: Path, path: Path) -> str:
     return path.relative_to(repo_root).as_posix()
 
 
+def _rdict(v: object) -> dict[str, object]:
+    """Narrow an object-typed payload value to dict[str, object] for attribute access."""
+    return v if isinstance(v, dict) else {}
+
+
 def _effective_config(repo_root: Path) -> tuple[dict[str, object], Path | None]:
     return load_repo_config(repo_root)
 
@@ -804,6 +809,8 @@ def _run_hybrid_assist(
         raise SystemExit("Internal error: commit-all should route through cmd_assist_commit_all.")
     elif flow_name == "prepare-release":
         raise SystemExit("Internal error: prepare-release should route through cmd_assist_prepare_release.")
+    elif flow_name == "publish-release":
+        raise SystemExit("Internal error: publish-release should route through cmd_assist_publish_release.")
 
     result_status = "degraded" if degraded_reasons else "ok"
     audit_path = (repo_root / audit_log).resolve()
@@ -992,6 +999,8 @@ def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
 
 
 def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
+    import re
+
     repo_root = _find_repo_root(Path.cwd())
     config, config_path = _effective_config(repo_root)
     base_kwargs = {
@@ -1025,18 +1034,127 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
     validation_payload = _run_hybrid_assist(flow_name="validation-checklist", ref=None, **base_kwargs)
     diff_risk_payload = _run_hybrid_assist(flow_name="diff-risk", ref=None, **base_kwargs)
 
-    changelog_ready = bool(changelog_status_payload["result"].get("exists", False))
+    changelog_status = _rdict(changelog_status_payload["result"])
+    changelog_ready = bool(changelog_status.get("exists", False))
+    has_uncommitted = bool(git_snapshot.get("has_changes", False))
+    readme_badge_ok = changelog_status.get("readme_badge_ok")
+    version = str(changelog_status.get("version", "0.0.0"))
+
+    prep_steps: list[str] = []
+    prep_errors: list[str] = []
+
+    if args.execution_mode == "execute":
+        # Step 1: generate changelog via AI if missing
+        if not changelog_ready:
+            gen_payload = _run_hybrid_assist(flow_name="generate-changelog", ref=None, **base_kwargs)
+            gen_result = _rdict(gen_payload["result"])
+            changelog_content = str(gen_result.get("content", ""))
+            relative_path = str(changelog_status.get("relative_path", f"changelogs/CHANGELOGS_{version.replace('.', '_')}.md"))
+            changelog_file = repo_root / relative_path
+            changelog_file.parent.mkdir(parents=True, exist_ok=True)
+            if not args.dry_run:
+                changelog_file.write_text(changelog_content, encoding="utf-8")
+                prep_steps.append(f"wrote {relative_path}")
+                changelog_ready = True
+            else:
+                prep_steps.append(f"(dry-run) would write {relative_path}")
+
+        # Step 2: update README version badge if stale
+        if readme_badge_ok is False:
+            for readme_name in ("README.md", "readme.md", "Readme.md"):
+                readme_path = repo_root / readme_name
+                if readme_path.is_file():
+                    readme_text = readme_path.read_text(encoding="utf-8", errors="replace")
+                    updated = re.sub(r"version-v[\d]+\.[\d]+\.[\d]+", f"version-v{version}", readme_text)
+                    updated = re.sub(r"version/[\d]+\.[\d]+\.[\d]+", f"version/{version}", updated)
+                    if updated != readme_text:
+                        if not args.dry_run:
+                            readme_path.write_text(updated, encoding="utf-8")
+                            prep_steps.append(f"updated version badge in {readme_name}")
+                        else:
+                            prep_steps.append(f"(dry-run) would update version badge in {readme_name}")
+                    break
+
+        # Step 3: commit any prep changes
+        if prep_steps and any("(dry-run)" not in s for s in prep_steps):
+            try:
+                execute_commit_step(repo_root, f"Prepare {version} release")
+                prep_steps.append(f"committed prep changes for {version}")
+                has_uncommitted = False
+            except Exception as exc:  # noqa: BLE001
+                prep_errors.append(str(exc))
+
+        # Re-evaluate readiness after prep
+        if not prep_errors:
+            updated_status_payload = _run_hybrid_assist(
+                flow_name="release-changelog-status", ref=None, **{**base_kwargs, "requested_backend": "auto"}
+            )
+            changelog_status = _rdict(updated_status_payload["result"])
+            changelog_ready = bool(changelog_status.get("exists", False))
+
+    ready = changelog_ready and not has_uncommitted
+
+    payload = {
+        "command": "assist",
+        "assist_kind": "prepare-release",
+        "flow": "prepare-release",
+        "changelog_status": changelog_status,
+        "validation_checklist": validation_payload["result"],
+        "diff_risk": diff_risk_payload["result"],
+        "git_snapshot": git_snapshot,
+        "ready": ready,
+        "execution_mode": args.execution_mode,
+        "prep_steps": prep_steps,
+        "prep_errors": prep_errors,
+        "backend_requested": changelog_status_payload["backend_requested"],
+        "backend_used": changelog_status_payload["backend_used"],
+        "audit_log": changelog_status_payload["audit_log"],
+        "measurement_log": changelog_status_payload["measurement_log"],
+        "config_path": _rel(repo_root, config_path) if config_path is not None else None,
+        "ok": True,
+    }
+    if args.format == "text":
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    return payload
+
+
+def cmd_assist_publish_release(args: argparse.Namespace) -> dict[str, object]:
+    repo_root = _find_repo_root(Path.cwd())
+    config, config_path = _effective_config(repo_root)
+    base_kwargs = {
+        "repo_root": repo_root,
+        "requested_backend": "auto",
+        "requested_model_profile": getattr(args, "model_profile", None),
+        "requested_model": args.model,
+        "ollama_host": args.ollama_host or _hybrid_default_host(config),
+        "timeout_seconds": args.timeout or _hybrid_default_timeout(config),
+        "context_mode": args.context_mode,
+        "profile": args.profile,
+        "include_graph": False,
+        "include_registry": False,
+        "include_doctor": False,
+        "execution_mode": "suggestion-only",
+        "audit_log": args.audit_log or _hybrid_audit_log(config),
+        "measurement_log": args.measurement_log or _hybrid_measurement_log(config),
+        "config": config,
+        "dry_run": args.dry_run,
+    }
+
+    # Capture git snapshot before assist calls.
+    git_snapshot = collect_git_snapshot(repo_root)
+
+    changelog_status_payload = _run_hybrid_assist(
+        flow_name="release-changelog-status", ref=None, **base_kwargs
+    )
+    changelog_status = _rdict(changelog_status_payload["result"])
+    changelog_ready = bool(changelog_status.get("exists", False))
     has_uncommitted = bool(git_snapshot.get("has_changes", False))
     ready = changelog_ready and not has_uncommitted
 
-    publish_result = None
+    publish_result: dict[str, object] | None = None
     executed = False
 
     if args.execution_mode == "execute":
-        # Two candidates, both repo_root-relative:
-        # 1. plugin layout: repo_root/logics/skills/logics-version-release-manager/...
-        # 2. kit-direct layout: repo_root/logics-version-release-manager/...
-        #    (used when repo_root resolves to the kit submodule itself)
         _plugin_relative = repo_root / "logics" / "skills" / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
         _kit_direct = repo_root / "logics-version-release-manager" / "scripts" / "publish_version_release.py"
         publish_script = _plugin_relative if _plugin_relative.is_file() else _kit_direct
@@ -1045,7 +1163,7 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
         elif not ready:
             blocking: list[str] = []
             if not changelog_ready:
-                blocking.append("changelog not ready")
+                blocking.append("changelog not ready — run 'flow assist prepare-release --execution-mode execute' first")
             if has_uncommitted:
                 blocking.append("uncommitted changes present")
             publish_result = {"ok": False, "error": "Release prerequisites not met.", "blocking": blocking}
@@ -1069,14 +1187,26 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
                 "command": cmd,
             }
             executed = completed.returncode == 0
+    else:
+        # suggestion-only: show what would be done
+        version = str(changelog_status.get("version", "0.0.0"))
+        tag = str(changelog_status.get("tag", f"v{version}"))
+        publish_result = {
+            "ok": True,
+            "suggestion": (
+                f"When ready, run: flow assist publish-release --execution-mode execute --push"
+                f"\nThis will create tag {tag}, push main+tag, and publish the GitHub release."
+                if ready
+                else f"Release is not ready yet. Run 'flow assist prepare-release --execution-mode execute' first."
+            ),
+            "ready": ready,
+        }
 
     payload = {
         "command": "assist",
-        "assist_kind": "prepare-release",
-        "flow": "prepare-release",
-        "changelog_status": changelog_status_payload["result"],
-        "validation_checklist": validation_payload["result"],
-        "diff_risk": diff_risk_payload["result"],
+        "assist_kind": "publish-release",
+        "flow": "publish-release",
+        "changelog_status": changelog_status,
         "git_snapshot": git_snapshot,
         "ready": ready,
         "executed": executed,
@@ -2055,7 +2185,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     prepare_release = assist_sub.add_parser(
         "prepare-release",
-        help="Check release prerequisites and optionally publish the release using the shared hybrid assist runtime.",
+        help="Generate changelog via AI if missing, update README badge, commit prep changes, and report readiness.",
     )
     prepare_release.add_argument("--backend", choices=REQUESTED_BACKEND_CHOICES)
     prepare_release.add_argument("--model-profile")
@@ -2068,14 +2198,31 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_release.add_argument("--include-registry", action="store_true", default=None)
     prepare_release.add_argument("--include-doctor", action="store_true", default=None)
     prepare_release.add_argument("--execution-mode", choices=("suggestion-only", "execute"), default="suggestion-only")
-    prepare_release.add_argument("--push", action="store_true", default=False, help="Create tag, push, and publish the GitHub release (execute mode only).")
-    prepare_release.add_argument("--draft", action="store_true", default=False, help="Create a draft GitHub release (execute mode only).")
-    prepare_release.add_argument("--version", default=None, help="Override the version to release.")
     prepare_release.add_argument("--audit-log")
     prepare_release.add_argument("--measurement-log")
     prepare_release.add_argument("--format", choices=("text", "json"), default="text")
     prepare_release.add_argument("--dry-run", action="store_true")
     prepare_release.set_defaults(func=cmd_assist_prepare_release)
+
+    publish_release = assist_sub.add_parser(
+        "publish-release",
+        help="Create the release tag, push main and the tag, and publish the GitHub release.",
+    )
+    publish_release.add_argument("--model-profile")
+    publish_release.add_argument("--model")
+    publish_release.add_argument("--ollama-host")
+    publish_release.add_argument("--timeout", type=float)
+    publish_release.add_argument("--context-mode", choices=("summary-only", "diff-first", "full"))
+    publish_release.add_argument("--profile", choices=("tiny", "normal", "deep"))
+    publish_release.add_argument("--execution-mode", choices=("suggestion-only", "execute"), default="suggestion-only")
+    publish_release.add_argument("--push", action="store_true", default=False, help="Create tag, push main+tag, and publish the GitHub release.")
+    publish_release.add_argument("--draft", action="store_true", default=False, help="Create a draft GitHub release instead of publishing immediately.")
+    publish_release.add_argument("--version", default=None, help="Override the version to release.")
+    publish_release.add_argument("--audit-log")
+    publish_release.add_argument("--measurement-log")
+    publish_release.add_argument("--format", choices=("text", "json"), default="text")
+    publish_release.add_argument("--dry-run", action="store_true")
+    publish_release.set_defaults(func=cmd_assist_publish_release)
 
     sync_parser = sub.add_parser("sync", help="Sync workflow metadata and closure transitions.")
     sync_sub = sync_parser.add_subparsers(dest="sync_kind", required=True)
