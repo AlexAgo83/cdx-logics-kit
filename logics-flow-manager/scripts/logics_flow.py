@@ -78,6 +78,7 @@ from logics_flow_support import (
     _create_task_from_backlog,
     _extract_refs,
     _find_repo_root,
+    _generate_workflow_mermaid,
     _is_doc_done,
     _mark_section_checkboxes_done,
     _parse_indicator,
@@ -85,7 +86,6 @@ from logics_flow_support import (
     _print_decision_summary,
     _render_references_section,
     _render_template,
-    _render_workflow_mermaid,
     _reserve_doc,
     _resolve_doc_path,
     _split_titles,
@@ -2065,7 +2065,13 @@ def cmd_new(args: argparse.Namespace) -> None:
         if architecture_refs:
             values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
-    values["MERMAID_BLOCK"] = _render_workflow_mermaid(doc_kind.kind, args.title, values)
+    values["MERMAID_BLOCK"] = _generate_workflow_mermaid(
+        repo_root,
+        doc_kind.kind,
+        args.title,
+        values,
+        dry_run=args.dry_run,
+    )
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(planned.path, content, args.dry_run)
     if doc_kind.kind in {"backlog", "task"}:
@@ -2218,7 +2224,7 @@ def cmd_sync_refresh_mermaid_signatures(args: argparse.Namespace) -> None:
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob(f"{kind.prefix}_*.md")):
-            if refresh_workflow_mermaid_signature_file(path, kind_name, args.dry_run):
+            if refresh_workflow_mermaid_signature_file(path, kind_name, args.dry_run, repo_root=repo_root):
                 refreshed.append(path.relative_to(repo_root))
 
     if args.dry_run:

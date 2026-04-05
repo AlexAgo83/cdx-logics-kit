@@ -26,6 +26,7 @@ if str(MERMAID_GENERATOR_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(MERMAID_GENERATOR_SCRIPTS))
 
 from generate_mermaid import (  # noqa: E402
+    generate_mermaid,
     _render_backlog_mermaid,
     _render_request_mermaid,
     _render_task_mermaid,
@@ -587,40 +588,120 @@ def expected_workflow_mermaid_signature(kind_name: str, lines: list[str]) -> str
     return ""
 
 
-def refresh_workflow_mermaid_signature_text(text: str, kind_name: str) -> tuple[str, bool]:
+def _section_block(text: str, heading: str, fallback: str = "") -> str:
+    cleaned = _clean_section_lines(_section_lines(text, heading))
+    if cleaned:
+        return "\n".join(cleaned)
+    return fallback
+
+
+def _ref_placeholder(text: str, prefix: str, fallback: str = "(none yet)") -> str:
+    refs = sorted(_extract_refs(text, prefix))
+    if refs:
+        return ", ".join(f"`{ref}`" for ref in refs)
+    return fallback
+
+
+def _workflow_mermaid_values_from_doc(text: str, kind_name: str) -> dict[str, str]:
+    ref_text = _strip_mermaid_blocks(text)
+    if kind_name == "request":
+        return {
+            "NEEDS_PLACEHOLDER": _section_block(text, "Needs", "- Describe the need"),
+            "CONTEXT_PLACEHOLDER": _section_block(text, "Context", "- Add the relevant context"),
+            "ACCEPTANCE_PLACEHOLDER": _section_block(text, "Acceptance criteria", "- AC1: Define a measurable outcome"),
+        }
+
+    if kind_name == "backlog":
+        return {
+            "PROBLEM_PLACEHOLDER": _section_block(text, "Problem", "- Describe the problem and user impact"),
+            "ACCEPTANCE_BLOCK": _section_block(text, "Acceptance criteria", "- AC1: Define an objective acceptance check"),
+            "REQUEST_LINK_PLACEHOLDER": _ref_placeholder(ref_text, REF_PREFIXES["request"]),
+            "TASK_LINK_PLACEHOLDER": _ref_placeholder(ref_text, REF_PREFIXES["task"]),
+        }
+
+    if kind_name == "task":
+        return {
+            "PLAN_BLOCK": _section_block(
+                text,
+                "Plan",
+                "- [ ] 1. Confirm scope\n- [ ] 2. Implement scope\n- [ ] 3. Validate result",
+            ),
+            "VALIDATION_BLOCK": _section_block(
+                text,
+                "Validation",
+                "- Run the relevant automated tests before closing the current wave or step.",
+            ),
+            "BACKLOG_LINK_PLACEHOLDER": _ref_placeholder(ref_text, REF_PREFIXES["backlog"]),
+        }
+
+    raise ValueError(f"Unsupported Mermaid workflow kind: {kind_name}")
+
+
+def _generate_workflow_mermaid(
+    repo_root: Path,
+    kind_name: str,
+    title: str,
+    values: dict[str, str],
+    *,
+    dry_run: bool,
+) -> str:
+    payload = generate_mermaid(
+        repo_root=repo_root,
+        kind_name=kind_name,
+        title=title,
+        values=values,
+        dry_run=dry_run,
+    )
+    return str(payload["mermaid"]).strip()
+
+
+def refresh_workflow_mermaid_signature_text(
+    text: str,
+    kind_name: str,
+    *,
+    repo_root: Path | None = None,
+    dry_run: bool = False,
+) -> tuple[str, bool]:
     match = MERMAID_BLOCK_PATTERN.search(text)
     if match is None:
         return text, False
 
-    block = match.group(1)
     lines = text.splitlines()
-    expected_signature = expected_workflow_mermaid_signature(kind_name, lines)
-    if not expected_signature:
+    title = _extract_title(lines)
+    if not title:
         return text, False
 
-    signature_match = MERMAID_SIGNATURE_PATTERN.search(block)
-    if signature_match is not None and signature_match.group(1).strip() == expected_signature:
+    resolved_repo_root = repo_root.resolve() if repo_root is not None else Path.cwd().resolve()
+    values = _workflow_mermaid_values_from_doc(text, kind_name)
+    refreshed_block = _generate_workflow_mermaid(
+        resolved_repo_root,
+        kind_name,
+        title,
+        values,
+        dry_run=dry_run,
+    )
+    if match.group(0).strip() == refreshed_block:
         return text, False
 
-    if signature_match is not None:
-        refreshed_block = MERMAID_SIGNATURE_PATTERN.sub(
-            f"%% logics-signature: {expected_signature}",
-            block,
-            count=1,
-        )
-    else:
-        block_lines = block.splitlines()
-        insert_at = 1 if block_lines and block_lines[0].lstrip().startswith("%% logics-kind:") else 0
-        block_lines.insert(insert_at, f"%% logics-signature: {expected_signature}")
-        refreshed_block = "\n".join(block_lines)
-
-    refreshed_text = text[: match.start(1)] + refreshed_block + text[match.end(1) :]
+    refreshed_text = text[: match.start()] + refreshed_block + text[match.end() :]
     return refreshed_text, True
 
 
-def refresh_workflow_mermaid_signature_file(path: Path, kind_name: str, dry_run: bool) -> bool:
+def refresh_workflow_mermaid_signature_file(
+    path: Path,
+    kind_name: str,
+    dry_run: bool,
+    *,
+    repo_root: Path | None = None,
+) -> bool:
     original = path.read_text(encoding="utf-8")
-    refreshed, changed = refresh_workflow_mermaid_signature_text(original, kind_name)
+    resolved_repo_root = repo_root.resolve() if repo_root is not None else _find_repo_root(path.parent)
+    refreshed, changed = refresh_workflow_mermaid_signature_text(
+        original,
+        kind_name,
+        repo_root=resolved_repo_root,
+        dry_run=dry_run,
+    )
     if not changed:
         return False
     _write(path, refreshed.rstrip() + "\n", dry_run)
@@ -1354,7 +1435,7 @@ def _create_backlog_from_request(
     if architecture_refs:
         values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
-    values["MERMAID_BLOCK"] = _render_workflow_mermaid("backlog", title, values)
+    values["MERMAID_BLOCK"] = _generate_workflow_mermaid(repo_root, "backlog", title, values, dry_run=args.dry_run)
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(planned.path, content, args.dry_run)
     _update_request_backlog_links(source_path, planned.ref, args.dry_run)
@@ -1409,7 +1490,7 @@ def _create_task_from_backlog(
     if architecture_refs:
         values["ARCHITECTURE_LINK_PLACEHOLDER"] = ", ".join(f"`{ref}`" for ref in architecture_refs)
 
-    values["MERMAID_BLOCK"] = _render_workflow_mermaid("task", title, values)
+    values["MERMAID_BLOCK"] = _generate_workflow_mermaid(repo_root, "task", title, values, dry_run=args.dry_run)
     content = _render_template(template_text, values).rstrip() + "\n"
     _write(planned.path, content, args.dry_run)
     if source_ref is not None:

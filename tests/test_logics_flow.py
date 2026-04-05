@@ -1682,7 +1682,7 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("- Task `task_000_demo_task` was finished via `logics_flow.py finish task` on ", backlog_text)
 
     def test_sync_refresh_mermaid_signatures_updates_stale_workflow_docs(self) -> None:
-        script = self._script()
+        flow = self._flow_module()
 
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
@@ -1714,23 +1714,210 @@ class LogicsFlowTest(unittest.TestCase):
                 ],
             )
 
-            result = subprocess.run(
-                [sys.executable, str(script), "sync", "refresh-mermaid-signatures"],
-                cwd=repo,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
+            captured: dict[str, object] = {}
+            sentinel = "\n".join(
+                [
+                    "```mermaid",
+                    "%% logics-kind: request",
+                    "%% logics-signature: request|demo-request|sentinel",
+                    "flowchart TD",
+                    "    Trigger[Demo request] --> Need[Keep signatures aligned]",
+                    "```",
+                ]
+            )
+            original_generate = flow.refresh_workflow_mermaid_signature_file.__globals__["_generate_workflow_mermaid"]
+
+            def fake_generate(repo_root: Path, kind_name: str, title: str, values: dict[str, str], *, dry_run: bool) -> str:
+                captured["repo_root"] = repo_root
+                captured["kind_name"] = kind_name
+                captured["title"] = title
+                captured["values"] = dict(values)
+                captured["dry_run"] = dry_run
+                return sentinel
+
+            flow.refresh_workflow_mermaid_signature_file.__globals__["_generate_workflow_mermaid"] = fake_generate
+            try:
+                changed = flow.refresh_workflow_mermaid_signature_file(request, "request", False, repo_root=repo)
+            finally:
+                flow.refresh_workflow_mermaid_signature_file.__globals__["_generate_workflow_mermaid"] = original_generate
+
+            self.assertTrue(changed)
+            self.assertEqual(Path(captured["repo_root"]).resolve(), repo.resolve())
+            self.assertEqual(captured["kind_name"], "request")
+            self.assertEqual(captured["title"], "Demo request")
+            self.assertEqual(captured["dry_run"], False)
+            self.assertIn("- Keep signatures aligned", str(captured["values"]))
+            refreshed = request.read_text(encoding="utf-8")
+            self.assertIn(sentinel, refreshed)
+            self.assertNotIn("%% logics-signature: request|stale|signature", refreshed)
+
+    def test_cmd_new_routes_mermaid_generation_through_skill_entry_point(self) -> None:
+        flow = self._flow_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True, exist_ok=True)
+            sentinel = "\n".join(
+                [
+                    "```mermaid",
+                    "%% logics-kind: request",
+                    "%% logics-signature: request|generated-via-skill",
+                    "flowchart TD",
+                    "    Trigger[Generated through skill] --> Need[Wired]",
+                    "```",
+                ]
+            )
+            original_generate = flow._generate_workflow_mermaid
+            captured: dict[str, object] = {}
+
+            def fake_generate(repo_root: Path, kind_name: str, title: str, values: dict[str, str], *, dry_run: bool) -> str:
+                captured["repo_root"] = repo_root
+                captured["kind_name"] = kind_name
+                captured["title"] = title
+                captured["values"] = dict(values)
+                captured["dry_run"] = dry_run
+                return sentinel
+
+            flow._generate_workflow_mermaid = fake_generate
+            previous_cwd = Path.cwd()
+            os.chdir(repo)
+            try:
+                payload = flow.cmd_new(
+                    flow.argparse.Namespace(
+                        kind="request",
+                        title="Demo request",
+                        slug=None,
+                        from_version="1.2.0",
+                        understanding="100%",
+                        confidence="100%",
+                        status="Draft",
+                        progress="0%",
+                        complexity="Medium",
+                        theme="General",
+                        auto_create_product_brief=False,
+                        auto_create_adr=False,
+                        dry_run=False,
+                    )
+                )
+            finally:
+                os.chdir(previous_cwd)
+                flow._generate_workflow_mermaid = original_generate
+
+            self.assertEqual(payload["command"], "new")
+            self.assertEqual(Path(captured["repo_root"]).resolve(), repo.resolve())
+            self.assertEqual(captured["kind_name"], "request")
+            self.assertEqual(captured["title"], "Demo request")
+            self.assertEqual(captured["dry_run"], False)
+            created = repo / payload["path"]
+            self.assertTrue(created.is_file())
+            self.assertIn(sentinel, created.read_text(encoding="utf-8"))
+
+    def test_promotions_route_mermaid_generation_through_skill_entry_point(self) -> None:
+        flow = self._flow_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_demo_request.md"
+            backlog = repo / "logics" / "backlog" / "item_000_demo_backlog.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_demo_request - Demo request",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Route promotions through the shared Mermaid skill",
+                    "",
+                    "# Context",
+                    "- Operators promote docs from requests to backlog items",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: Backlog promotion uses the skill entry point",
+                ],
+            )
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_demo_backlog - Demo backlog",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Problem",
+                    "- Route promotions through the shared Mermaid skill",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: Task promotion uses the skill entry point",
+                    "",
+                    "# Links",
+                    "- Request: `req_000_demo_request`",
+                ],
             )
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("Refreshed Mermaid signatures in 1 workflow doc(s).", result.stdout)
-            refreshed = request.read_text(encoding="utf-8")
-            self.assertIn(
-                "%% logics-signature: request|demo-request|keep-signatures-aligned|ac1-signatures-can-be-refreshed-safely",
-                refreshed,
-            )
-            self.assertNotIn("%% logics-signature: request|stale|signature", refreshed)
+            captured: list[tuple[str, str]] = []
+            original_generate = flow._create_backlog_from_request.__globals__["_generate_workflow_mermaid"]
+
+            def fake_generate(repo_root: Path, kind_name: str, title: str, values: dict[str, str], *, dry_run: bool) -> str:
+                captured.append((kind_name, title))
+                return "\n".join(
+                    [
+                        "```mermaid",
+                        f"%% logics-kind: {kind_name}",
+                        f"%% logics-signature: {kind_name}|generated-via-skill",
+                        "flowchart LR",
+                        f"    Source[{title}] --> Output[Generated via skill]",
+                        "```",
+                    ]
+                )
+
+            flow._create_backlog_from_request.__globals__["_generate_workflow_mermaid"] = fake_generate
+            previous_cwd = Path.cwd()
+            os.chdir(repo)
+            try:
+                backlog_payload = flow.cmd_promote_request_to_backlog(
+                    flow.argparse.Namespace(
+                        source=str(request),
+                        dry_run=False,
+                        from_version="1.0.0",
+                        understanding="100%",
+                        confidence="100%",
+                        status="Ready",
+                        progress="0%",
+                        complexity="Medium",
+                        theme="General",
+                        auto_create_product_brief=False,
+                        auto_create_adr=False,
+                    )
+                )
+                task_payload = flow.cmd_promote_backlog_to_task(
+                    flow.argparse.Namespace(
+                        source=str(backlog),
+                        dry_run=False,
+                        from_version="1.0.0",
+                        understanding="100%",
+                        confidence="100%",
+                        status="Ready",
+                        progress="0%",
+                        complexity="Medium",
+                        theme="General",
+                        auto_create_product_brief=False,
+                        auto_create_adr=False,
+                    )
+                )
+            finally:
+                os.chdir(previous_cwd)
+                flow._create_backlog_from_request.__globals__["_generate_workflow_mermaid"] = original_generate
+
+            self.assertEqual(captured, [("backlog", "Demo request"), ("task", "Demo backlog")])
+            self.assertIn("generated-via-skill", (repo / backlog_payload["created_path"]).read_text(encoding="utf-8"))
+            self.assertIn("generated-via-skill", (repo / task_payload["created_path"]).read_text(encoding="utf-8"))
 
     def test_promoted_task_includes_wave_checkpoint_guidance(self) -> None:
         script = self._script()
