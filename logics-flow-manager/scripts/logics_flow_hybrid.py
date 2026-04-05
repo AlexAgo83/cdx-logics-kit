@@ -296,8 +296,10 @@ FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
     "next-step": {
         "mode": BACKEND_POLICY_CODEX_ONLY,
         "auto_backend": "codex",
-        "fallback_policy": "policy-routed-to-codex-before-any-local-dispatch",
-        "selection_summary": "Keep next-step Codex-only under auto because it feeds the deterministic dispatcher and should not broaden silently.",
+        "provider_order": ["codex"],
+        "allowed_backends": ["openai", "gemini", "codex"],
+        "fallback_policy": "auto-remains-codex-first-explicit-remote-dispatch-validates-then-bounded-codex-fallback",
+        "selection_summary": "Keep next-step Codex-only under auto, but allow explicit OpenAI or Gemini dispatch with the same bounded dispatcher validation and Codex fallback on invalid payloads.",
     },
     "triage": {
         "mode": BACKEND_POLICY_OLLAMA_FIRST,
