@@ -616,6 +616,8 @@ def build_measurement_record_impl(
     confidence: float | None,
     degraded_reasons: list[str],
     review_recommended: bool,
+    execution_path_override: str | None,
+    cache_hit: bool,
     schema_version: str,
 ) -> dict[str, Any]:
     requested_backend = _stringify_scalar(backend_status.requested_backend)
@@ -626,7 +628,8 @@ def build_measurement_record_impl(
         "flow": flow_name,
         "backend_requested": requested_backend,
         "backend_used": used_backend,
-        "execution_path": _execution_path_label(requested_backend, used_backend),
+        "execution_path": execution_path_override or _execution_path_label(requested_backend, used_backend),
+        "cache_hit": cache_hit,
         "result_status": result_status,
         "confidence": confidence,
         "degraded_reasons": degraded_reasons,

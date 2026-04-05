@@ -27,6 +27,11 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
         "default_model_profile": "deepseek-coder",
         "default_model": "deepseek-coder-v2:16b",
         "env_file": ".env",
+        "result_cache": {
+            "enabled": True,
+            "path": "logics/.cache/flow_results_cache.json",
+            "ttl_seconds": 600,
+        },
         "model_profiles": {
             "deepseek-coder": {
                 "family": "deepseek",
