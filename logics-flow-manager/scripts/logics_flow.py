@@ -1222,6 +1222,8 @@ def _run_hybrid_assist(
         raise SystemExit("`request-draft` requires `--intent`.")
     if flow_name == "spec-first-pass" and not ref:
         raise SystemExit("`spec-first-pass` requires a backlog ref.")
+    if flow_name == "backlog-groom" and not ref:
+        raise SystemExit("`backlog-groom` requires a request ref.")
     docs_by_ref = _load_workflow_docs(repo_root, config=config)
     model_selection = _hybrid_model_selection(
         config,
@@ -2806,6 +2808,7 @@ def build_parser() -> argparse.ArgumentParser:
     request_draft_alias = add_assist_alias("request-draft", "request-draft", "Draft bounded request Needs and Context blocks.", takes_ref=False)
     request_draft_alias.add_argument("--intent", required=True, help="Short operator intent to draft the request from.")
     add_assist_alias("spec-first-pass", "spec-first-pass", "Draft a first-pass spec outline from a backlog item.", takes_ref=True)
+    add_assist_alias("backlog-groom", "backlog-groom", "Draft a bounded backlog proposal from a request doc.", takes_ref=True)
     add_assist_alias("triage", "triage", "Triage a target request or backlog doc.", takes_ref=True)
     add_assist_alias("handoff", "handoff-packet", "Generate a compact handoff packet for a target workflow doc.", takes_ref=True)
     add_assist_alias("suggest-split", "suggest-split", "Suggest a bounded split for a broad request or backlog item.", takes_ref=True)
