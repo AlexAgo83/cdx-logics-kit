@@ -457,6 +457,17 @@ def validate_hybrid_result_impl(
         normalized["next_actions"] = normalize_string_list(payload["next_actions"], "next_actions")
         return normalized
 
+    if flow_name == "request-draft":
+        normalized["needs"] = normalize_string_list(payload["needs"], "needs")
+        normalized["context"] = normalize_string_list(payload["context"], "context")
+        return normalized
+
+    if flow_name == "spec-first-pass":
+        normalized["sections"] = normalize_string_list(payload["sections"], "sections")
+        normalized["open_questions"] = normalize_string_list(payload["open_questions"], "open_questions")
+        normalized["constraints"] = normalize_string_list(payload["constraints"], "constraints")
+        return normalized
+
     if flow_name == "handoff-packet":
         target_ref = payload["target_ref"]
         if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
