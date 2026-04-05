@@ -387,6 +387,450 @@ class LogicsFlowTest(unittest.TestCase):
         self.assertEqual(measurement_records[-1]["execution_path"], "cache-hit")
         self.assertTrue(measurement_records[-1]["cache_hit"])
 
+    def test_run_hybrid_assist_preclassifies_lockfile_diff_without_ai_dispatch(self) -> None:
+        flow = self._flow_module()
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        (repo / "logics" / ".cache").mkdir(parents=True)
+
+        original_load_docs = flow._load_workflow_docs
+        original_prepare_context = flow._prepare_hybrid_context_bundle
+        original_select_backend = flow.select_hybrid_backend
+        original_execute_backend = flow.execute_hybrid_backend
+        select_calls: list[str] = []
+        execute_calls: list[str] = []
+
+        def fake_load_workflow_docs(*args, **kwargs):
+            return {}
+
+        def fake_prepare_context(*args, **kwargs):
+            return (
+                {
+                    "seed_ref": None,
+                    "context_profile": {
+                        "mode": "diff-first",
+                        "profile": "tiny",
+                        "include_graph": False,
+                        "include_registry": False,
+                        "include_doctor": False,
+                    },
+                    "contract": flow.build_flow_contract("diff-risk"),
+                    "git_snapshot": {
+                        "changed_paths": ["package-lock.json"],
+                        "unstaged_diff_stat": [" package-lock.json | 42 ++--"],
+                        "staged_diff_stat": [],
+                    },
+                    "context_pack": {
+                        "ref": None,
+                        "mode": "diff-first",
+                        "profile": "tiny",
+                        "docs": [],
+                        "changed_paths": ["package-lock.json"],
+                        "estimates": {"doc_count": 0, "char_count": 0},
+                    },
+                },
+                None,
+            )
+
+        def fake_select_backend(**kwargs):
+            select_calls.append(kwargs["flow_name"])
+            return None
+
+        def fake_execute_backend(**kwargs):
+            execute_calls.append(kwargs["flow_name"])
+            return {}
+
+        flow._load_workflow_docs = fake_load_workflow_docs
+        flow._prepare_hybrid_context_bundle = fake_prepare_context
+        flow.select_hybrid_backend = fake_select_backend
+        flow.execute_hybrid_backend = fake_execute_backend
+        try:
+            payload = flow._run_hybrid_assist(
+                repo,
+                flow_name="diff-risk",
+                ref=None,
+                requested_backend="openai",
+                requested_model_profile=None,
+                requested_model="gpt-4.1-mini",
+                ollama_host="http://127.0.0.1:11434",
+                timeout_seconds=5.0,
+                context_mode=None,
+                profile=None,
+                include_graph=None,
+                include_registry=None,
+                include_doctor=None,
+                execution_mode="proposal",
+                audit_log="logics/.cache/hybrid_assist_audit.jsonl",
+                measurement_log="logics/.cache/hybrid_assist_measurements.jsonl",
+                config={"hybrid_assist": {}},
+                dry_run=False,
+            )
+        finally:
+            flow._load_workflow_docs = original_load_docs
+            flow._prepare_hybrid_context_bundle = original_prepare_context
+            flow.select_hybrid_backend = original_select_backend
+            flow.execute_hybrid_backend = original_execute_backend
+
+        self.assertEqual(select_calls, [])
+        self.assertEqual(execute_calls, [])
+        self.assertEqual(payload["backend_used"], "deterministic")
+        self.assertEqual(payload["result"]["risk"], "low")
+        self.assertEqual(payload["transport"]["reason"], "deterministic-preclassified")
+
+        measurement_records = [
+            json.loads(line)
+            for line in (repo / "logics" / ".cache" / "hybrid_assist_measurements.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(measurement_records[-1]["execution_path"], "deterministic-preclassified")
+
+    def test_run_hybrid_assist_preclassifies_migration_diff_as_high_risk(self) -> None:
+        flow = self._flow_module()
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        (repo / "logics" / ".cache").mkdir(parents=True)
+
+        original_load_docs = flow._load_workflow_docs
+        original_prepare_context = flow._prepare_hybrid_context_bundle
+        original_select_backend = flow.select_hybrid_backend
+        original_execute_backend = flow.execute_hybrid_backend
+        execute_calls: list[str] = []
+
+        def fake_load_workflow_docs(*args, **kwargs):
+            return {}
+
+        def fake_prepare_context(*args, **kwargs):
+            return (
+                {
+                    "seed_ref": None,
+                    "context_profile": {
+                        "mode": "diff-first",
+                        "profile": "normal",
+                        "include_graph": False,
+                        "include_registry": False,
+                        "include_doctor": False,
+                    },
+                    "contract": flow.build_flow_contract("windows-compat-risk"),
+                    "git_snapshot": {
+                        "changed_paths": ["prisma/migrations/20260405_init/migration.sql"],
+                        "unstaged_diff_stat": [" prisma/migrations/20260405_init/migration.sql | 12 ++++++++++++"],
+                        "staged_diff_stat": [],
+                    },
+                    "context_pack": {
+                        "ref": None,
+                        "mode": "diff-first",
+                        "profile": "normal",
+                        "docs": [],
+                        "changed_paths": ["prisma/migrations/20260405_init/migration.sql"],
+                        "estimates": {"doc_count": 0, "char_count": 0},
+                    },
+                },
+                None,
+            )
+
+        def fake_select_backend(**kwargs):
+            return None
+
+        def fake_execute_backend(**kwargs):
+            execute_calls.append(kwargs["flow_name"])
+            return {}
+
+        flow._load_workflow_docs = fake_load_workflow_docs
+        flow._prepare_hybrid_context_bundle = fake_prepare_context
+        flow.select_hybrid_backend = fake_select_backend
+        flow.execute_hybrid_backend = fake_execute_backend
+        try:
+            payload = flow._run_hybrid_assist(
+                repo,
+                flow_name="windows-compat-risk",
+                ref=None,
+                requested_backend="gemini",
+                requested_model_profile=None,
+                requested_model=None,
+                ollama_host="http://127.0.0.1:11434",
+                timeout_seconds=5.0,
+                context_mode=None,
+                profile=None,
+                include_graph=None,
+                include_registry=None,
+                include_doctor=None,
+                execution_mode="proposal",
+                audit_log="logics/.cache/hybrid_assist_audit.jsonl",
+                measurement_log="logics/.cache/hybrid_assist_measurements.jsonl",
+                config={"hybrid_assist": {}},
+                dry_run=False,
+            )
+        finally:
+            flow._load_workflow_docs = original_load_docs
+            flow._prepare_hybrid_context_bundle = original_prepare_context
+            flow.select_hybrid_backend = original_select_backend
+            flow.execute_hybrid_backend = original_execute_backend
+
+        self.assertEqual(execute_calls, [])
+        self.assertEqual(payload["backend_used"], "deterministic")
+        self.assertEqual(payload["result"]["risk"], "high")
+        self.assertEqual(payload["transport"]["reason"], "deterministic-preclassified")
+
+    def test_run_hybrid_assist_downgrades_handoff_packet_profile_for_remote_backend(self) -> None:
+        flow = self._flow_module()
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        (repo / "logics" / ".cache").mkdir(parents=True)
+
+        original_load_docs = flow._load_workflow_docs
+        original_prepare_context = flow._prepare_hybrid_context_bundle
+        original_select_backend = flow.select_hybrid_backend
+        original_execute_backend = flow.execute_hybrid_backend
+        requested_profiles: list[str] = []
+
+        def fake_load_workflow_docs(*args, **kwargs):
+            return {}
+
+        def fake_prepare_context(*args, **kwargs):
+            requested_profiles.append(kwargs["profile"])
+            return (
+                {
+                    "seed_ref": "req_000_demo",
+                    "context_profile": {
+                        "mode": "diff-first",
+                        "profile": kwargs["profile"],
+                        "include_graph": True,
+                        "include_registry": True,
+                        "include_doctor": True,
+                    },
+                    "contract": flow.build_flow_contract("handoff-packet"),
+                    "git_snapshot": {
+                        "changed_paths": ["src/example.ts"],
+                        "unstaged_diff_stat": [" src/example.ts | 4 ++--"],
+                        "staged_diff_stat": [],
+                    },
+                    "context_pack": {
+                        "ref": "req_000_demo",
+                        "mode": "diff-first",
+                        "profile": kwargs["profile"],
+                        "docs": [],
+                        "changed_paths": ["src/example.ts"],
+                        "estimates": {"doc_count": 1, "char_count": 42},
+                    },
+                },
+                None,
+            )
+
+        def fake_select_backend(**kwargs):
+            return flow.HybridBackendStatus(
+                requested_backend="openai",
+                selected_backend="openai",
+                host="https://api.openai.test/v1",
+                model_profile="deepseek-coder",
+                model_family="deepseek",
+                configured_model="gpt-4.1-mini",
+                model="gpt-4.1-mini",
+                ollama_reachable=False,
+                model_available=True,
+                healthy=True,
+                reasons=[],
+                response_time_ms=42.0,
+                version="test",
+                selection_reason="explicit-backend",
+                policy_mode=None,
+            )
+
+        def fake_execute_backend(**kwargs):
+            backend_status = kwargs["backend_status"]
+            return {
+                "backend_status": backend_status,
+                "degraded_reasons": [],
+                "raw_payload": {
+                    "target_ref": "req_000_demo",
+                    "goal": "Move req_000_demo forward.",
+                    "why_now": "Delivery handoff.",
+                    "files_of_interest": ["src/example.ts"],
+                    "validation_targets": ["python logics/skills/logics.py lint"],
+                    "risks": ["Keep docs aligned."],
+                    "confidence": 0.83,
+                    "rationale": "Remote handoff packet.",
+                },
+                "transport": {"transport": "openai", "selected_backend": "openai"},
+                "validated": {
+                    "target_ref": "req_000_demo",
+                    "goal": "Move req_000_demo forward.",
+                    "why_now": "Delivery handoff.",
+                    "files_of_interest": ["src/example.ts"],
+                    "validation_targets": ["python logics/skills/logics.py lint"],
+                    "risks": ["Keep docs aligned."],
+                    "confidence": 0.83,
+                    "rationale": "Remote handoff packet.",
+                },
+            }
+
+        flow._load_workflow_docs = fake_load_workflow_docs
+        flow._prepare_hybrid_context_bundle = fake_prepare_context
+        flow.select_hybrid_backend = fake_select_backend
+        flow.execute_hybrid_backend = fake_execute_backend
+        try:
+            payload = flow._run_hybrid_assist(
+                repo,
+                flow_name="handoff-packet",
+                ref="req_000_demo",
+                requested_backend="openai",
+                requested_model_profile=None,
+                requested_model="gpt-4.1-mini",
+                ollama_host="http://127.0.0.1:11434",
+                timeout_seconds=5.0,
+                context_mode=None,
+                profile=None,
+                include_graph=None,
+                include_registry=None,
+                include_doctor=None,
+                execution_mode="proposal",
+                audit_log="logics/.cache/hybrid_assist_audit.jsonl",
+                measurement_log="logics/.cache/hybrid_assist_measurements.jsonl",
+                config={"hybrid_assist": {}},
+                dry_run=False,
+            )
+        finally:
+            flow._load_workflow_docs = original_load_docs
+            flow._prepare_hybrid_context_bundle = original_prepare_context
+            flow.select_hybrid_backend = original_select_backend
+            flow.execute_hybrid_backend = original_execute_backend
+
+        self.assertEqual(requested_profiles, ["deep", "normal"])
+        self.assertEqual(payload["context_bundle"]["context_profile"]["profile"], "normal")
+        self.assertIn("profile-downgrade", payload["degraded_reasons"])
+
+        audit_records = [
+            json.loads(line)
+            for line in (repo / "logics" / ".cache" / "hybrid_assist_audit.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertIn("profile-downgrade", audit_records[-1]["degraded_reasons"])
+
+    def test_run_hybrid_assist_preserves_explicit_deep_profile_override_for_handoff_packet(self) -> None:
+        flow = self._flow_module()
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+
+        original_load_docs = flow._load_workflow_docs
+        original_prepare_context = flow._prepare_hybrid_context_bundle
+        original_select_backend = flow.select_hybrid_backend
+        original_execute_backend = flow.execute_hybrid_backend
+        requested_profiles: list[str] = []
+
+        def fake_load_workflow_docs(*args, **kwargs):
+            return {}
+
+        def fake_prepare_context(*args, **kwargs):
+            requested_profiles.append(kwargs["profile"])
+            return (
+                {
+                    "seed_ref": "req_000_demo",
+                    "context_profile": {
+                        "mode": "diff-first",
+                        "profile": kwargs["profile"],
+                        "include_graph": True,
+                        "include_registry": True,
+                        "include_doctor": True,
+                    },
+                    "contract": flow.build_flow_contract("handoff-packet"),
+                    "git_snapshot": {
+                        "changed_paths": ["src/example.ts"],
+                        "unstaged_diff_stat": [" src/example.ts | 4 ++--"],
+                        "staged_diff_stat": [],
+                    },
+                    "context_pack": {
+                        "ref": "req_000_demo",
+                        "mode": "diff-first",
+                        "profile": kwargs["profile"],
+                        "docs": [],
+                        "changed_paths": ["src/example.ts"],
+                        "estimates": {"doc_count": 1, "char_count": 42},
+                    },
+                },
+                None,
+            )
+
+        def fake_select_backend(**kwargs):
+            return flow.HybridBackendStatus(
+                requested_backend="openai",
+                selected_backend="openai",
+                host="https://api.openai.test/v1",
+                model_profile="deepseek-coder",
+                model_family="deepseek",
+                configured_model="gpt-4.1-mini",
+                model="gpt-4.1-mini",
+                ollama_reachable=False,
+                model_available=True,
+                healthy=True,
+                reasons=[],
+                response_time_ms=42.0,
+                version="test",
+                selection_reason="explicit-backend",
+                policy_mode=None,
+            )
+
+        def fake_execute_backend(**kwargs):
+            backend_status = kwargs["backend_status"]
+            return {
+                "backend_status": backend_status,
+                "degraded_reasons": [],
+                "raw_payload": {
+                    "target_ref": "req_000_demo",
+                    "goal": "Move req_000_demo forward.",
+                    "why_now": "Delivery handoff.",
+                    "files_of_interest": ["src/example.ts"],
+                    "validation_targets": ["python logics/skills/logics.py lint"],
+                    "risks": ["Keep docs aligned."],
+                    "confidence": 0.83,
+                    "rationale": "Remote handoff packet.",
+                },
+                "transport": {"transport": "openai", "selected_backend": "openai"},
+                "validated": {
+                    "target_ref": "req_000_demo",
+                    "goal": "Move req_000_demo forward.",
+                    "why_now": "Delivery handoff.",
+                    "files_of_interest": ["src/example.ts"],
+                    "validation_targets": ["python logics/skills/logics.py lint"],
+                    "risks": ["Keep docs aligned."],
+                    "confidence": 0.83,
+                    "rationale": "Remote handoff packet.",
+                },
+            }
+
+        flow._load_workflow_docs = fake_load_workflow_docs
+        flow._prepare_hybrid_context_bundle = fake_prepare_context
+        flow.select_hybrid_backend = fake_select_backend
+        flow.execute_hybrid_backend = fake_execute_backend
+        try:
+            payload = flow._run_hybrid_assist(
+                repo,
+                flow_name="handoff-packet",
+                ref="req_000_demo",
+                requested_backend="openai",
+                requested_model_profile=None,
+                requested_model="gpt-4.1-mini",
+                ollama_host="http://127.0.0.1:11434",
+                timeout_seconds=5.0,
+                context_mode=None,
+                profile="deep",
+                include_graph=None,
+                include_registry=None,
+                include_doctor=None,
+                execution_mode="proposal",
+                audit_log="logics/.cache/hybrid_assist_audit.jsonl",
+                measurement_log="logics/.cache/hybrid_assist_measurements.jsonl",
+                config={"hybrid_assist": {}},
+                dry_run=True,
+            )
+        finally:
+            flow._load_workflow_docs = original_load_docs
+            flow._prepare_hybrid_context_bundle = original_prepare_context
+            flow.select_hybrid_backend = original_select_backend
+            flow.execute_hybrid_backend = original_execute_backend
+
+        self.assertEqual(requested_profiles, ["deep"])
+        self.assertEqual(payload["context_bundle"]["context_profile"]["profile"], "deep")
+        self.assertNotIn("profile-downgrade", payload["degraded_reasons"])
+
     def test_finish_task_closes_linked_backlog_and_request(self) -> None:
         script = self._script()
 
