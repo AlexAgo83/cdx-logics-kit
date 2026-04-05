@@ -198,6 +198,165 @@ class MermaidGeneratorTest(unittest.TestCase):
         self.assertTrue(audit_log.is_file())
         self.assertIn("mermaid-non-ascii-label", audit_log.read_text(encoding="utf-8"))
 
+    def test_auto_backend_uses_remote_provider_when_repo_config_enables_it(self) -> None:
+        module = _load_module("mermaid_generator_remote_auto", self._script())
+        repo = Path(tempfile.mkdtemp(prefix="mermaid-hybrid-"))
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        (repo / "logics" / ".cache").mkdir(parents=True, exist_ok=True)
+
+        unhealthy_ollama = mock.Mock(
+            selected_backend="codex",
+            requested_backend="auto",
+            host="http://127.0.0.1:11434",
+            model_profile="deepseek-coder",
+            model_family="deepseek",
+            configured_model="deepseek-coder-v2:16b",
+            model="deepseek-coder-v2:16b",
+            healthy=False,
+            reasons=["ollama-unreachable"],
+            to_dict=mock.Mock(
+                return_value={"requested_backend": "auto", "selected_backend": "codex", "healthy": False, "reasons": ["ollama-unreachable"]}
+            ),
+        )
+        healthy_openai = mock.Mock(
+            selected_backend="openai",
+            requested_backend="auto",
+            host="https://api.openai.com/v1",
+            model_profile="openai",
+            model_family="openai",
+            configured_model="gpt-4.1-mini",
+            model="gpt-4.1-mini",
+            healthy=True,
+            reasons=[],
+            to_dict=mock.Mock(return_value={"requested_backend": "auto", "selected_backend": "openai", "healthy": True, "reasons": []}),
+        )
+        valid_block = module._render_workflow_mermaid(
+            "request",
+            "Remote provider request",
+            {
+                "NEEDS_PLACEHOLDER": "- Remote provider path",
+                "CONTEXT_PLACEHOLDER": "- Ollama unavailable",
+                "ACCEPTANCE_PLACEHOLDER": "- AC1: Use OpenAI fallback",
+            },
+        )
+
+        def fake_provider_registry(**kwargs):
+            self.assertIsInstance(kwargs.get("config"), dict)
+            openai_provider = mock.Mock()
+            openai_provider.name = "openai"
+            openai_provider.enabled = True
+            openai_provider.credential_present = True
+            openai_provider.credential_value = "test-key"
+            openai_provider.endpoint = "https://api.openai.com/v1"
+            openai_provider.model_profile = "openai"
+            openai_provider.model_family = "openai"
+            openai_provider.configured_model = "gpt-4.1-mini"
+            openai_provider.model = "gpt-4.1-mini"
+            return {"openai": openai_provider}
+
+        with mock.patch.object(
+            module,
+            "load_repo_config",
+            return_value=(
+                {
+                    "hybrid_assist": {
+                        "providers": {
+                            "openai": {
+                                "enabled": True,
+                                "base_url": "https://api.openai.com/v1",
+                                "model": "gpt-4.1-mini",
+                            }
+                        }
+                    }
+                },
+                repo / "logics.yaml",
+            ),
+        ), mock.patch.object(module, "probe_ollama_backend", return_value=unhealthy_ollama), mock.patch.object(
+            module,
+            "build_hybrid_provider_registry",
+            side_effect=fake_provider_registry,
+        ), mock.patch.object(module, "probe_remote_provider", return_value=healthy_openai), mock.patch.object(
+            module,
+            "run_openai_hybrid",
+            return_value={
+                "result_payload": {"mermaid": valid_block, "confidence": 0.88, "rationale": "Remote provider valid."},
+                "raw_content": valid_block,
+                "response_payload": {},
+                "transport": "openai",
+            },
+        ):
+            payload = module.generate_mermaid(
+                repo_root=repo,
+                kind_name="request",
+                title="Remote provider request",
+                values={
+                    "NEEDS_PLACEHOLDER": "- Remote provider path",
+                    "CONTEXT_PLACEHOLDER": "- Ollama unavailable",
+                    "ACCEPTANCE_PLACEHOLDER": "- AC1: Use OpenAI fallback",
+                },
+            )
+
+        self.assertEqual(payload["backend_requested"], "auto")
+        self.assertEqual(payload["backend_used"], "openai")
+        self.assertEqual(payload["result_status"], "ok")
+        self.assertEqual(payload["mermaid"], valid_block)
+
+    def test_raw_flowchart_response_is_normalized_into_managed_mermaid_block(self) -> None:
+        module = _load_module("mermaid_generator_remote_normalize", self._script())
+        repo = Path(tempfile.mkdtemp(prefix="mermaid-hybrid-"))
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        (repo / "logics" / ".cache").mkdir(parents=True, exist_ok=True)
+
+        backend_status = mock.Mock(
+            selected_backend="openai",
+            requested_backend="auto",
+            host="https://api.openai.com/v1",
+            model_profile="openai",
+            model_family="openai",
+            configured_model="gpt-4.1-mini",
+            model="gpt-4.1-mini",
+            healthy=True,
+            reasons=[],
+            to_dict=mock.Mock(return_value={"requested_backend": "auto", "selected_backend": "openai", "healthy": True, "reasons": []}),
+        )
+        raw_flowchart = "\n".join(
+            [
+                "flowchart TD",
+                "    Trigger[Normalized request] --> Need[Remote path]",
+                "    Need --> Outcome[Acceptance target]",
+                "    Outcome --> Backlog[Backlog slice]",
+            ]
+        )
+
+        with mock.patch.object(module, "probe_ollama_backend", return_value=backend_status), \
+            mock.patch.object(module, "build_hybrid_provider_registry", return_value={"openai": mock.Mock()}), \
+            mock.patch.object(module, "probe_remote_provider", return_value=backend_status), \
+            mock.patch.object(
+                module,
+                "run_openai_hybrid",
+                return_value={
+                    "result_payload": {"mermaid": raw_flowchart, "confidence": 0.9, "rationale": "Raw flowchart response."},
+                    "raw_content": raw_flowchart,
+                    "response_payload": {},
+                    "transport": "openai",
+                },
+            ):
+            payload = module.generate_mermaid(
+                repo_root=repo,
+                kind_name="request",
+                title="Normalized request",
+                values={
+                    "NEEDS_PLACEHOLDER": "- Remote path",
+                    "CONTEXT_PLACEHOLDER": "- Provider returned raw flowchart",
+                    "ACCEPTANCE_PLACEHOLDER": "- AC1: Normalize the managed Mermaid block",
+                },
+            )
+
+        self.assertEqual(payload["backend_used"], "openai")
+        self.assertEqual(payload["result_status"], "ok")
+        self.assertTrue(payload["mermaid"].startswith("```mermaid\n%% logics-kind: request\n%% logics-signature: "))
+        self.assertIn("flowchart TD", payload["mermaid"])
+
 
 if __name__ == "__main__":
     unittest.main()
