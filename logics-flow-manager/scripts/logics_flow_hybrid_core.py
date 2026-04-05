@@ -240,7 +240,7 @@ def build_flow_contract_impl(
         "required_keys": list(contract["required_keys"]),
         "backend_policy": build_flow_backend_policy(flow_name),
     }
-    for key in ("scope_enum", "overall_enum", "classification_enum", "risk_enum", "strategy_enum"):
+    for key in ("scope_enum", "overall_enum", "classification_enum", "risk_enum", "strategy_enum", "complexity_enum"):
         if key in contract:
             payload[key] = list(contract[key])
     if flow_name == "next-step":
@@ -466,6 +466,21 @@ def validate_hybrid_result_impl(
         normalized["sections"] = normalize_string_list(payload["sections"], "sections")
         normalized["open_questions"] = normalize_string_list(payload["open_questions"], "open_questions")
         normalized["constraints"] = normalize_string_list(payload["constraints"], "constraints")
+        return normalized
+
+    if flow_name == "backlog-groom":
+        title = payload["title"]
+        if not isinstance(title, str) or not title.strip():
+            raise error_cls("hybrid_invalid_title", "`title` must be a non-empty string.")
+        complexity = payload["complexity"]
+        if complexity not in contract["complexity_enum"]:
+            raise error_cls(
+                "hybrid_invalid_complexity",
+                f"`complexity` must be one of {', '.join(contract['complexity_enum'])}.",
+            )
+        normalized["title"] = " ".join(title.split())[:120]
+        normalized["complexity"] = complexity
+        normalized["acceptance_criteria"] = normalize_string_list(payload["acceptance_criteria"], "acceptance_criteria")
         return normalized
 
     if flow_name == "handoff-packet":

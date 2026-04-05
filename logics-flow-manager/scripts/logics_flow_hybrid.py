@@ -158,6 +158,12 @@ FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
         "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
         "required_keys": ("sections", "open_questions", "constraints", "confidence", "rationale"),
     },
+    "backlog-groom": {
+        "summary": "Draft a bounded backlog-item proposal from a request doc.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("title", "complexity", "acceptance_criteria", "confidence", "rationale"),
+        "complexity_enum": ("Low", "Medium", "High"),
+    },
     "triage": {
         "summary": "Classify the target workflow doc as ready, blocked, needing clarification, or needing split.",
         "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
@@ -262,6 +268,7 @@ FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
     "next-step": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": True, "include_doctor": True},
     "request-draft": {"mode": "summary-only", "profile": "normal", "include_graph": False, "include_registry": True, "include_doctor": False},
     "spec-first-pass": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
+    "backlog-groom": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
     "triage": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
     "handoff-packet": {"mode": "diff-first", "profile": "deep", "include_graph": True, "include_registry": True, "include_doctor": True},
     "suggest-split": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
@@ -324,6 +331,12 @@ FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
         "auto_backend": "ollama",
         "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
         "selection_summary": "Keep spec-first-pass local-first because the outline is bounded, proposal-only, and derived from a backlog slice.",
+    },
+    "backlog-groom": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep backlog-groom local-first because the proposal is bounded, proposal-only, and derived from a request doc.",
     },
     "triage": {
         "mode": BACKEND_POLICY_OLLAMA_FIRST,
@@ -1662,6 +1675,24 @@ def build_fallback_result(
             "constraints": constraints,
             "confidence": 0.64,
             "rationale": "Fallback spec outline is derived from the backlog item structure and acceptance-criteria surface.",
+        }
+    if flow_name == "backlog-groom":
+        doc = docs_by_ref[str(seed_ref)]
+        needs_bullets = _section_bullets(doc, "Needs")
+        acceptance_bullets = _section_bullets(doc, "Acceptance criteria")
+        candidate_criteria = acceptance_bullets or needs_bullets
+        normalized_title = doc.title.strip() or doc.ref
+        complexity = "Medium"
+        if len(candidate_criteria) >= 4:
+            complexity = "High"
+        elif len(candidate_criteria) <= 1:
+            complexity = "Low"
+        return {
+            "title": normalized_title[:120],
+            "complexity": complexity,
+            "acceptance_criteria": candidate_criteria[:5] or ["Define the bounded backlog slice and its acceptance criteria."],
+            "confidence": 0.66,
+            "rationale": "Fallback backlog grooming is derived from the request needs and acceptance-criteria surface.",
         }
     if flow_name == "triage":
         doc = docs_by_ref[str(seed_ref)]

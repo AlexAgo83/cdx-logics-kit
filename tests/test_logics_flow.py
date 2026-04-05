@@ -3151,6 +3151,10 @@ class LogicsFlowTest(unittest.TestCase):
         self.assertEqual(spec_first_pass_policy["provider_order"], ["ollama", "openai", "gemini", "codex"])
         self.assertEqual(spec_first_pass_policy["allowed_backends"], ["ollama", "openai", "gemini", "codex"])
 
+        backlog_groom_policy = hybrid.build_flow_backend_policy("backlog-groom")
+        self.assertEqual(backlog_groom_policy["provider_order"], ["ollama", "openai", "gemini", "codex"])
+        self.assertEqual(backlog_groom_policy["allowed_backends"], ["ollama", "openai", "gemini", "codex"])
+
         commit_message_policy = hybrid.build_flow_backend_policy("commit-message")
         self.assertEqual(commit_message_policy["provider_order"], ["ollama", "openai", "gemini", "codex"])
         self.assertEqual(commit_message_policy["allowed_backends"], ["ollama", "openai", "gemini", "codex"])
@@ -5247,6 +5251,65 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertTrue(measurement_log.is_file())
             measurement_records = [json.loads(line) for line in measurement_log.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(measurement_records[-1]["flow"], "spec-first-pass")
+
+    def test_assist_backlog_groom_alias_returns_validated_json_without_writing_backlog_docs(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_groom_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_groom_seed - Groom seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Define a bounded backlog slice for the operator workflow.",
+                    "- Keep the proposal cheap and reviewable.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The backlog proposal includes a scoped title.",
+                    "- AC2: The backlog proposal includes candidate acceptance criteria.",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "backlog-groom",
+                    "req_000_groom_seed",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["flow"], "backlog-groom")
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertTrue(payload["result"]["title"])
+            self.assertIn(payload["result"]["complexity"], {"Low", "Medium", "High"})
+            self.assertTrue(payload["result"]["acceptance_criteria"])
+            self.assertFalse((repo / "logics" / "backlog").exists())
+
+            measurement_log = repo / payload["measurement_log"]
+            self.assertTrue(measurement_log.is_file())
+            measurement_records = [json.loads(line) for line in measurement_log.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(measurement_records[-1]["flow"], "backlog-groom")
 
     def test_assist_handoff_and_split_aliases_return_targeted_outputs(self) -> None:
         script = self._script()
