@@ -872,6 +872,169 @@ def _cached_backend_status(cached_entry: dict[str, object], requested_backend: s
     )
 
 
+LOW_RISK_GENERATED_PATHS = {
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lockb",
+    "Cargo.lock",
+    "Pipfile.lock",
+    "poetry.lock",
+    "composer.lock",
+}
+
+
+def _is_low_risk_generated_path(path: str) -> bool:
+    normalized = path.strip().replace("\\", "/")
+    filename = normalized.rsplit("/", 1)[-1]
+    lowered = normalized.lower()
+    return (
+        filename in LOW_RISK_GENERATED_PATHS
+        or ".generated." in lowered
+        or lowered.endswith(".snap")
+        or lowered.startswith("dist/")
+        or lowered.startswith("build/")
+    )
+
+
+def _is_schema_or_migration_path(path: str) -> bool:
+    lowered = path.strip().replace("\\", "/").lower()
+    return (
+        "/migrations/" in lowered
+        or lowered.startswith("migrations/")
+        or "/migration/" in lowered
+        or lowered.startswith("migration/")
+        or lowered.endswith("schema.prisma")
+        or lowered.endswith("schema.sql")
+        or lowered.endswith("/schema.ts")
+        or lowered.endswith("/schema.js")
+        or "/db/schema" in lowered
+        or "/alembic/" in lowered
+    )
+
+
+def _deterministic_preclassified_result(flow_name: str, context_bundle: dict[str, object]) -> dict[str, object] | None:
+    if flow_name not in {"diff-risk", "windows-compat-risk"}:
+        return None
+    git_snapshot = context_bundle.get("git_snapshot", {})
+    changed_paths = list(git_snapshot.get("changed_paths", [])) if isinstance(git_snapshot, dict) else []
+    if not changed_paths:
+        return {
+            "reason": "empty-diff",
+            "validated": {
+                "risk": "low",
+                "summary": "Deterministic pre-classifier marked the empty diff as low risk.",
+                "drivers": ["No changed paths were detected in the working tree."],
+                "confidence": 0.97,
+                "rationale": "An empty diff does not require AI classification.",
+            },
+        }
+    if any(_is_schema_or_migration_path(path) for path in changed_paths):
+        return {
+            "reason": "schema-or-migration",
+            "validated": {
+                "risk": "high",
+                "summary": "Deterministic pre-classifier escalated the diff because schema or migration files changed.",
+                "drivers": ["The change surface includes schema or migration files that require careful review."],
+                "confidence": 0.95,
+                "rationale": "Schema and migration changes are treated as high risk without an AI round-trip.",
+            },
+        }
+    if all(_is_low_risk_generated_path(path) for path in changed_paths):
+        return {
+            "reason": "lock-or-generated-only",
+            "validated": {
+                "risk": "low",
+                "summary": "Deterministic pre-classifier marked the diff as low risk because it only touches lock or generated files.",
+                "drivers": ["Only lock-file or generated-artifact paths changed."],
+                "confidence": 0.94,
+                "rationale": "Lock-file-only and generated-only diffs are handled deterministically before any AI dispatch.",
+            },
+        }
+    return None
+
+
+def _prepare_hybrid_context_bundle(
+    repo_root: Path,
+    *,
+    flow_name: str,
+    ref: str | None,
+    context_mode: str | None,
+    profile: str,
+    include_graph: bool | None,
+    include_registry: bool | None,
+    include_doctor: bool | None,
+    audit_log: str,
+    measurement_log: str,
+    config: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object] | None]:
+    context_bundle = _build_hybrid_context(
+        repo_root,
+        flow_name,
+        ref=ref,
+        context_mode=context_mode,
+        profile=profile,
+        include_graph=include_graph,
+        include_registry=include_registry,
+        include_doctor=include_doctor,
+        config=config,
+    )
+    context_bundle["repo_root"] = str(repo_root)
+    validation_payload = None
+    if flow_name in {"validation-summary", "doc-consistency", "review-checklist"}:
+        validation_payload = _hybrid_validation_payload(repo_root)
+        context_bundle["validation_payload"] = validation_payload
+    if flow_name == "hybrid-insights-explainer":
+        context_bundle["roi_report"] = build_hybrid_roi_report(
+            repo_root=repo_root,
+            audit_log=(repo_root / audit_log).resolve(),
+            measurement_log=(repo_root / measurement_log).resolve(),
+        )
+    return context_bundle, validation_payload
+
+
+def _resolve_runtime_context_profile(
+    *,
+    flow_name: str,
+    requested_profile: str | None,
+    backend_status: HybridBackendStatus,
+) -> tuple[str, str | None, str]:
+    resolved_profile = requested_profile or str(default_context_spec(flow_name)["profile"])
+    if flow_name != "handoff-packet":
+        return resolved_profile, None, resolved_profile
+    if requested_profile == "deep":
+        return resolved_profile, None, resolved_profile
+    if resolved_profile != "deep":
+        return resolved_profile, None, resolved_profile
+    if backend_status.selected_backend not in {"openai", "gemini", "codex"}:
+        return resolved_profile, None, resolved_profile
+    return "normal", "profile-downgrade", resolved_profile
+
+
+def _deterministic_backend_status(
+    *,
+    requested_backend: str,
+    model_selection: dict[str, object],
+) -> HybridBackendStatus:
+    return HybridBackendStatus(
+        requested_backend=requested_backend,
+        selected_backend="deterministic",
+        host=DEFAULT_HYBRID_HOST,
+        model_profile=str(model_selection["name"]),
+        model_family=str(model_selection["family"]),
+        configured_model=str(model_selection["configured_model"]),
+        model=str(model_selection["resolved_model"]),
+        ollama_reachable=False,
+        model_available=True,
+        healthy=True,
+        reasons=[],
+        response_time_ms=None,
+        version=None,
+        selection_reason="deterministic-preclassified",
+        policy_mode=None,
+    )
+
+
 def _build_hybrid_context(
     repo_root: Path,
     flow_name: str,
@@ -1053,61 +1216,49 @@ def _run_hybrid_assist(
         requested_model_profile=requested_model_profile,
         requested_model=requested_model,
     )
-    context_bundle = _build_hybrid_context(
+    resolved_profile = profile or str(default_context_spec(flow_name)["profile"])
+    context_bundle, validation_payload = _prepare_hybrid_context_bundle(
         repo_root,
-        flow_name,
+        flow_name=flow_name,
         ref=ref,
         context_mode=context_mode,
-        profile=profile,
+        profile=resolved_profile,
         include_graph=include_graph,
         include_registry=include_registry,
         include_doctor=include_doctor,
+        audit_log=audit_log,
+        measurement_log=measurement_log,
         config=config,
     )
-    context_bundle["repo_root"] = str(repo_root)
-    validation_payload = None
-    if flow_name in {"validation-summary", "doc-consistency", "review-checklist"}:
-        validation_payload = _hybrid_validation_payload(repo_root)
-        context_bundle["validation_payload"] = validation_payload
-    if flow_name == "hybrid-insights-explainer":
-        context_bundle["roi_report"] = build_hybrid_roi_report(
-            repo_root=repo_root,
-            audit_log=(repo_root / audit_log).resolve(),
-            measurement_log=(repo_root / measurement_log).resolve(),
+    preclassified_result = _deterministic_preclassified_result(flow_name, context_bundle)
+    profile_adjustment_reason: str | None = None
+
+    if preclassified_result is not None:
+        backend_status = _deterministic_backend_status(
+            requested_backend=requested_backend,
+            model_selection=model_selection,
         )
-
-    cache_eligible = (
-        execution_mode != "execute"
-        and flow_name != "hybrid-insights-explainer"
-        and context_bundle["contract"]["safety_class"] == "proposal-only"
-    )
-    cache_path, cache_key, diff_fingerprint, cached_entry = _read_hybrid_result_cache_entry(
-        repo_root=repo_root,
-        config=config,
-        flow_name=flow_name,
-        requested_backend=requested_backend,
-        model_selection=model_selection,
-        context_bundle=context_bundle,
-        dry_run=dry_run,
-    )
-    cache_hit = cache_eligible and cached_entry is not None
-
-    if cache_hit:
-        backend_status = _cached_backend_status(cached_entry, requested_backend)
-        degraded_reasons = []
-        raw_payload = cached_entry.get("raw_payload") if isinstance(cached_entry.get("raw_payload"), dict) else None
+        degraded_reasons: list[str] = []
+        raw_payload = dict(preclassified_result["validated"])
         transport = {
-            "transport": "cache",
-            "reason": "cache-hit",
-            "selected_backend": backend_status.selected_backend,
-            "cache_key": cache_key,
+            "transport": "deterministic",
+            "reason": "deterministic-preclassified",
+            "selected_backend": "deterministic",
+            "preclassification_reason": preclassified_result["reason"],
         }
-        validated = dict(cached_entry["validated_payload"])
-        active_model_profile = (
-            cached_entry.get("active_model_profile")
-            if isinstance(cached_entry.get("active_model_profile"), dict)
-            else None
-        )
+        validated = dict(preclassified_result["validated"])
+        active_model_profile = {
+            "name": model_selection["name"],
+            "family": model_selection["family"],
+            "configured_model": model_selection["configured_model"],
+            "resolved_model": model_selection["resolved_model"],
+            "description": model_selection["description"],
+            "example_tags": model_selection["example_tags"],
+        }
+        cache_path = (repo_root / _hybrid_result_cache_path(config)).resolve()
+        cache_key = ""
+        diff_fingerprint = ""
+        cache_hit = False
     else:
         backend_status = select_hybrid_backend(
             requested_backend=requested_backend,
@@ -1122,31 +1273,89 @@ def _run_hybrid_assist(
             model=str(model_selection["resolved_model"]),
             timeout_seconds=timeout_seconds,
         )
-        execution = execute_hybrid_backend(
-            backend_status=backend_status,
-            requested_backend=requested_backend,
+        effective_profile, profile_adjustment_reason, requested_profile_label = _resolve_runtime_context_profile(
             flow_name=flow_name,
-            context_bundle=context_bundle,
+            requested_profile=profile,
+            backend_status=backend_status,
+        )
+        if effective_profile != resolved_profile:
+            context_bundle, validation_payload = _prepare_hybrid_context_bundle(
+                repo_root,
+                flow_name=flow_name,
+                ref=ref,
+                context_mode=context_mode,
+                profile=effective_profile,
+                include_graph=include_graph,
+                include_registry=include_registry,
+                include_doctor=include_doctor,
+                audit_log=audit_log,
+                measurement_log=measurement_log,
+                config=config,
+            )
+            context_bundle["context_profile"]["requested_profile"] = requested_profile_label
+            context_bundle["context_profile"]["profile_adjustment"] = "capped-to-normal-for-remote-or-codex"
+            resolved_profile = effective_profile
+        cache_eligible = (
+            execution_mode != "execute"
+            and flow_name != "hybrid-insights-explainer"
+            and context_bundle["contract"]["safety_class"] == "proposal-only"
+        )
+        cache_path, cache_key, diff_fingerprint, cached_entry = _read_hybrid_result_cache_entry(
             repo_root=repo_root,
             config=config,
-            requested_model=requested_model,
-            timeout_seconds=timeout_seconds,
-            docs_by_ref=docs_by_ref,
-            validation_payload=validation_payload,
+            flow_name=flow_name,
+            requested_backend=requested_backend,
+            model_selection=model_selection,
+            context_bundle=context_bundle,
+            dry_run=dry_run,
         )
-        backend_status = execution["backend_status"]
-        degraded_reasons = execution["degraded_reasons"]
-        raw_payload = execution["raw_payload"]
-        transport = execution["transport"]
-        validated = execution["validated"]
-        active_model_profile = {
-            "name": model_selection["name"],
-            "family": model_selection["family"],
-            "configured_model": model_selection["configured_model"],
-            "resolved_model": model_selection["resolved_model"],
-            "description": model_selection["description"],
-            "example_tags": model_selection["example_tags"],
-        }
+        cache_hit = cache_eligible and cached_entry is not None
+
+        if cache_hit:
+            backend_status = _cached_backend_status(cached_entry, requested_backend)
+            degraded_reasons = []
+            raw_payload = cached_entry.get("raw_payload") if isinstance(cached_entry.get("raw_payload"), dict) else None
+            transport = {
+                "transport": "cache",
+                "reason": "cache-hit",
+                "selected_backend": backend_status.selected_backend,
+                "cache_key": cache_key,
+            }
+            validated = dict(cached_entry["validated_payload"])
+            active_model_profile = (
+                cached_entry.get("active_model_profile")
+                if isinstance(cached_entry.get("active_model_profile"), dict)
+                else None
+            )
+        else:
+            execution = execute_hybrid_backend(
+                backend_status=backend_status,
+                requested_backend=requested_backend,
+                flow_name=flow_name,
+                context_bundle=context_bundle,
+                repo_root=repo_root,
+                config=config,
+                requested_model=requested_model,
+                timeout_seconds=timeout_seconds,
+                docs_by_ref=docs_by_ref,
+                validation_payload=validation_payload,
+            )
+            backend_status = execution["backend_status"]
+            degraded_reasons = execution["degraded_reasons"]
+            raw_payload = execution["raw_payload"]
+            transport = execution["transport"]
+            validated = execution["validated"]
+            active_model_profile = {
+                "name": model_selection["name"],
+                "family": model_selection["family"],
+                "configured_model": model_selection["configured_model"],
+                "resolved_model": model_selection["resolved_model"],
+                "description": model_selection["description"],
+                "example_tags": model_selection["example_tags"],
+            }
+
+    if profile_adjustment_reason and profile_adjustment_reason not in degraded_reasons:
+        degraded_reasons = [profile_adjustment_reason, *degraded_reasons]
 
     execution_result = None
     executed = False
@@ -1197,12 +1406,17 @@ def _run_hybrid_assist(
                 confidence=confidence,
                 degraded_reasons=degraded_reasons,
                 review_recommended=review_recommended,
-                execution_path_override="cache-hit" if cache_hit else None,
+                execution_path_override=(
+                    "cache-hit"
+                    if cache_hit
+                    else ("deterministic-preclassified" if preclassified_result is not None else None)
+                ),
                 cache_hit=cache_hit,
             ),
         )
         if (
-            cache_eligible
+            preclassified_result is None
+            and cache_eligible
             and not cache_hit
             and result_status == "ok"
             and isinstance(validated, dict)
