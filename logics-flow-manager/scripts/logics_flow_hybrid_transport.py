@@ -754,12 +754,28 @@ def build_hybrid_messages_impl(flow_name: str, context_bundle: dict[str, Any]) -
                 "Each step `scope` must be `root` or `submodule` and `paths` must be a non-empty array of strings.",
             ]
         )
+    elif flow_name == "mermaid-generator":
+        instruction_lines.extend(
+            [
+                "`mermaid` must be a complete fenced ```mermaid block.",
+                "`mermaid` must include `%% logics-kind`, `%% logics-signature`, and one `flowchart` line.",
+                "Use the direction from `context_pack.direction` exactly.",
+                "Keep the diagram to at most 8 nodes.",
+                "Use short ASCII-only labels and do not include markdown formatting in labels.",
+            ]
+        )
+    no_markdown_fences = flow_name != "mermaid-generator"
+    fence_rule = (
+        "Do not use markdown fences. "
+        if no_markdown_fences
+        else "The `mermaid` field may and should use a fenced ```mermaid block. "
+    )
     system = (
         "You are a bounded hybrid delivery assistant for the Logics workflow. "
-        "Reply with one JSON object only. "
-        "Do not use markdown fences. "
-        "Stay within the supplied contract. "
-        "Prefer conservative short outputs over speculative ones."
+        + "Reply with one JSON object only. "
+        + fence_rule
+        + "Stay within the supplied contract. "
+        + "Prefer conservative short outputs over speculative ones."
     )
     user = (
         "Return a JSON instance that satisfies the contract.\n\n"

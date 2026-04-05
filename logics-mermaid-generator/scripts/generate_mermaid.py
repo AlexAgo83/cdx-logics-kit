@@ -301,6 +301,34 @@ def _build_mermaid_context_bundle(kind_name: str, title: str, values: dict[str, 
     }
 
 
+def _extract_deterministic_signature(mermaid_block: str) -> str:
+    for line in mermaid_block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("%% logics-signature:"):
+            return stripped.split(":", 1)[1].strip()
+    return ""
+
+
+def _normalize_candidate_mermaid(
+    *,
+    kind_name: str,
+    candidate_mermaid: str,
+    deterministic_mermaid: str,
+) -> str:
+    stripped = candidate_mermaid.strip()
+    if not stripped or stripped.startswith("```mermaid"):
+        return candidate_mermaid
+    if not stripped.startswith("flowchart "):
+        return candidate_mermaid
+    signature = _extract_deterministic_signature(deterministic_mermaid)
+    body_lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
+    return _render_mermaid_block(
+        kind_name,
+        signature,
+        body_lines,
+    )
+
+
 def _resolve_model_selection(
     config: dict[str, Any],
     *,
@@ -339,7 +367,7 @@ def generate_mermaid(
     normalized_values = _normalize_values(values)
     deterministic_mermaid = _render_workflow_mermaid(kind_name, title, normalized_values)
     repo_root = repo_root.resolve()
-    config = load_repo_config(repo_root)
+    config, _config_path = load_repo_config(repo_root)
     context_bundle = _build_mermaid_context_bundle(kind_name, title, normalized_values)
     model_selection = _resolve_model_selection(
         config,
@@ -440,6 +468,11 @@ def generate_mermaid(
         if transport_ran:
             raw_payload = transport.get("result_payload") if isinstance(transport.get("result_payload"), dict) else None
             candidate = validate_hybrid_result(HYBRID_FLOW_NAME, raw_payload or {}, {}, context_bundle=context_bundle)
+            candidate["mermaid"] = _normalize_candidate_mermaid(
+                kind_name=kind_name,
+                candidate_mermaid=str(candidate.get("mermaid", "")),
+                deterministic_mermaid=deterministic_mermaid,
+            )
             safety_issues = _validate_mermaid_safety(kind_name, candidate["mermaid"])
             if safety_issues:
                 degraded_reasons = safety_issues
