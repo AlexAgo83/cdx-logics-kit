@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import shlex
@@ -34,10 +35,13 @@ from logics_flow_hybrid import (
     DEFAULT_HYBRID_MEASUREMENT_LOG,
     DEFAULT_HYBRID_MODEL,
     DEFAULT_HYBRID_MODEL_PROFILE,
+    DEFAULT_HYBRID_RESULT_CACHE,
+    DEFAULT_HYBRID_RESULT_CACHE_TTL_SECONDS,
     DEFAULT_HYBRID_ROI_RECENT_LIMIT,
     DEFAULT_HYBRID_ROI_WINDOW_DAYS,
     DEFAULT_HYBRID_TIMEOUT_SECONDS,
     REQUESTED_BACKEND_CHOICES,
+    HybridBackendStatus,
     HybridAssistError,
     apply_legacy_default_model,
     append_jsonl_record,
@@ -689,6 +693,185 @@ def _hybrid_measurement_log(config: dict[str, object]) -> str:
     return str(get_config_value(config, "hybrid_assist", "measurement_log", default=DEFAULT_HYBRID_MEASUREMENT_LOG))
 
 
+def _hybrid_result_cache_enabled(config: dict[str, object]) -> bool:
+    return bool(get_config_value(config, "hybrid_assist", "result_cache", "enabled", default=True))
+
+
+def _hybrid_result_cache_path(config: dict[str, object]) -> str:
+    return str(get_config_value(config, "hybrid_assist", "result_cache", "path", default=DEFAULT_HYBRID_RESULT_CACHE))
+
+
+def _hybrid_result_cache_ttl_seconds(config: dict[str, object]) -> int:
+    return max(
+        1,
+        int(
+            get_config_value(
+                config,
+                "hybrid_assist",
+                "result_cache",
+                "ttl_seconds",
+                default=DEFAULT_HYBRID_RESULT_CACHE_TTL_SECONDS,
+            )
+        ),
+    )
+
+
+def _load_hybrid_result_cache(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        return {"entries": {}}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"entries": {}}
+    entries = payload.get("entries") if isinstance(payload, dict) else {}
+    return {"entries": entries if isinstance(entries, dict) else {}}
+
+
+def _write_hybrid_result_cache(path: Path, entries: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"entries": entries}
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _prune_hybrid_result_cache_entries(entries: dict[str, object], *, now_ts: float) -> dict[str, object]:
+    kept: dict[str, object] = {}
+    for key, value in entries.items():
+        if not isinstance(key, str) or not isinstance(value, dict):
+            continue
+        expires_at = value.get("expires_at")
+        if not isinstance(expires_at, (int, float)) or float(expires_at) <= now_ts:
+            continue
+        if not isinstance(value.get("validated_payload"), dict):
+            continue
+        kept[key] = value
+    return kept
+
+
+def _build_hybrid_result_cache_key(
+    *,
+    flow_name: str,
+    requested_backend: str,
+    model_selection: dict[str, object],
+    context_bundle: dict[str, object],
+) -> tuple[str, str]:
+    git_snapshot = context_bundle.get("git_snapshot", {})
+    context_pack = context_bundle.get("context_pack", {})
+    fingerprint_payload = {
+        "seed_ref": context_bundle.get("seed_ref"),
+        "context_profile": context_bundle.get("context_profile"),
+        "mode": context_pack.get("mode") if isinstance(context_pack, dict) else None,
+        "profile": context_pack.get("profile") if isinstance(context_pack, dict) else None,
+        "requested_backend": requested_backend,
+        "model_profile": model_selection.get("name"),
+        "resolved_model": model_selection.get("resolved_model"),
+        "changed_paths": list(git_snapshot.get("changed_paths", [])) if isinstance(git_snapshot, dict) else [],
+        "unstaged_diff_stat": list(git_snapshot.get("unstaged_diff_stat", [])) if isinstance(git_snapshot, dict) else [],
+        "staged_diff_stat": list(git_snapshot.get("staged_diff_stat", [])) if isinstance(git_snapshot, dict) else [],
+    }
+    diff_fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    cache_key = hashlib.sha256(f"{flow_name}:{diff_fingerprint}".encode("utf-8")).hexdigest()
+    return cache_key, diff_fingerprint
+
+
+def _read_hybrid_result_cache_entry(
+    *,
+    repo_root: Path,
+    config: dict[str, object],
+    flow_name: str,
+    requested_backend: str,
+    model_selection: dict[str, object],
+    context_bundle: dict[str, object],
+    dry_run: bool,
+) -> tuple[Path, str, str, dict[str, object] | None]:
+    cache_path = (repo_root / _hybrid_result_cache_path(config)).resolve()
+    cache_key, diff_fingerprint = _build_hybrid_result_cache_key(
+        flow_name=flow_name,
+        requested_backend=requested_backend,
+        model_selection=model_selection,
+        context_bundle=context_bundle,
+    )
+    if not _hybrid_result_cache_enabled(config):
+        return cache_path, cache_key, diff_fingerprint, None
+    cache_payload = _load_hybrid_result_cache(cache_path)
+    entries = cache_payload["entries"] if isinstance(cache_payload, dict) else {}
+    now_ts = time.time()
+    pruned_entries = _prune_hybrid_result_cache_entries(entries if isinstance(entries, dict) else {}, now_ts=now_ts)
+    if not dry_run and pruned_entries != entries:
+        _write_hybrid_result_cache(cache_path, pruned_entries)
+    cached_entry = pruned_entries.get(cache_key) if isinstance(pruned_entries.get(cache_key), dict) else None
+    return cache_path, cache_key, diff_fingerprint, cached_entry
+
+
+def _write_hybrid_result_cache_entry(
+    *,
+    cache_path: Path,
+    cache_key: str,
+    diff_fingerprint: str,
+    ttl_seconds: int,
+    flow_name: str,
+    requested_backend: str,
+    model_selection: dict[str, object],
+    backend_status: HybridBackendStatus,
+    result_status: str,
+    raw_payload: dict[str, object] | None,
+    validated_payload: dict[str, object],
+    transport: dict[str, object],
+    confidence: float | None,
+    review_recommended: bool,
+) -> None:
+    cache_payload = _load_hybrid_result_cache(cache_path)
+    entries = cache_payload["entries"] if isinstance(cache_payload, dict) else {}
+    now_ts = time.time()
+    pruned_entries = _prune_hybrid_result_cache_entries(entries if isinstance(entries, dict) else {}, now_ts=now_ts)
+    pruned_entries[cache_key] = {
+        "flow": flow_name,
+        "diff_fingerprint": diff_fingerprint,
+        "stored_at": now_ts,
+        "expires_at": now_ts + ttl_seconds,
+        "requested_backend": requested_backend,
+        "backend_status": backend_status.to_dict(),
+        "result_status": result_status,
+        "raw_payload": raw_payload,
+        "validated_payload": validated_payload,
+        "transport": transport,
+        "confidence": confidence,
+        "review_recommended": review_recommended,
+        "active_model_profile": {
+            "name": model_selection["name"],
+            "family": model_selection["family"],
+            "configured_model": model_selection["configured_model"],
+            "resolved_model": model_selection["resolved_model"],
+            "description": model_selection["description"],
+            "example_tags": model_selection["example_tags"],
+        },
+    }
+    _write_hybrid_result_cache(cache_path, pruned_entries)
+
+
+def _cached_backend_status(cached_entry: dict[str, object], requested_backend: str) -> HybridBackendStatus:
+    cached_status = cached_entry.get("backend_status") if isinstance(cached_entry, dict) else {}
+    status_dict = cached_status if isinstance(cached_status, dict) else {}
+    return HybridBackendStatus(
+        requested_backend=requested_backend,
+        selected_backend=str(status_dict.get("selected_backend", "codex")),
+        host=str(status_dict.get("host", DEFAULT_HYBRID_HOST)),
+        model_profile=str(status_dict.get("model_profile", DEFAULT_HYBRID_MODEL_PROFILE)),
+        model_family=str(status_dict.get("model_family", "")),
+        configured_model=str(status_dict.get("configured_model", DEFAULT_HYBRID_MODEL)),
+        model=str(status_dict.get("model", DEFAULT_HYBRID_MODEL)),
+        ollama_reachable=bool(status_dict.get("ollama_reachable", False)),
+        model_available=bool(status_dict.get("model_available", True)),
+        healthy=True,
+        reasons=[],
+        response_time_ms=None,
+        version=None,
+        selection_reason="cache-hit",
+        policy_mode=status_dict.get("policy_mode"),
+    )
+
+
 def _build_hybrid_context(
     repo_root: Path,
     flow_name: str,
@@ -863,6 +1046,7 @@ def _run_hybrid_assist(
     config: dict[str, object],
     dry_run: bool,
 ) -> dict[str, object]:
+    repo_root = repo_root.resolve()
     docs_by_ref = _load_workflow_docs(repo_root, config=config)
     model_selection = _hybrid_model_selection(
         config,
@@ -892,36 +1076,77 @@ def _run_hybrid_assist(
             measurement_log=(repo_root / measurement_log).resolve(),
         )
 
-    backend_status = select_hybrid_backend(
-        requested_backend=requested_backend,
-        flow_name=flow_name,
+    cache_eligible = (
+        execution_mode != "execute"
+        and flow_name != "hybrid-insights-explainer"
+        and context_bundle["contract"]["safety_class"] == "proposal-only"
+    )
+    cache_path, cache_key, diff_fingerprint, cached_entry = _read_hybrid_result_cache_entry(
         repo_root=repo_root,
         config=config,
-        requested_model=requested_model,
-        host=ollama_host,
-        model_profile=str(model_selection["name"]),
-        model_family=str(model_selection["family"]),
-        configured_model=str(model_selection["configured_model"]),
-        model=str(model_selection["resolved_model"]),
-        timeout_seconds=timeout_seconds,
-    )
-    execution = execute_hybrid_backend(
-        backend_status=backend_status,
-        requested_backend=requested_backend,
         flow_name=flow_name,
+        requested_backend=requested_backend,
+        model_selection=model_selection,
         context_bundle=context_bundle,
-        repo_root=repo_root,
-        config=config,
-        requested_model=requested_model,
-        timeout_seconds=timeout_seconds,
-        docs_by_ref=docs_by_ref,
-        validation_payload=validation_payload,
+        dry_run=dry_run,
     )
-    backend_status = execution["backend_status"]
-    degraded_reasons = execution["degraded_reasons"]
-    raw_payload = execution["raw_payload"]
-    transport = execution["transport"]
-    validated = execution["validated"]
+    cache_hit = cache_eligible and cached_entry is not None
+
+    if cache_hit:
+        backend_status = _cached_backend_status(cached_entry, requested_backend)
+        degraded_reasons = []
+        raw_payload = cached_entry.get("raw_payload") if isinstance(cached_entry.get("raw_payload"), dict) else None
+        transport = {
+            "transport": "cache",
+            "reason": "cache-hit",
+            "selected_backend": backend_status.selected_backend,
+            "cache_key": cache_key,
+        }
+        validated = dict(cached_entry["validated_payload"])
+        active_model_profile = (
+            cached_entry.get("active_model_profile")
+            if isinstance(cached_entry.get("active_model_profile"), dict)
+            else None
+        )
+    else:
+        backend_status = select_hybrid_backend(
+            requested_backend=requested_backend,
+            flow_name=flow_name,
+            repo_root=repo_root,
+            config=config,
+            requested_model=requested_model,
+            host=ollama_host,
+            model_profile=str(model_selection["name"]),
+            model_family=str(model_selection["family"]),
+            configured_model=str(model_selection["configured_model"]),
+            model=str(model_selection["resolved_model"]),
+            timeout_seconds=timeout_seconds,
+        )
+        execution = execute_hybrid_backend(
+            backend_status=backend_status,
+            requested_backend=requested_backend,
+            flow_name=flow_name,
+            context_bundle=context_bundle,
+            repo_root=repo_root,
+            config=config,
+            requested_model=requested_model,
+            timeout_seconds=timeout_seconds,
+            docs_by_ref=docs_by_ref,
+            validation_payload=validation_payload,
+        )
+        backend_status = execution["backend_status"]
+        degraded_reasons = execution["degraded_reasons"]
+        raw_payload = execution["raw_payload"]
+        transport = execution["transport"]
+        validated = execution["validated"]
+        active_model_profile = {
+            "name": model_selection["name"],
+            "family": model_selection["family"],
+            "configured_model": model_selection["configured_model"],
+            "resolved_model": model_selection["resolved_model"],
+            "description": model_selection["description"],
+            "example_tags": model_selection["example_tags"],
+        }
 
     execution_result = None
     executed = False
@@ -972,8 +1197,34 @@ def _run_hybrid_assist(
                 confidence=confidence,
                 degraded_reasons=degraded_reasons,
                 review_recommended=review_recommended,
+                execution_path_override="cache-hit" if cache_hit else None,
+                cache_hit=cache_hit,
             ),
         )
+        if (
+            cache_eligible
+            and not cache_hit
+            and result_status == "ok"
+            and isinstance(validated, dict)
+            and isinstance(transport, dict)
+            and _hybrid_result_cache_enabled(config)
+        ):
+            _write_hybrid_result_cache_entry(
+                cache_path=cache_path,
+                cache_key=cache_key,
+                diff_fingerprint=diff_fingerprint,
+                ttl_seconds=_hybrid_result_cache_ttl_seconds(config),
+                flow_name=flow_name,
+                requested_backend=requested_backend,
+                model_selection=model_selection,
+                backend_status=backend_status,
+                result_status=result_status,
+                raw_payload=raw_payload if isinstance(raw_payload, dict) else None,
+                validated_payload=validated,
+                transport=transport,
+                confidence=confidence,
+                review_recommended=review_recommended,
+            )
     return {
         "command": "assist",
         "assist_kind": "run",
@@ -982,20 +1233,15 @@ def _run_hybrid_assist(
         "backend_requested": requested_backend,
         "backend_used": backend_status.selected_backend,
         "backend_status": backend_status.to_dict(),
-        "active_model_profile": {
-            "name": model_selection["name"],
-            "family": model_selection["family"],
-            "configured_model": model_selection["configured_model"],
-            "resolved_model": model_selection["resolved_model"],
-            "description": model_selection["description"],
-            "example_tags": model_selection["example_tags"],
-        },
+        "active_model_profile": active_model_profile,
         "result_status": result_status,
         "degraded_reasons": degraded_reasons,
         "context_bundle": context_bundle,
         "raw_result": raw_payload,
         "result": validated,
         "transport": transport,
+        "cache_hit": cache_hit,
+        "result_cache_path": _rel(repo_root, cache_path),
         "executed": executed,
         "execution_mode": execution_mode,
         "execution_result": execution_result,
@@ -1185,6 +1431,7 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
                 else:
                     prep_steps.append(f"(dry-run) would bump release version to {next_version}")
 
+                collect_git_snapshot(repo_root, refresh=True)
                 refreshed_status_payload = _run_hybrid_assist(
                     flow_name="release-changelog-status", ref=None, **{**base_kwargs, "requested_backend": "auto"}
                 )
@@ -1215,6 +1462,7 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
                 changelog_file.write_text(changelog_content, encoding="utf-8")
                 prep_steps.append(f"wrote {relative_path}")
                 changelog_ready = True
+                collect_git_snapshot(repo_root, refresh=True)
             else:
                 prep_steps.append(f"(dry-run) would write {relative_path}")
 
@@ -1230,6 +1478,7 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
                         if not args.dry_run:
                             readme_path.write_text(updated, encoding="utf-8")
                             prep_steps.append(f"updated version badge in {readme_name}")
+                            collect_git_snapshot(repo_root, refresh=True)
                         else:
                             prep_steps.append(f"(dry-run) would update version badge in {readme_name}")
                     break
@@ -1245,6 +1494,7 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
 
         # Re-evaluate readiness after prep
         if not prep_errors:
+            collect_git_snapshot(repo_root, refresh=True)
             updated_status_payload = _run_hybrid_assist(
                 flow_name="release-changelog-status", ref=None, **{**base_kwargs, "requested_backend": "auto"}
             )

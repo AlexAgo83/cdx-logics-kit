@@ -224,6 +224,169 @@ class LogicsFlowTest(unittest.TestCase):
 
         self.assertEqual(calls, [str(repo)])
 
+    def test_run_hybrid_assist_uses_short_lived_result_cache_within_ttl(self) -> None:
+        flow = self._flow_module()
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        (repo / "logics" / ".cache").mkdir(parents=True)
+
+        original_load_docs = flow._load_workflow_docs
+        original_build_context = flow._build_hybrid_context
+        original_select_backend = flow.select_hybrid_backend
+        original_execute_backend = flow.execute_hybrid_backend
+        execute_calls: list[str] = []
+
+        def fake_load_workflow_docs(*args, **kwargs):
+            return {}
+
+        def fake_build_hybrid_context(*args, **kwargs):
+            return {
+                "seed_ref": None,
+                "context_profile": {
+                    "mode": "diff-first",
+                    "profile": "tiny",
+                    "include_graph": False,
+                    "include_registry": False,
+                    "include_doctor": False,
+                },
+                "contract": flow.build_flow_contract("commit-plan"),
+                "git_snapshot": {
+                    "changed_paths": ["src/example.ts"],
+                    "unstaged_diff_stat": [" src/example.ts | 4 ++--"],
+                    "staged_diff_stat": [],
+                },
+                "context_pack": {
+                    "ref": None,
+                    "mode": "diff-first",
+                    "profile": "tiny",
+                    "docs": [],
+                    "changed_paths": ["src/example.ts"],
+                    "estimates": {"doc_count": 0, "char_count": 0},
+                },
+                "claude_bridge": {"healthy": True},
+                "claude_bridge_available": True,
+            }
+
+        def fake_select_backend(**kwargs):
+            return flow.HybridBackendStatus(
+                requested_backend="openai",
+                selected_backend="openai",
+                host="https://api.openai.test/v1",
+                model_profile="deepseek-coder",
+                model_family="deepseek",
+                configured_model="gpt-4.1-mini",
+                model="gpt-4.1-mini",
+                ollama_reachable=False,
+                model_available=True,
+                healthy=True,
+                reasons=[],
+                response_time_ms=42.0,
+                version="test",
+                selection_reason="explicit-backend",
+                policy_mode=None,
+            )
+
+        def fake_execute_backend(**kwargs):
+            execute_calls.append(kwargs["flow_name"])
+            backend_status = kwargs["backend_status"]
+            return {
+                "backend_status": backend_status,
+                "degraded_reasons": [],
+                "raw_payload": {
+                    "strategy": "single",
+                    "steps": [{"scope": "root", "summary": "Commit the current diff.", "paths": ["src/example.ts"]}],
+                    "confidence": 0.91,
+                    "rationale": "The diff is cohesive.",
+                },
+                "transport": {"transport": "openai", "selected_backend": "openai"},
+                "validated": {
+                    "strategy": "single",
+                    "steps": [{"scope": "root", "summary": "Commit the current diff.", "paths": ["src/example.ts"]}],
+                    "confidence": 0.91,
+                    "rationale": "The diff is cohesive.",
+                },
+            }
+
+        flow._load_workflow_docs = fake_load_workflow_docs
+        flow._build_hybrid_context = fake_build_hybrid_context
+        flow.select_hybrid_backend = fake_select_backend
+        flow.execute_hybrid_backend = fake_execute_backend
+        try:
+            config = {
+                "hybrid_assist": {
+                    "result_cache": {
+                        "enabled": True,
+                        "path": "logics/.cache/flow_results_cache.json",
+                        "ttl_seconds": 600,
+                    }
+                }
+            }
+            first_payload = flow._run_hybrid_assist(
+                repo,
+                flow_name="commit-plan",
+                ref=None,
+                requested_backend="openai",
+                requested_model_profile=None,
+                requested_model="gpt-4.1-mini",
+                ollama_host="http://127.0.0.1:11434",
+                timeout_seconds=5.0,
+                context_mode=None,
+                profile=None,
+                include_graph=None,
+                include_registry=None,
+                include_doctor=None,
+                execution_mode="proposal",
+                audit_log="logics/.cache/hybrid_assist_audit.jsonl",
+                measurement_log="logics/.cache/hybrid_assist_measurements.jsonl",
+                config=config,
+                dry_run=False,
+            )
+            second_payload = flow._run_hybrid_assist(
+                repo,
+                flow_name="commit-plan",
+                ref=None,
+                requested_backend="openai",
+                requested_model_profile=None,
+                requested_model="gpt-4.1-mini",
+                ollama_host="http://127.0.0.1:11434",
+                timeout_seconds=5.0,
+                context_mode=None,
+                profile=None,
+                include_graph=None,
+                include_registry=None,
+                include_doctor=None,
+                execution_mode="proposal",
+                audit_log="logics/.cache/hybrid_assist_audit.jsonl",
+                measurement_log="logics/.cache/hybrid_assist_measurements.jsonl",
+                config=config,
+                dry_run=False,
+            )
+        finally:
+            flow._load_workflow_docs = original_load_docs
+            flow._build_hybrid_context = original_build_context
+            flow.select_hybrid_backend = original_select_backend
+            flow.execute_hybrid_backend = original_execute_backend
+
+        self.assertEqual(execute_calls, ["commit-plan"])
+        self.assertFalse(first_payload["cache_hit"])
+        self.assertTrue(second_payload["cache_hit"])
+        self.assertEqual(second_payload["transport"]["transport"], "cache")
+
+        cache_file = repo / "logics" / ".cache" / "flow_results_cache.json"
+        self.assertTrue(cache_file.is_file())
+        cache_payload = json.loads(cache_file.read_text(encoding="utf-8"))
+        self.assertEqual(len(cache_payload["entries"]), 1)
+
+        measurement_file = repo / "logics" / ".cache" / "hybrid_assist_measurements.jsonl"
+        measurement_records = [
+            json.loads(line)
+            for line in measurement_file.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(len(measurement_records), 2)
+        self.assertEqual(measurement_records[-1]["execution_path"], "cache-hit")
+        self.assertTrue(measurement_records[-1]["cache_hit"])
+
     def test_finish_task_closes_linked_backlog_and_request(self) -> None:
         script = self._script()
 

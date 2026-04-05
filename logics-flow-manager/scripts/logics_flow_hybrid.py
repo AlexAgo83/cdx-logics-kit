@@ -73,6 +73,8 @@ DEFAULT_HYBRID_HOST = "http://127.0.0.1:11434"
 DEFAULT_HYBRID_TIMEOUT_SECONDS = 20.0
 DEFAULT_HYBRID_AUDIT_LOG = "logics/.cache/hybrid_assist_audit.jsonl"
 DEFAULT_HYBRID_MEASUREMENT_LOG = "logics/.cache/hybrid_assist_measurements.jsonl"
+DEFAULT_HYBRID_RESULT_CACHE = "logics/.cache/flow_results_cache.json"
+DEFAULT_HYBRID_RESULT_CACHE_TTL_SECONDS = 600
 DEFAULT_HYBRID_ROI_RECENT_LIMIT = 8
 DEFAULT_HYBRID_ROI_WINDOW_DAYS = 14
 DEFAULT_ESTIMATED_REMOTE_TOKENS_PER_LOCAL_RUN = 1200
@@ -1173,6 +1175,8 @@ def build_measurement_record(
     confidence: float | None,
     degraded_reasons: list[str],
     review_recommended: bool,
+    execution_path_override: str | None = None,
+    cache_hit: bool = False,
 ) -> dict[str, Any]:
     return build_measurement_record_impl(
         flow_name=flow_name,
@@ -1181,6 +1185,8 @@ def build_measurement_record(
         confidence=confidence,
         degraded_reasons=degraded_reasons,
         review_recommended=review_recommended,
+        execution_path_override=execution_path_override,
+        cache_hit=cache_hit,
         schema_version=HYBRID_ASSIST_SCHEMA_VERSION,
     )
 
