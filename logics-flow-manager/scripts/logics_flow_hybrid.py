@@ -258,6 +258,11 @@ FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
         "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
         "required_keys": ("content", "title", "entries", "confidence", "rationale"),
     },
+    "mermaid-generator": {
+        "summary": "Generate a bounded Mermaid block for a Logics workflow doc with deterministic fallback.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("mermaid", "confidence", "rationale"),
+    },
 }
 
 FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
@@ -285,6 +290,7 @@ FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
     "review-checklist": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": True, "include_doctor": True},
     "doc-link-suggestion": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
     "generate-changelog": {"mode": "diff-first", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": False},
+    "mermaid-generator": {"mode": "summary-only", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": False},
 }
 
 FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
@@ -433,6 +439,12 @@ FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
         "auto_backend": "ollama",
         "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
         "selection_summary": "Keep changelog generation local-first; fall back to Codex if local payload fails validation.",
+    },
+    "mermaid-generator": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-mermaid-then-bounded-codex-fallback-to-deterministic",
+        "selection_summary": "Keep Mermaid generation local-first because the output is bounded, proposal-only, and safely replaceable by the deterministic renderer.",
     },
 }
 

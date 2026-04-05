@@ -483,6 +483,13 @@ def validate_hybrid_result_impl(
         normalized["acceptance_criteria"] = normalize_string_list(payload["acceptance_criteria"], "acceptance_criteria")
         return normalized
 
+    if flow_name == "mermaid-generator":
+        mermaid = payload["mermaid"]
+        if not isinstance(mermaid, str) or not mermaid.strip():
+            raise error_cls("hybrid_invalid_mermaid", "`mermaid` must be a non-empty string.")
+        normalized["mermaid"] = mermaid.strip()
+        return normalized
+
     if flow_name == "handoff-packet":
         target_ref = payload["target_ref"]
         if not isinstance(target_ref, str) or target_ref not in docs_by_ref:
