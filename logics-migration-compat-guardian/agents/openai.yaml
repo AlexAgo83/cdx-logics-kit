@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Migration Compat Guardian"
   short_description: "Enforce migration and compatibility guardrails"

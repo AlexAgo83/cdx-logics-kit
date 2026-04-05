@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Test Impact Orchestrator"
   short_description: "Turn git diffs into focused test plans"

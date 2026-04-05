@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Workstream Planner"
   short_description: "Plan workstreams/roadmap from Logics backlog and tasks"

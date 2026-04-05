@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Metrics Owner"
   short_description: "Add ownership and success metrics to Logics backlog/spec docs"

@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "Connector Linear"
   short_description: "Import Linear issues into Logics backlog documents"

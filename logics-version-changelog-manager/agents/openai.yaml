@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Version Changelog Manager"
   short_description: "Generate versioned kit changelogs from git history"

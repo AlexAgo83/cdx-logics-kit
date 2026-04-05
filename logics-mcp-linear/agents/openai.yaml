@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "MCP Linear"
   short_description: "Install, configure, and use a Linear MCP server"

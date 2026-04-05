@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "Connector Confluence"
   short_description: "Import Confluence pages into Logics request documents"

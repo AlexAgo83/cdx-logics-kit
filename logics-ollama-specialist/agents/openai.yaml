@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Ollama Specialist"
   short_description: "Set up Ollama for local coding, editors, and frontend integration"

@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Changelog Curator"
   short_description: "Curate user-facing changelog entries from Logics release notes"

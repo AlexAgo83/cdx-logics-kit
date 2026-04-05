@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Traceability Matrix Builder"
   short_description: "Map ACs to tests and validation commands"

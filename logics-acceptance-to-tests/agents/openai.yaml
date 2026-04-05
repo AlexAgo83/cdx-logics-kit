@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Acceptance To Tests"
   short_description: "Convert acceptance criteria into a concrete validation/test plan"

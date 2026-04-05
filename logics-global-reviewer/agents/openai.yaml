@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Global Reviewer"
   short_description: "Run a global review of the repository's Logics workflow"

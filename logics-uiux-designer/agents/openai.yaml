@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "UI/UX Designer"
   short_description: "Product UI/UX design assistant for this repo"

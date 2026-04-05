@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Triage Assistant"
   short_description: "Triage raw ideas into the Logics flow"

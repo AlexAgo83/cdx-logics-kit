@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Spec Writer"
   short_description: "Create lightweight functional specs inside this repo"

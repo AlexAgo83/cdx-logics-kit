@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "React Render PWA Bootstrapper"
   short_description: "Bootstrap React projects for Render with PWA and CI defaults"

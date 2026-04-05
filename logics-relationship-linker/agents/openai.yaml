@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Relationship Linker"
   short_description: "Build and maintain relationships across Logics documents"

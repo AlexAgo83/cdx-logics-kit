@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Release Notes"
   short_description: "Generate release notes from completed Logics tasks"

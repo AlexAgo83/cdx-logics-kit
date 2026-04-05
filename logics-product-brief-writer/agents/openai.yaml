@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Product Brief Writer"
   short_description: "Write product briefs in logics/product"

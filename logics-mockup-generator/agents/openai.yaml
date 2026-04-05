@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "Mockup Generator"
   short_description: "Generate quick PNG UI mockups and store them under"

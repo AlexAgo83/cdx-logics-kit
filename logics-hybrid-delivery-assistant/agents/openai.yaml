@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Hybrid Delivery Assistant"
   short_description: "Run bounded hybrid Logics assist flows with Ollama-or-Codex fallback."
