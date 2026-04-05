@@ -1083,7 +1083,7 @@ def execute_hybrid_backend_impl(
             raw_payload = transport["result_payload"]
             validated = validate_hybrid_result(flow_name, raw_payload, docs_by_ref, context_bundle=context_bundle)
         except error_cls as exc:
-            if requested_backend != "auto":
+            if requested_backend != "auto" and flow_name != "next-step":
                 raise
             degraded_reasons.append(exc.code)
             raw_payload = build_hybrid_failure_raw_payload(exc=exc, transport=transport, raw_payload=raw_payload)
