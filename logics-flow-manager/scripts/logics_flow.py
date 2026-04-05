@@ -959,6 +959,7 @@ def _prepare_hybrid_context_bundle(
     *,
     flow_name: str,
     ref: str | None,
+    intent: str | None = None,
     context_mode: str | None,
     profile: str,
     include_graph: bool | None,
@@ -972,6 +973,7 @@ def _prepare_hybrid_context_bundle(
         repo_root,
         flow_name,
         ref=ref,
+        intent=intent,
         context_mode=context_mode,
         profile=profile,
         include_graph=include_graph,
@@ -1040,6 +1042,7 @@ def _build_hybrid_context(
     flow_name: str,
     *,
     ref: str | None,
+    intent: str | None = None,
     context_mode: str | None,
     profile: str | None,
     include_graph: bool | None,
@@ -1085,6 +1088,9 @@ def _build_hybrid_context(
             "changed_paths": bundle["git_snapshot"]["changed_paths"],
             "estimates": {"doc_count": 0, "char_count": 0},
         }
+    normalized_intent = " ".join(str(intent or "").split()).strip()
+    if normalized_intent:
+        bundle["operator_input"] = {"intent": normalized_intent}
     if resolved_registry:
         bundle["registry"] = _dispatcher_registry_summary(repo_root, config=config)
     if resolved_doctor:
@@ -1193,6 +1199,7 @@ def _run_hybrid_assist(
     *,
     flow_name: str,
     ref: str | None,
+    intent: str | None = None,
     requested_backend: str,
     requested_model_profile: str | None,
     requested_model: str | None,
@@ -1210,6 +1217,11 @@ def _run_hybrid_assist(
     dry_run: bool,
 ) -> dict[str, object]:
     repo_root = repo_root.resolve()
+    normalized_intent = " ".join(str(intent or "").split()).strip()
+    if flow_name == "request-draft" and not normalized_intent:
+        raise SystemExit("`request-draft` requires `--intent`.")
+    if flow_name == "spec-first-pass" and not ref:
+        raise SystemExit("`spec-first-pass` requires a backlog ref.")
     docs_by_ref = _load_workflow_docs(repo_root, config=config)
     model_selection = _hybrid_model_selection(
         config,
@@ -1221,6 +1233,7 @@ def _run_hybrid_assist(
         repo_root,
         flow_name=flow_name,
         ref=ref,
+        intent=normalized_intent or None,
         context_mode=context_mode,
         profile=resolved_profile,
         include_graph=include_graph,
@@ -1473,6 +1486,7 @@ def cmd_assist_run(args: argparse.Namespace) -> dict[str, object]:
         repo_root,
         flow_name=args.flow_name,
         ref=getattr(args, "ref", None),
+        intent=getattr(args, "intent", None),
         requested_backend=args.backend or _hybrid_default_backend(config),
         requested_model_profile=getattr(args, "model_profile", None),
         requested_model=args.model,
@@ -2758,11 +2772,12 @@ def build_parser() -> argparse.ArgumentParser:
     assist_run.add_argument("--execution-mode", choices=("suggestion-only", "execute"), default="suggestion-only")
     assist_run.add_argument("--audit-log")
     assist_run.add_argument("--measurement-log")
+    assist_run.add_argument("--intent", help="Short operator intent for request-draft authoring proposals.")
     assist_run.add_argument("--format", choices=("text", "json"), default="text")
     assist_run.add_argument("--dry-run", action="store_true")
     assist_run.set_defaults(func=cmd_assist_run)
 
-    def add_assist_alias(name: str, flow_name: str, help_text: str, *, takes_ref: bool) -> None:
+    def add_assist_alias(name: str, flow_name: str, help_text: str, *, takes_ref: bool) -> argparse.ArgumentParser:
         alias = assist_sub.add_parser(name, help=help_text)
         if takes_ref:
             alias.add_argument("ref", help="Workflow ref for the assist flow target.")
@@ -2782,11 +2797,15 @@ def build_parser() -> argparse.ArgumentParser:
         alias.add_argument("--format", choices=("text", "json"), default="text")
         alias.add_argument("--dry-run", action="store_true")
         alias.set_defaults(func=cmd_assist_run, flow_name=flow_name)
+        return alias
 
     add_assist_alias("summarize-pr", "pr-summary", "Generate a bounded PR summary.", takes_ref=False)
     add_assist_alias("summarize-changelog", "changelog-summary", "Generate a bounded changelog summary.", takes_ref=False)
     add_assist_alias("summarize-validation", "validation-summary", "Summarize shared validation results.", takes_ref=False)
     add_assist_alias("next-step", "next-step", "Suggest the next bounded workflow action for a target doc.", takes_ref=True)
+    request_draft_alias = add_assist_alias("request-draft", "request-draft", "Draft bounded request Needs and Context blocks.", takes_ref=False)
+    request_draft_alias.add_argument("--intent", required=True, help="Short operator intent to draft the request from.")
+    add_assist_alias("spec-first-pass", "spec-first-pass", "Draft a first-pass spec outline from a backlog item.", takes_ref=True)
     add_assist_alias("triage", "triage", "Triage a target request or backlog doc.", takes_ref=True)
     add_assist_alias("handoff", "handoff-packet", "Generate a compact handoff packet for a target workflow doc.", takes_ref=True)
     add_assist_alias("suggest-split", "suggest-split", "Suggest a bounded split for a broad request or backlog item.", takes_ref=True)

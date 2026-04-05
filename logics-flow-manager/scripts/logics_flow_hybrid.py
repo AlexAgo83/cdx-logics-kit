@@ -148,6 +148,16 @@ FLOW_CONTRACTS: dict[str, dict[str, Any]] = {
         "safety_class": SAFETY_CLASS_DETERMINISTIC_RUNNER,
         "required_keys": ("action", "target_ref", "proposed_args", "rationale", "confidence"),
     },
+    "request-draft": {
+        "summary": "Draft bounded request Needs and Context blocks from a short operator intent.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("needs", "context", "confidence", "rationale"),
+    },
+    "spec-first-pass": {
+        "summary": "Draft a first-pass spec outline from a backlog item and its acceptance criteria.",
+        "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
+        "required_keys": ("sections", "open_questions", "constraints", "confidence", "rationale"),
+    },
     "triage": {
         "summary": "Classify the target workflow doc as ready, blocked, needing clarification, or needing split.",
         "safety_class": SAFETY_CLASS_PROPOSAL_ONLY,
@@ -250,6 +260,8 @@ FLOW_CONTEXT_PROFILES: dict[str, dict[str, Any]] = {
     "changelog-summary": {"mode": "diff-first", "profile": "tiny", "include_graph": False, "include_registry": False, "include_doctor": False},
     "validation-summary": {"mode": "summary-only", "profile": "normal", "include_graph": False, "include_registry": False, "include_doctor": True},
     "next-step": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": True, "include_doctor": True},
+    "request-draft": {"mode": "summary-only", "profile": "normal", "include_graph": False, "include_registry": True, "include_doctor": False},
+    "spec-first-pass": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
     "triage": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
     "handoff-packet": {"mode": "diff-first", "profile": "deep", "include_graph": True, "include_registry": True, "include_doctor": True},
     "suggest-split": {"mode": "summary-only", "profile": "normal", "include_graph": True, "include_registry": False, "include_doctor": False},
@@ -300,6 +312,18 @@ FLOW_BACKEND_POLICIES: dict[str, dict[str, Any]] = {
         "allowed_backends": ["openai", "gemini", "codex"],
         "fallback_policy": "auto-remains-codex-first-explicit-remote-dispatch-validates-then-bounded-codex-fallback",
         "selection_summary": "Keep next-step Codex-only under auto, but allow explicit OpenAI or Gemini dispatch with the same bounded dispatcher validation and Codex fallback on invalid payloads.",
+    },
+    "request-draft": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep request-draft local-first because the output is bounded, proposal-only, and easy to review before any file write.",
+    },
+    "spec-first-pass": {
+        "mode": BACKEND_POLICY_OLLAMA_FIRST,
+        "auto_backend": "ollama",
+        "fallback_policy": "validate-local-payload-then-bounded-codex-fallback",
+        "selection_summary": "Keep spec-first-pass local-first because the outline is bounded, proposal-only, and derived from a backlog slice.",
     },
     "triage": {
         "mode": BACKEND_POLICY_OLLAMA_FIRST,
@@ -1598,6 +1622,47 @@ def build_fallback_result(
         }
     if flow_name == "next-step":
         return _fallback_next_step(str(seed_ref), docs_by_ref).to_dict()
+    if flow_name == "request-draft":
+        operator_input = context_bundle.get("operator_input", {})
+        raw_intent = operator_input.get("intent") if isinstance(operator_input, dict) else None
+        normalized_intent = " ".join(str(raw_intent or "").split()).strip()
+        needs = [normalized_intent or "Clarify the operator intent before drafting the request."]
+        context = [
+            "Capture the user problem, desired outcome, and why the request matters now.",
+            "Keep the request bounded so it can promote cleanly into one or more backlog slices.",
+        ]
+        return {
+            "needs": needs,
+            "context": context,
+            "confidence": 0.61,
+            "rationale": "Fallback request draft uses the supplied operator intent and the shared Logics request posture.",
+        }
+    if flow_name == "spec-first-pass":
+        doc = docs_by_ref[str(seed_ref)]
+        acceptance_bullets = _section_bullets(doc, "Acceptance criteria")
+        sections = [
+            "Summary",
+            "Scope",
+            "Acceptance criteria",
+            "Validation",
+            "Open questions",
+        ]
+        open_questions = [
+            "Which acceptance criteria need the deepest validation or traceability detail?",
+        ]
+        if not acceptance_bullets:
+            open_questions.append("Acceptance criteria are missing or too thin; confirm the intended delivery contract.")
+        constraints = [
+            f"Stay aligned with `{doc.ref}` and keep the outline proposal-only for operator review.",
+            "Do not write files or assume implementation details that are not present in the backlog item.",
+        ]
+        return {
+            "sections": sections,
+            "open_questions": open_questions,
+            "constraints": constraints,
+            "confidence": 0.64,
+            "rationale": "Fallback spec outline is derived from the backlog item structure and acceptance-criteria surface.",
+        }
     if flow_name == "triage":
         doc = docs_by_ref[str(seed_ref)]
         acceptance_count = _count_section_bullets(doc, "Acceptance criteria")

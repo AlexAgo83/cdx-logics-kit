@@ -3143,6 +3143,14 @@ class LogicsFlowTest(unittest.TestCase):
         self.assertEqual(next_step_policy["provider_order"], ["codex"])
         self.assertEqual(next_step_policy["allowed_backends"], ["openai", "gemini", "codex"])
 
+        request_draft_policy = hybrid.build_flow_backend_policy("request-draft")
+        self.assertEqual(request_draft_policy["provider_order"], ["ollama", "openai", "gemini", "codex"])
+        self.assertEqual(request_draft_policy["allowed_backends"], ["ollama", "openai", "gemini", "codex"])
+
+        spec_first_pass_policy = hybrid.build_flow_backend_policy("spec-first-pass")
+        self.assertEqual(spec_first_pass_policy["provider_order"], ["ollama", "openai", "gemini", "codex"])
+        self.assertEqual(spec_first_pass_policy["allowed_backends"], ["ollama", "openai", "gemini", "codex"])
+
         commit_message_policy = hybrid.build_flow_backend_policy("commit-message")
         self.assertEqual(commit_message_policy["provider_order"], ["ollama", "openai", "gemini", "codex"])
         self.assertEqual(commit_message_policy["allowed_backends"], ["ollama", "openai", "gemini", "codex"])
@@ -5140,6 +5148,105 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["flow"], "next-step")
             self.assertEqual(payload["result"]["decision"]["action"], "promote")
             self.assertEqual(payload["result"]["decision"]["target_ref"], "req_000_hybrid_seed")
+
+    def test_assist_request_draft_alias_returns_validated_json_without_writing_files(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "request-draft",
+                    "--intent",
+                    "Add a request draft for a lightweight offline validation recap",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["flow"], "request-draft")
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertTrue(payload["result"]["needs"])
+            self.assertTrue(payload["result"]["context"])
+            self.assertFalse((repo / "logics" / "request").exists())
+
+            measurement_log = repo / payload["measurement_log"]
+            self.assertTrue(measurement_log.is_file())
+            measurement_records = [json.loads(line) for line in measurement_log.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(measurement_records[-1]["flow"], "request-draft")
+
+    def test_assist_spec_first_pass_alias_returns_validated_json_without_writing_specs(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            backlog = repo / "logics" / "backlog" / "item_000_spec_seed.md"
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_spec_seed - Spec seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Problem",
+                    "- Define a first-pass spec for the delivery slice.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The outline should stay bounded and proposal-only.",
+                    "- AC2: The spec should highlight open questions and constraints.",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "spec-first-pass",
+                    "item_000_spec_seed",
+                    "--backend",
+                    "codex",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["flow"], "spec-first-pass")
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertTrue(payload["result"]["sections"])
+            self.assertTrue(payload["result"]["open_questions"])
+            self.assertTrue(payload["result"]["constraints"])
+            self.assertFalse((repo / "logics" / "specs").exists())
+
+            measurement_log = repo / payload["measurement_log"]
+            self.assertTrue(measurement_log.is_file())
+            measurement_records = [json.loads(line) for line in measurement_log.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(measurement_records[-1]["flow"], "spec-first-pass")
 
     def test_assist_handoff_and_split_aliases_return_targeted_outputs(self) -> None:
         script = self._script()
