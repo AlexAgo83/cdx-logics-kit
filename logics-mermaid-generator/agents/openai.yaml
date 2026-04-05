@@ -1,0 +1,5 @@
+tier: core
+interface:
+  display_name: "Mermaid Generator"
+  short_description: "Generate Logics workflow Mermaid blocks with deterministic fallback"
+  default_prompt: "Use $logics-mermaid-generator to generate bounded Mermaid blocks for Logics request, backlog, or task docs."

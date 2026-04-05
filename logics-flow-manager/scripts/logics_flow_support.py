@@ -21,6 +21,17 @@ from logics_flow_decision_support import (
 )
 from logics_flow_registry import CURRENT_WORKFLOW_SCHEMA_VERSION
 
+MERMAID_GENERATOR_SCRIPTS = Path(__file__).resolve().parents[2] / "logics-mermaid-generator" / "scripts"
+if str(MERMAID_GENERATOR_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(MERMAID_GENERATOR_SCRIPTS))
+
+from generate_mermaid import (  # noqa: E402
+    _render_backlog_mermaid,
+    _render_request_mermaid,
+    _render_task_mermaid,
+    _render_workflow_mermaid,
+)
+
 
 @dataclass(frozen=True)
 class DocKind:
@@ -528,103 +539,6 @@ def _compose_mermaid_signature(kind_name: str, *parts: str) -> str:
         if rendered:
             signature_parts.append(rendered)
     return "|".join(signature_parts)
-
-
-def _render_mermaid_block(kind_name: str, signature: str, lines: list[str]) -> str:
-    body = "\n".join(
-        [
-            "```mermaid",
-            f"%% logics-kind: {kind_name}",
-            f"%% logics-signature: {signature}",
-            *lines,
-            "```",
-        ]
-    )
-    return body
-
-
-def _render_request_mermaid(title: str, values: dict[str, str]) -> str:
-    need_items = _rendered_list_items(values.get("NEEDS_PLACEHOLDER", ""))
-    context_items = _rendered_list_items(values.get("CONTEXT_PLACEHOLDER", ""))
-    acceptance_items = _rendered_list_items(values.get("ACCEPTANCE_PLACEHOLDER", ""))
-    title_label = _safe_mermaid_label(title, "Request need")
-    need_label = _pick_mermaid_summary([*need_items, *context_items, title], "Need scope")
-    outcome_label = _pick_mermaid_summary([*acceptance_items, *context_items], "Acceptance target")
-    feedback_label = _safe_mermaid_label(MERMAID_FALLBACKS["request_backlog"], MERMAID_FALLBACKS["request_backlog"])
-    signature = _compose_mermaid_signature("request", title, need_label, outcome_label)
-    return _render_mermaid_block(
-        "request",
-        signature,
-        [
-            "flowchart TD",
-            f"    Trigger[{title_label}] --> Need[{need_label}]",
-            f"    Need --> Outcome[{outcome_label}]",
-            f"    Outcome --> Backlog[{feedback_label}]",
-        ],
-    )
-
-
-def _render_backlog_mermaid(title: str, values: dict[str, str]) -> str:
-    request_refs = sorted(_extract_refs(values.get("REQUEST_LINK_PLACEHOLDER", ""), REF_PREFIXES["request"]))
-    task_refs = sorted(_extract_refs(values.get("TASK_LINK_PLACEHOLDER", ""), REF_PREFIXES["task"]))
-    problem_items = _rendered_list_items(values.get("PROBLEM_PLACEHOLDER", ""))
-    acceptance_items = _rendered_list_items(values.get("ACCEPTANCE_BLOCK", ""))
-    source_label = _pick_mermaid_summary([*request_refs, title], "Request source")
-    problem_label = _pick_mermaid_summary([*problem_items, title], "Problem scope")
-    scope_label = _safe_mermaid_label(title, "Scoped delivery")
-    acceptance_label = _pick_mermaid_summary(acceptance_items, "Acceptance check")
-    task_label = _pick_mermaid_summary(task_refs, MERMAID_FALLBACKS["backlog_task"])
-    signature = _compose_mermaid_signature("backlog", title, source_label, problem_label, acceptance_label)
-    return _render_mermaid_block(
-        "backlog",
-        signature,
-        [
-            "flowchart LR",
-            f"    Request[{source_label}] --> Problem[{problem_label}]",
-            f"    Problem --> Scope[{scope_label}]",
-            f"    Scope --> Acceptance[{acceptance_label}]",
-            f"    Acceptance --> Tasks[{task_label}]",
-        ],
-    )
-
-
-def _render_task_mermaid(title: str, values: dict[str, str]) -> str:
-    backlog_refs = sorted(_extract_refs(values.get("BACKLOG_LINK_PLACEHOLDER", ""), REF_PREFIXES["backlog"]))
-    plan_items = [
-        item
-        for item in _rendered_list_items(values.get("PLAN_BLOCK", ""))
-        if not item.lower().startswith("final:")
-    ]
-    validation_items = _rendered_list_items(values.get("VALIDATION_BLOCK", ""))
-    source_label = _pick_mermaid_summary([*backlog_refs, title], "Backlog source")
-    step_one = _pick_mermaid_summary(plan_items[:1], "Confirm scope")
-    step_two = _pick_mermaid_summary(plan_items[1:2], "Implement scope")
-    step_three = _pick_mermaid_summary(plan_items[2:3], "Validate result")
-    validation_label = _pick_mermaid_summary(validation_items, "Validation")
-    report_label = _safe_mermaid_label(MERMAID_FALLBACKS["task_report"], MERMAID_FALLBACKS["task_report"])
-    signature = _compose_mermaid_signature("task", title, source_label, step_one, validation_label)
-    return _render_mermaid_block(
-        "task",
-        signature,
-        [
-            "flowchart LR",
-            f"    Backlog[{source_label}] --> Step1[{step_one}]",
-            f"    Step1 --> Step2[{step_two}]",
-            f"    Step2 --> Step3[{step_three}]",
-            f"    Step3 --> Validation[{validation_label}]",
-            f"    Validation --> Report[{report_label}]",
-        ],
-    )
-
-
-def _render_workflow_mermaid(kind_name: str, title: str, values: dict[str, str]) -> str:
-    if kind_name == "request":
-        return _render_request_mermaid(title, values)
-    if kind_name == "backlog":
-        return _render_backlog_mermaid(title, values)
-    if kind_name == "task":
-        return _render_task_mermaid(title, values)
-    raise ValueError(f"Unsupported Mermaid workflow kind: {kind_name}")
 
 
 def _extract_title(lines: list[str]) -> str:
