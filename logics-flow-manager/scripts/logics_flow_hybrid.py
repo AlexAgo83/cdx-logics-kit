@@ -76,6 +76,7 @@ DEFAULT_HYBRID_MEASUREMENT_LOG = "logics/.cache/hybrid_assist_measurements.jsonl
 DEFAULT_HYBRID_ROI_RECENT_LIMIT = 8
 DEFAULT_HYBRID_ROI_WINDOW_DAYS = 14
 DEFAULT_ESTIMATED_REMOTE_TOKENS_PER_LOCAL_RUN = 1200
+_GIT_SNAPSHOT_CACHE: dict[str, dict[str, Any]] = {}
 DEFAULT_HYBRID_MODEL_PROFILES: dict[str, dict[str, Any]] = {
     "deepseek-coder": {
         "family": "deepseek",
@@ -1080,8 +1081,11 @@ def _submodule_has_local_changes(repo_root: Path, rel_path: str) -> bool:
     return _repo_has_local_changes(submodule_root)
 
 
-def collect_git_snapshot(repo_root: Path) -> dict[str, Any]:
-    return collect_git_snapshot_impl(repo_root)
+def collect_git_snapshot(repo_root: Path, *, refresh: bool = False) -> dict[str, Any]:
+    cache_key = str(repo_root.resolve())
+    if refresh or cache_key not in _GIT_SNAPSHOT_CACHE:
+        _GIT_SNAPSHOT_CACHE[cache_key] = collect_git_snapshot_impl(repo_root)
+    return deepcopy(_GIT_SNAPSHOT_CACHE[cache_key])
 
 
 def build_runtime_status(

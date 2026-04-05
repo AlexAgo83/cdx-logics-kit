@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
@@ -9,6 +10,15 @@ import socket
 from typing import Any, Callable
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+
+
+NOISY_DIFF_FILENAMES = {
+    "package-lock.json",
+    "yarn.lock",
+    "Cargo.lock",
+    "Pipfile.lock",
+    "poetry.lock",
+}
 
 
 @dataclass(frozen=True)
@@ -24,6 +34,50 @@ class HybridProviderDefinition:
     credential_value: str | None = None
     credential_present: bool = False
     enabled: bool = True
+
+
+def _is_noisy_diff_path(path_value: Any) -> bool:
+    if not isinstance(path_value, str):
+        return False
+    normalized = path_value.strip()
+    if " | " in normalized:
+        normalized = normalized.split(" | ", 1)[0].strip()
+    normalized = normalized.replace("\\", "/")
+    if not normalized:
+        return False
+    return normalized.rsplit("/", 1)[-1] in NOISY_DIFF_FILENAMES
+
+
+def _is_binary_diff_stub(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    compact = " ".join(value.strip().split())
+    return bool(compact) and (" | Bin " in compact or compact.startswith("Binary files "))
+
+
+def _sanitize_hybrid_context_bundle_for_prompt(context_bundle: dict[str, Any]) -> dict[str, Any]:
+    sanitized = deepcopy(context_bundle)
+    git_snapshot = sanitized.get("git_snapshot")
+    if isinstance(git_snapshot, dict):
+        git_snapshot["changed_paths"] = [
+            path for path in git_snapshot.get("changed_paths", []) if not _is_noisy_diff_path(path)
+        ]
+        git_snapshot["unstaged_diff_stat"] = [
+            line
+            for line in git_snapshot.get("unstaged_diff_stat", [])
+            if not _is_noisy_diff_path(line) and not _is_binary_diff_stub(line)
+        ]
+        git_snapshot["staged_diff_stat"] = [
+            line
+            for line in git_snapshot.get("staged_diff_stat", [])
+            if not _is_noisy_diff_path(line) and not _is_binary_diff_stub(line)
+        ]
+    context_pack = sanitized.get("context_pack")
+    if isinstance(context_pack, dict):
+        context_pack["changed_paths"] = [
+            path for path in context_pack.get("changed_paths", []) if not _is_noisy_diff_path(path)
+        ]
+    return sanitized
 
 
 def bounded_diagnostic_value_impl(
@@ -665,6 +719,7 @@ def select_hybrid_backend_impl(
 
 
 def build_hybrid_messages_impl(flow_name: str, context_bundle: dict[str, Any]) -> list[dict[str, str]]:
+    sanitized_context_bundle = _sanitize_hybrid_context_bundle_for_prompt(context_bundle)
     contract = context_bundle["contract"]
     required_keys = ", ".join(contract["required_keys"])
     contract_metadata_keys = [
@@ -710,7 +765,7 @@ def build_hybrid_messages_impl(flow_name: str, context_bundle: dict[str, Any]) -
         "Return a JSON instance that satisfies the contract.\n\n"
         f"Answer rules:\n{chr(10).join('- ' + line for line in instruction_lines)}\n\n"
         f"Hybrid contract:\n{json.dumps(contract, indent=2, sort_keys=True)}\n\n"
-        f"Context bundle:\n{json.dumps(context_bundle, indent=2, sort_keys=True)}"
+        f"Context bundle:\n{json.dumps(sanitized_context_bundle, indent=2, sort_keys=True)}"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 

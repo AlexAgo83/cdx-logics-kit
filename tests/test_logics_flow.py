@@ -38,6 +38,21 @@ class LogicsFlowTest(unittest.TestCase):
             sys.path.pop(0)
         return module
 
+    def _flow_module(self):
+        module_path = self._flow_manager_root() / "scripts" / "logics_flow.py"
+        spec = importlib.util.spec_from_file_location("logics_flow_test", module_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(module_path.parent))
+        try:
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+        finally:
+            sys.modules.pop(spec.name, None)
+            sys.path.pop(0)
+        return module
+
     def _fixtures_root(self) -> Path:
         return Path(__file__).resolve().parent / "fixtures"
 
@@ -72,6 +87,142 @@ class LogicsFlowTest(unittest.TestCase):
             if line.startswith("> Progress:"):
                 return line.split(":", 1)[1].strip()
         return None
+
+    def test_build_hybrid_messages_strips_lockfiles_and_binary_diff_stubs(self) -> None:
+        hybrid = self._hybrid_module()
+        payload = hybrid.build_hybrid_messages_impl(
+            "diff-risk",
+            {
+                "contract": hybrid.build_flow_contract("diff-risk"),
+                "git_snapshot": {
+                    "changed_paths": ["package-lock.json", "src/app.ts", "assets/logo.png"],
+                    "unstaged_diff_stat": [" package-lock.json | 1200 +++++++++++++++++", " src/app.ts | 12 ++--"],
+                    "staged_diff_stat": [" assets/logo.png | Bin 0 -> 912 bytes"],
+                },
+                "context_pack": {
+                    "changed_paths": ["package-lock.json", "src/app.ts"],
+                    "docs": [],
+                },
+            },
+        )
+        user_message = payload[1]["content"]
+        self.assertNotIn("package-lock.json", user_message)
+        self.assertNotIn("Bin 0 -> 912 bytes", user_message)
+        self.assertIn("src/app.ts", user_message)
+
+    def test_collect_git_snapshot_is_cached_within_process_until_refresh(self) -> None:
+        hybrid = self._hybrid_module()
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+
+        original_impl = hybrid.collect_git_snapshot_impl
+        calls: list[str] = []
+
+        def fake_collect_git_snapshot_impl(repo_root: Path) -> dict[str, object]:
+            calls.append(str(repo_root))
+            return {
+                "git_available": True,
+                "changed_paths": ["README.md"],
+                "unstaged_diff_stat": [" README.md | 1 +"],
+                "staged_diff_stat": [],
+                "has_changes": True,
+                "doc_only": False,
+                "touches_plugin": False,
+                "touches_runtime": False,
+                "touches_tests": False,
+                "touches_submodule": False,
+                "submodule_has_changes": False,
+            }
+
+        hybrid.collect_git_snapshot_impl = fake_collect_git_snapshot_impl
+        try:
+            hybrid.collect_git_snapshot(repo)
+            hybrid.collect_git_snapshot(repo)
+            hybrid.collect_git_snapshot(repo, refresh=True)
+        finally:
+            hybrid.collect_git_snapshot_impl = original_impl
+
+        self.assertEqual(calls, [str(repo), str(repo)])
+
+    def test_build_hybrid_context_reuses_cached_git_snapshot_across_calls(self) -> None:
+        flow = self._flow_module()
+        repo = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        self._write_doc(
+            repo / "logics" / "request" / "req_000_demo.md",
+            [
+                "## req_000_demo - Demo",
+                "> From version: 1.0.0",
+                "> Schema version: 1.0",
+                "> Status: Draft",
+                "> Understanding: 100%",
+                "> Confidence: 100%",
+                "",
+                "# Needs",
+                "- Demo",
+                "",
+                "# Acceptance criteria",
+                "- AC1: Demo",
+            ],
+        )
+
+        flow.collect_git_snapshot.__globals__["_GIT_SNAPSHOT_CACHE"].clear()
+        original_impl = flow.collect_git_snapshot.__globals__["collect_git_snapshot_impl"]
+        calls: list[str] = []
+
+        def fake_collect_git_snapshot_impl(repo_root: Path) -> dict[str, object]:
+            calls.append(str(repo_root))
+            return {
+                "git_available": True,
+                "changed_paths": ["README.md"],
+                "unstaged_diff_stat": [],
+                "staged_diff_stat": [],
+                "has_changes": True,
+                "doc_only": False,
+                "touches_plugin": False,
+                "touches_runtime": False,
+                "touches_tests": False,
+                "touches_submodule": False,
+                "submodule_has_changes": False,
+            }
+
+        flow.collect_git_snapshot.__globals__["collect_git_snapshot_impl"] = fake_collect_git_snapshot_impl
+        original_context_pack = flow._build_context_pack
+
+        def fake_context_pack(*args, **kwargs):
+            return {"ref": "req_000_demo", "mode": "summary-only", "profile": "normal", "docs": [], "changed_paths": []}
+
+        flow._build_context_pack = fake_context_pack
+        try:
+            config = {"hybrid_assist": {}}
+            flow._build_hybrid_context(
+                repo,
+                "triage",
+                ref="req_000_demo",
+                context_mode=None,
+                profile=None,
+                include_graph=False,
+                include_registry=False,
+                include_doctor=False,
+                config=config,
+            )
+            flow._build_hybrid_context(
+                repo,
+                "triage",
+                ref="req_000_demo",
+                context_mode=None,
+                profile=None,
+                include_graph=False,
+                include_registry=False,
+                include_doctor=False,
+                config=config,
+            )
+        finally:
+            flow._build_context_pack = original_context_pack
+            flow.collect_git_snapshot.__globals__["collect_git_snapshot_impl"] = original_impl
+            flow.collect_git_snapshot.__globals__["_GIT_SNAPSHOT_CACHE"].clear()
+
+        self.assertEqual(calls, [str(repo)])
 
     def test_finish_task_closes_linked_backlog_and_request(self) -> None:
         script = self._script()

@@ -1066,7 +1066,7 @@ def cmd_assist_commit_all(args: argparse.Namespace) -> dict[str, object]:
         step_results = []
         for step in steps:
             target_repo = repo_root / "logics" / "skills" if step["scope"] == "submodule" else repo_root
-            target_snapshot = collect_git_snapshot(target_repo)
+            target_snapshot = collect_git_snapshot(target_repo, refresh=True)
             if not target_snapshot.get("has_changes"):
                 step_results.append(
                     {
@@ -1151,7 +1151,7 @@ def cmd_assist_prepare_release(args: argparse.Namespace) -> dict[str, object]:
 
     # Capture the git snapshot before any assist calls so audit log creation does not
     # pollute the working-tree status check.
-    git_snapshot = collect_git_snapshot(repo_root)
+    git_snapshot = collect_git_snapshot(repo_root, refresh=True)
 
     # release-changelog-status is policy-deterministic; always use auto so the backend
     # policy routes it correctly regardless of what the operator requested.
@@ -1302,7 +1302,7 @@ def cmd_assist_publish_release(args: argparse.Namespace) -> dict[str, object]:
     }
 
     # Capture git snapshot before assist calls.
-    git_snapshot = collect_git_snapshot(repo_root)
+    git_snapshot = collect_git_snapshot(repo_root, refresh=True)
 
     changelog_status_payload = _run_hybrid_assist(
         flow_name="release-changelog-status", ref=None, **base_kwargs
