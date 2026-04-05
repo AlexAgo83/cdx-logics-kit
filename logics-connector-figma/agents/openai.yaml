@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "Connector Figma"
   short_description: "Import Figma nodes and exports into Logics backlog docs"

@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Doc Linter"
   short_description: "Lint and validate the Logics Markdown conventions"

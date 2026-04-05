@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Release Gatekeeper"
   short_description: "Run release-readiness checks on Logics docs"

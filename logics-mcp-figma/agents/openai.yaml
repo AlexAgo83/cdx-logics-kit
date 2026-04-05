@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "MCP Figma"
   short_description: "Install, configure, and use a Figma MCP server"

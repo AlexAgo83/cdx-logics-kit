@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "Connector Render"
   short_description: "Connect Render services/deploys and import deployment context"

@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Bootstrapper"
   short_description: "Initialize Logics folder structure in a new repository"

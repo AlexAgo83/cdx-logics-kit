@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Flow Manager"
   short_description: "Create, promote, and close Logics workflow documents"

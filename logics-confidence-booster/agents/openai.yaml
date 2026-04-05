@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Confidence Booster"
   short_description: "Raise understanding/confidence with focused clarifications"

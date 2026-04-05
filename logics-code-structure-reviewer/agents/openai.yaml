@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Code Structure Reviewer"
   short_description: "Review code structure and suggest modularization boundaries"

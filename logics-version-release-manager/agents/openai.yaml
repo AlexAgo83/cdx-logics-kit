@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Version Release Manager"
   short_description: "Publish kit releases from VERSION and changelogs/"

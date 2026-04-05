@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "MCP Notion"
   short_description: "Install, configure, and use the Notion MCP server"

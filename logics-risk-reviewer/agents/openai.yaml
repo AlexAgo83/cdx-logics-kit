@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "Risk Reviewer"
   short_description: "Add a risk/rollback review to Logics docs"

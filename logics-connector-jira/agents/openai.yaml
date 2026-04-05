@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "Connector Jira"
   short_description: "Import Jira issues into Logics backlog documents"

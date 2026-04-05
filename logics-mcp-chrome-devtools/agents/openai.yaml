@@ -1,3 +1,4 @@
+tier: optional
 interface:
   display_name: "MCP Chrome Devtools"
   short_description: "Install and configure the Chrome DevTools MCP server"

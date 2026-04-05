@@ -1,3 +1,4 @@
+tier: core
 interface:
   display_name: "UI Steering"
   short_description: "Grounded frontend generation and refinement guardrails"
