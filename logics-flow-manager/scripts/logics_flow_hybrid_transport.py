@@ -160,6 +160,8 @@ def load_dotenv_values_impl(path: Path) -> dict[str, str]:
         value = raw_value.strip()
         if value.startswith(("'", '"')) and value.endswith(("'", '"')) and len(value) >= 2:
             value = value[1:-1]
+        if not value:
+            continue
         values[normalized_key] = value
     return values
 
