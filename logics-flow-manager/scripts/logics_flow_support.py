@@ -710,11 +710,11 @@ def refresh_workflow_mermaid_signature_file(
 
 def _render_ac_traceability_block(ac_entries: Iterable[tuple[str, str]], fallback: str) -> str:
     rendered = [
-        f"- {ac_id} -> Scope: {summary}. Proof: TODO."
+        f"- {ac_id} -> Scope: {summary}. Proof: capture validation evidence in this doc."
         for ac_id, summary in ac_entries
     ]
     if not rendered:
-        rendered = [f"- AC1 -> {fallback}. Proof: TODO."]
+        rendered = [f"- AC1 -> {fallback}. Proof: capture validation evidence in this doc."]
     return "\n".join(rendered)
 
 
@@ -1221,10 +1221,10 @@ def build_workflow_doc_values(
     *,
     doc_ref: str,
     title: str,
-    from_version: str = "X.X.X",
+    from_version: str = "0.0.0",
     status: str | None = None,
-    understanding: str = "??%",
-    confidence: str = "??%",
+    understanding: str = "90%",
+    confidence: str = "85%",
     progress: str = "0%",
     complexity: str = "Medium",
     theme: str = "General",
@@ -1437,6 +1437,8 @@ def _create_backlog_from_request(
 
     values["MERMAID_BLOCK"] = _generate_workflow_mermaid(repo_root, "backlog", title, values, dry_run=args.dry_run)
     content = _render_template(template_text, values).rstrip() + "\n"
+    content, _changed = refresh_ai_context_text(content, "backlog")
+    content, _changed = refresh_workflow_mermaid_signature_text(content, "backlog", repo_root=repo_root, dry_run=args.dry_run)
     _write(planned.path, content, args.dry_run)
     _update_request_backlog_links(source_path, planned.ref, args.dry_run)
     for ref in product_refs:
@@ -1492,6 +1494,8 @@ def _create_task_from_backlog(
 
     values["MERMAID_BLOCK"] = _generate_workflow_mermaid(repo_root, "task", title, values, dry_run=args.dry_run)
     content = _render_template(template_text, values).rstrip() + "\n"
+    content, _changed = refresh_ai_context_text(content, "task")
+    content, _changed = refresh_workflow_mermaid_signature_text(content, "task", repo_root=repo_root, dry_run=args.dry_run)
     _write(planned.path, content, args.dry_run)
     if source_ref is not None:
         existing_task_refs = sorted(_extract_refs(source_text, REF_PREFIXES["task"]) | {planned.ref})

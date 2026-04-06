@@ -181,6 +181,9 @@ def _normalize_titles(raw_value: Any) -> list[str]:
 
 def _validate_action_args(action: str, proposed_args: dict[str, Any]) -> dict[str, Any]:
     allowed = KNOWN_ACTION_ARGUMENTS[action]
+    if action == "new":
+        proposed_args = {key: value for key, value in proposed_args.items() if key in allowed}
+
     unknown = sorted(set(proposed_args) - allowed)
     if unknown:
         raise DispatcherError(

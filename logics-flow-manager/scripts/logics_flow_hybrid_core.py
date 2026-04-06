@@ -433,7 +433,18 @@ def validate_hybrid_result_impl(
         )
 
     if flow_name == "next-step":
-        decision = validate_dispatcher_decision(payload, docs_by_ref)
+        try:
+            decision = validate_dispatcher_decision(payload, docs_by_ref)
+        except Exception as exc:
+            raise error_cls(
+                "hybrid_invalid_next_step_decision",
+                str(exc),
+                details={
+                    "flow": flow_name,
+                    "downstream_error_code": getattr(exc, "code", None),
+                    "downstream_details": getattr(exc, "details", None),
+                },
+            ) from exc
         return decision.to_dict()
 
     normalized: dict[str, Any] = {}
