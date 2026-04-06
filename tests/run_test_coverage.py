@@ -29,12 +29,23 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_coverage():
+    # Guard against the vitest coverage/ output directory shadowing the
+    # real 'coverage' package when running from the repo root.
+    cwd = str(Path.cwd())
+    clean_path = [p for p in sys.path if p != cwd]
+    saved_path = sys.path[:]
+    sys.path[:] = clean_path
+    sys.modules.pop("coverage", None)
     try:
         import coverage
+        if not hasattr(coverage, "Coverage"):
+            raise ImportError("shadowed by local coverage/ directory")
     except ImportError as exc:  # pragma: no cover - dependency bootstrap path
         raise SystemExit(
             "Missing Python dependency 'coverage'. Install it with `python -m pip install coverage` before running coverage."
         ) from exc
+    finally:
+        sys.path[:] = saved_path
     return coverage
 
 
