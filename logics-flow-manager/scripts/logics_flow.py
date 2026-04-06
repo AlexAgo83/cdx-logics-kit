@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import hashlib
 import io
 import json
@@ -117,6 +118,8 @@ CLAUDE_BRIDGE_VARIANTS: tuple[dict[str, str], ...] = (
         "agent_path": ".claude/agents/logics-flow-manager.md",
     },
 )
+
+NEXT_STEP_AUTO_BACKEND_CHOICES = ("openai", "gemini")
 
 
 def _rel(repo_root: Path, path: Path) -> str:
@@ -639,6 +642,135 @@ def _hybrid_default_backend(config: dict[str, object]) -> str:
     return str(get_config_value(config, "hybrid_assist", "default_backend", default=DEFAULT_HYBRID_BACKEND))
 
 
+def _next_step_auto_backend(config: dict[str, object]) -> str | None:
+    configured = str(get_config_value(config, "hybrid_assist", "next_step_auto_backend", default="")).strip().lower()
+    if configured in NEXT_STEP_AUTO_BACKEND_CHOICES:
+        return configured
+    return None
+
+
+def _configured_flow_contract(flow_name: str, config: dict[str, object]) -> dict[str, object]:
+    contract = deepcopy(build_flow_contract(flow_name))
+    if flow_name != "next-step":
+        return contract
+    configured_backend = _next_step_auto_backend(config)
+    if configured_backend is None:
+        return contract
+    backend_policy = deepcopy(contract.get("backend_policy", {}))
+    backend_policy["auto_backend"] = configured_backend
+    backend_policy["provider_order"] = [configured_backend, "codex"]
+    backend_policy["selection_summary"] = (
+        "Allow `next-step` auto routing to use the configured remote provider first, "
+        "then fall back to Codex with a logged warning if the configured provider is unavailable."
+    )
+    contract["backend_policy"] = backend_policy
+    return contract
+
+
+def _select_hybrid_backend_for_flow(
+    *,
+    requested_backend: str,
+    flow_name: str,
+    repo_root: Path,
+    config: dict[str, object],
+    requested_model: str | None,
+    host: str,
+    model_profile: str,
+    model_family: str,
+    configured_model: str,
+    model: str,
+    timeout_seconds: float,
+) -> tuple[HybridBackendStatus, list[str]]:
+    configured_auto_backend = _next_step_auto_backend(config) if flow_name == "next-step" and requested_backend == "auto" else None
+    if configured_auto_backend is None:
+        return (
+            select_hybrid_backend(
+                requested_backend=requested_backend,
+                flow_name=flow_name,
+                repo_root=repo_root,
+                config=config,
+                requested_model=requested_model,
+                host=host,
+                model_profile=model_profile,
+                model_family=model_family,
+                configured_model=configured_model,
+                model=model,
+                timeout_seconds=timeout_seconds,
+            ),
+            [],
+        )
+
+    try:
+        configured_status = select_hybrid_backend(
+            requested_backend=configured_auto_backend,
+            flow_name=flow_name,
+            repo_root=repo_root,
+            config=config,
+            requested_model=requested_model,
+            host=host,
+            model_profile=model_profile,
+            model_family=model_family,
+            configured_model=configured_model,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+    except HybridAssistError as exc:
+        fallback_status = select_hybrid_backend(
+            requested_backend="codex",
+            flow_name=flow_name,
+            repo_root=repo_root,
+            config=config,
+            requested_model=requested_model,
+            host=host,
+            model_profile=model_profile,
+            model_family=model_family,
+            configured_model=configured_model,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
+        return (
+            HybridBackendStatus(
+                requested_backend="auto",
+                selected_backend=fallback_status.selected_backend,
+                host=fallback_status.host,
+                model_profile=fallback_status.model_profile,
+                model_family=fallback_status.model_family,
+                configured_model=fallback_status.configured_model,
+                model=fallback_status.model,
+                ollama_reachable=fallback_status.ollama_reachable,
+                model_available=fallback_status.model_available,
+                healthy=fallback_status.healthy,
+                reasons=[f"next-step-auto-backend-{configured_auto_backend}-fallback", exc.code],
+                response_time_ms=fallback_status.response_time_ms,
+                version=fallback_status.version,
+                selection_reason="config-auto-backend-fallback",
+                policy_mode=fallback_status.policy_mode,
+            ),
+            [f"next-step-auto-backend-{configured_auto_backend}-fallback", exc.code],
+        )
+
+    return (
+        HybridBackendStatus(
+            requested_backend="auto",
+            selected_backend=configured_status.selected_backend,
+            host=configured_status.host,
+            model_profile=configured_status.model_profile,
+            model_family=configured_status.model_family,
+            configured_model=configured_status.configured_model,
+            model=configured_status.model,
+            ollama_reachable=configured_status.ollama_reachable,
+            model_available=configured_status.model_available,
+            healthy=configured_status.healthy,
+            reasons=[],
+            response_time_ms=configured_status.response_time_ms,
+            version=configured_status.version,
+            selection_reason="config-auto-backend",
+            policy_mode=configured_status.policy_mode,
+        ),
+        [],
+    )
+
+
 def _hybrid_default_model(config: dict[str, object]) -> str:
     return str(get_config_value(config, "hybrid_assist", "default_model", default=DEFAULT_HYBRID_MODEL))
 
@@ -1069,7 +1201,7 @@ def _build_hybrid_context(
             "include_registry": resolved_registry,
             "include_doctor": resolved_doctor,
         },
-        "contract": build_flow_contract(flow_name),
+        "contract": _configured_flow_contract(flow_name, config),
         "git_snapshot": collect_git_snapshot(repo_root),
         "claude_bridge": _claude_bridge_status(repo_root),
         "claude_bridge_available": _claude_bridge_available(repo_root),
@@ -1275,7 +1407,7 @@ def _run_hybrid_assist(
         diff_fingerprint = ""
         cache_hit = False
     else:
-        backend_status = select_hybrid_backend(
+        backend_status, backend_selection_reasons = _select_hybrid_backend_for_flow(
             requested_backend=requested_backend,
             flow_name=flow_name,
             repo_root=repo_root,
@@ -1356,7 +1488,7 @@ def _run_hybrid_assist(
                 validation_payload=validation_payload,
             )
             backend_status = execution["backend_status"]
-            degraded_reasons = execution["degraded_reasons"]
+            degraded_reasons = [*backend_selection_reasons, *execution["degraded_reasons"]]
             raw_payload = execution["raw_payload"]
             transport = execution["transport"]
             validated = execution["validated"]
