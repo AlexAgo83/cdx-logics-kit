@@ -5678,6 +5678,82 @@ class LogicsFlowTest(unittest.TestCase):
             measurement_records = [json.loads(line) for line in measurement_log.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(measurement_records[-1]["flow"], "request-draft")
 
+    def test_assist_request_draft_execute_requires_confirmation_before_writing(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "request-draft",
+                    "--intent",
+                    "Draft a request for a release recap workflow",
+                    "--backend",
+                    "codex",
+                    "--execution-mode",
+                    "execute",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                input="n\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertFalse(payload["executed"])
+            self.assertEqual(payload["execution_result"]["reason"], "operator-declined")
+            self.assertFalse((repo / "logics" / "request").exists())
+
+    def test_assist_request_draft_execute_writes_request_doc_after_confirmation(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "request-draft",
+                    "--intent",
+                    "Draft a request for a release recap workflow",
+                    "--backend",
+                    "codex",
+                    "--execution-mode",
+                    "execute",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                input="yes\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["executed"])
+            created_path = repo / payload["execution_result"]["created_path"]
+            self.assertTrue(created_path.is_file())
+            content = created_path.read_text(encoding="utf-8")
+            self.assertIn("# Needs", content)
+            self.assertIn("# Context", content)
+            self.assertIn("release recap workflow", content.lower())
+
     def test_assist_request_draft_openai_normalizes_multiline_string_lists(self) -> None:
         script = self._script()
 
@@ -5971,6 +6047,63 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertTrue(measurement_log.is_file())
             measurement_records = [json.loads(line) for line in measurement_log.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(measurement_records[-1]["flow"], "spec-first-pass")
+
+    def test_assist_spec_first_pass_execute_writes_spec_after_confirmation(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            backlog = repo / "logics" / "backlog" / "item_000_spec_seed.md"
+            self._write_doc(
+                backlog,
+                [
+                    "## item_000_spec_seed - Spec seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "> Progress: 0%",
+                    "",
+                    "# Problem",
+                    "- Define a first-pass spec for the delivery slice.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The outline should stay bounded and proposal-only.",
+                    "- AC2: The spec should highlight open questions and constraints.",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "spec-first-pass",
+                    "item_000_spec_seed",
+                    "--backend",
+                    "codex",
+                    "--execution-mode",
+                    "execute",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                input="yes\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["executed"])
+            created_path = repo / payload["execution_result"]["created_path"]
+            self.assertTrue(created_path.is_file())
+            content = created_path.read_text(encoding="utf-8")
+            self.assertIn("# Overview", content)
+            self.assertIn("item_000_spec_seed", content)
 
     def test_assist_spec_first_pass_openai_drops_blank_entries_from_string_lists(self) -> None:
         script = self._script()
@@ -6301,6 +6434,68 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertTrue(measurement_log.is_file())
             measurement_records = [json.loads(line) for line in measurement_log.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(measurement_records[-1]["flow"], "backlog-groom")
+
+    def test_assist_backlog_groom_execute_writes_backlog_after_confirmation(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_groom_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_groom_seed - Groom seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Define a bounded backlog slice for the operator workflow.",
+                    "- Keep the proposal cheap and reviewable.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The backlog proposal includes a scoped title.",
+                    "- AC2: The backlog proposal includes candidate acceptance criteria.",
+                    "",
+                    "# Backlog",
+                    "- (none yet)",
+                ],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "assist",
+                    "backlog-groom",
+                    "req_000_groom_seed",
+                    "--backend",
+                    "codex",
+                    "--execution-mode",
+                    "execute",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                input="yes\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["executed"])
+            created_path = repo / payload["execution_result"]["created_path"]
+            self.assertTrue(created_path.is_file())
+            content = created_path.read_text(encoding="utf-8")
+            self.assertIn("# Acceptance criteria", content)
+            self.assertIn("Hybrid rationale:", content)
+            request_text = request.read_text(encoding="utf-8")
+            self.assertIn(payload["execution_result"]["created_ref"], request_text)
 
     def test_assist_handoff_and_split_aliases_return_targeted_outputs(self) -> None:
         script = self._script()
