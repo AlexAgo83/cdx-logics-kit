@@ -95,6 +95,7 @@ from logics_flow_support import (
     _template_path,
     _write,
     refresh_ai_context_text,
+    refresh_workflow_mermaid_signature_text,
     refresh_workflow_mermaid_signature_file,
 )
 from logics_flow_models import WorkflowDocModel, parse_workflow_doc
@@ -1288,6 +1289,63 @@ def _confidence_percentage(confidence: object, *, fallback: str = "85%") -> str:
     return fallback
 
 
+def _default_from_version(repo_root: Path) -> str:
+    version_path = repo_root / "VERSION"
+    if version_path.is_file():
+        value = version_path.read_text(encoding="utf-8").strip()
+        if value:
+            return value.splitlines()[0].strip()
+
+    package_path = repo_root / "package.json"
+    if package_path.is_file():
+        try:
+            payload = json.loads(package_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        version = payload.get("version")
+        if isinstance(version, str) and version.strip():
+            return version.strip()
+
+    return "0.0.0"
+
+
+def _resolved_from_version(repo_root: Path, value: object) -> str:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized and normalized != "X.X.X":
+            return normalized
+    return _default_from_version(repo_root)
+
+
+def _seed_new_doc_values(doc_kind: str, title: str, values: dict[str, str]) -> None:
+    normalized_title = " ".join(title.split()).strip() or "this workflow doc"
+    if doc_kind == "request":
+        values["NEEDS_PLACEHOLDER"] = f"Clarify the scope and user value of {normalized_title}."
+        values["CONTEXT_PLACEHOLDER"] = f"- Capture the relevant context, constraints, and stakeholders for {normalized_title}."
+        values["ACCEPTANCE_PLACEHOLDER"] = f"AC1: Confirm {normalized_title} is framed clearly enough for backlog grooming."
+        return
+
+    if doc_kind == "backlog":
+        values["PROBLEM_PLACEHOLDER"] = f"- Deliver the bounded slice for {normalized_title} without widening scope."
+        values["ACCEPTANCE_BLOCK"] = f"- AC1: Confirm {normalized_title} delivers one coherent backlog slice."
+        values["AC_TRACEABILITY_PLACEHOLDER"] = (
+            f"- AC1 -> Scope: Deliver the bounded slice for {normalized_title}. "
+            "Proof: capture validation evidence in this doc."
+        )
+        values["REQUEST_LINK_PLACEHOLDER"] = "(none yet)"
+        values["TASK_LINK_PLACEHOLDER"] = "(none yet)"
+        return
+
+    if doc_kind == "task":
+        values["CONTEXT_PLACEHOLDER"] = f"- Execute the bounded delivery slice for {normalized_title}."
+        values["AC_TRACEABILITY_PLACEHOLDER"] = (
+            f"- AC1 -> Scope: Execute the bounded delivery slice for {normalized_title}. "
+            "Proof: capture validation evidence in this doc."
+        )
+        values["BACKLOG_LINK_PLACEHOLDER"] = "(none yet)"
+        values["REQUEST_LINK_PLACEHOLDER"] = "(none yet)"
+
+
 def _title_from_request_intent(intent: str) -> str:
     cleaned = " ".join(intent.split()).strip()
     cleaned = re.sub(r"^(draft|create|add|write|prepare)\s+(a|an)?\s*request\s*(for|about)?\s*", "", cleaned, flags=re.IGNORECASE)
@@ -1299,6 +1357,7 @@ def _title_from_request_intent(intent: str) -> str:
 
 def _build_authoring_args(
     *,
+    repo_root: Path,
     kind: str,
     confidence: object,
     dry_run: bool,
@@ -1307,7 +1366,7 @@ def _build_authoring_args(
     theme: str = "Hybrid assist",
 ) -> argparse.Namespace:
     return argparse.Namespace(
-        from_version="X.X.X",
+        from_version=_default_from_version(repo_root),
         understanding="90%",
         confidence=_confidence_percentage(confidence),
         status=status or STATUS_BY_KIND_DEFAULT[kind],
@@ -1346,7 +1405,7 @@ def _execute_request_draft(
         return {"written": False, "confirmed": False, "reason": "operator-declined"}
 
     planned = _reserve_doc(repo_root / DOC_KINDS["request"].directory, DOC_KINDS["request"].prefix, title, dry_run)
-    args = _build_authoring_args(kind="request", confidence=validated.get("confidence"), dry_run=dry_run)
+    args = _build_authoring_args(repo_root=repo_root, kind="request", confidence=validated.get("confidence"), dry_run=dry_run)
     template_text = _template_path(Path(__file__), DOC_KINDS["request"].template_name).read_text(encoding="utf-8")
     values = _build_template_values(args, planned.ref, title, include_progress=False, doc_kind="request")
     needs = [str(item) for item in validated.get("needs", []) if str(item).strip()]
@@ -1358,6 +1417,7 @@ def _execute_request_draft(
     values["MERMAID_BLOCK"] = _generate_workflow_mermaid(repo_root, "request", title, values, dry_run=dry_run)
     content = _render_template(template_text, values).rstrip() + "\n"
     content, _changed = refresh_ai_context_text(content, "request")
+    content, _changed = refresh_workflow_mermaid_signature_text(content, "request", repo_root=repo_root, dry_run=dry_run)
     _write(planned.path, content, dry_run)
     return {
         "written": not dry_run,
@@ -1391,7 +1451,7 @@ def _execute_spec_first_pass(
     values = {
         "DOC_REF": planned.ref,
         "TITLE": title,
-        "FROM_VERSION": source_doc.indicators.get("From version", "X.X.X"),
+        "FROM_VERSION": _resolved_from_version(repo_root, source_doc.indicators.get("From version")),
         "UNDERSTANDING": "90%",
         "CONFIDENCE": _confidence_percentage(validated.get("confidence")),
         "OVERVIEW": f"Derived from `{source_doc.ref}`. {str(validated.get('rationale', '')).strip()}".strip(),
@@ -1429,6 +1489,7 @@ def _execute_backlog_groom(
 
     source_path = (repo_root / source_doc.path).resolve()
     args = _build_authoring_args(
+        repo_root=repo_root,
         kind="backlog",
         confidence=validated.get("confidence"),
         dry_run=dry_run,
@@ -1444,6 +1505,7 @@ def _execute_backlog_groom(
         updated = _replace_top_level_section(updated, "Acceptance criteria", acceptance_lines)
         updated = _replace_top_level_section(updated, "Notes", notes_lines)
         updated, _changed = refresh_ai_context_text(updated, "backlog")
+        updated, _changed = refresh_workflow_mermaid_signature_text(updated, "backlog", repo_root=repo_root, dry_run=dry_run)
         _write(planned.path, updated, dry_run)
     return {
         "written": not dry_run,
@@ -2424,7 +2486,9 @@ def cmd_new(args: argparse.Namespace) -> None:
     planned = _reserve_doc(repo_root / doc_kind.directory, doc_kind.prefix, args.slug or args.title, args.dry_run)
 
     template_text = _template_path(Path(__file__), doc_kind.template_name).read_text(encoding="utf-8")
+    args.from_version = _resolved_from_version(repo_root, getattr(args, "from_version", None))
     values = _build_template_values(args, planned.ref, args.title, doc_kind.include_progress, doc_kind.kind)
+    _seed_new_doc_values(doc_kind.kind, args.title, values)
     values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(args.title))
     assessment = _assess_decision_framing(args.title, "")
     product_refs: list[str] = []
@@ -2455,6 +2519,13 @@ def cmd_new(args: argparse.Namespace) -> None:
         dry_run=args.dry_run,
     )
     content = _render_template(template_text, values).rstrip() + "\n"
+    content, _changed = refresh_ai_context_text(content, doc_kind.kind)
+    content, _changed = refresh_workflow_mermaid_signature_text(
+        content,
+        doc_kind.kind,
+        repo_root=repo_root,
+        dry_run=args.dry_run,
+    )
     _write(planned.path, content, args.dry_run)
     if doc_kind.kind in {"backlog", "task"}:
         _print_decision_summary(planned.ref, assessment, product_refs, architecture_refs)
@@ -2992,9 +3063,9 @@ def cmd_finish_task(args: argparse.Namespace) -> None:
 
 
 def _add_common_doc_args(parser: argparse.ArgumentParser, kind: str) -> None:
-    parser.add_argument("--from-version", default="X.X.X")
-    parser.add_argument("--understanding", default="??%")
-    parser.add_argument("--confidence", default="??%")
+    parser.add_argument("--from-version")
+    parser.add_argument("--understanding", default="90%")
+    parser.add_argument("--confidence", default="85%")
     parser.add_argument("--status", default=STATUS_BY_KIND_DEFAULT[kind])
     parser.add_argument("--complexity", default="Medium", choices=ALLOWED_COMPLEXITIES)
     parser.add_argument("--theme", default="General")

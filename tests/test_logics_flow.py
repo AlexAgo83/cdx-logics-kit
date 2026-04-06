@@ -1299,8 +1299,14 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("Keep this backlog item as one bounded delivery slice", backlog_text)
             self.assertIn("- Remove repetitive manual cleanup", backlog_text)
             self.assertIn("- AC1: promotion preserves useful indicators", backlog_text)
-            self.assertIn("- AC1 -> Scope: promotion preserves useful indicators. Proof: TODO.", backlog_text)
-            self.assertIn("- AC2 -> Scope: backlog AC traceability is seeded. Proof: TODO.", backlog_text)
+            self.assertIn(
+                "- AC1 -> Scope: promotion preserves useful indicators. Proof: capture validation evidence in this doc.",
+                backlog_text,
+            )
+            self.assertIn(
+                "- AC2 -> Scope: backlog AC traceability is seeded. Proof: capture validation evidence in this doc.",
+                backlog_text,
+            )
             self.assertIn("# AI Context", backlog_text)
             self.assertIn("- Summary: Remove repetitive manual cleanup", backlog_text)
             self.assertIn("- Use when: Use when implementing or reviewing the delivery slice for Seeded request.", backlog_text)
@@ -1567,7 +1573,10 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("task_000_implementation_slice_a", backlog_text)
             self.assertIn("task_001_implementation_slice_b", backlog_text)
             task_text = task_files[0].read_text(encoding="utf-8")
-            self.assertIn("- AC1 -> Scope: tasks are created. Proof: TODO.", task_text)
+            self.assertIn(
+                "- AC1 -> Scope: tasks are created. Proof: capture validation evidence in this doc.",
+                task_text,
+            )
 
     def test_new_backlog_includes_decision_follow_up_guidance(self) -> None:
         script = self._script()
@@ -1768,6 +1777,7 @@ class LogicsFlowTest(unittest.TestCase):
                 ]
             )
             original_generate = flow._generate_workflow_mermaid
+            original_refresh_generate = flow.refresh_workflow_mermaid_signature_text.__globals__["_generate_workflow_mermaid"]
             captured: dict[str, object] = {}
 
             def fake_generate(repo_root: Path, kind_name: str, title: str, values: dict[str, str], *, dry_run: bool) -> str:
@@ -1779,6 +1789,7 @@ class LogicsFlowTest(unittest.TestCase):
                 return sentinel
 
             flow._generate_workflow_mermaid = fake_generate
+            flow.refresh_workflow_mermaid_signature_text.__globals__["_generate_workflow_mermaid"] = fake_generate
             previous_cwd = Path.cwd()
             os.chdir(repo)
             try:
@@ -1802,6 +1813,7 @@ class LogicsFlowTest(unittest.TestCase):
             finally:
                 os.chdir(previous_cwd)
                 flow._generate_workflow_mermaid = original_generate
+                flow.refresh_workflow_mermaid_signature_text.__globals__["_generate_workflow_mermaid"] = original_refresh_generate
 
             self.assertEqual(payload["command"], "new")
             self.assertEqual(Path(captured["repo_root"]).resolve(), repo.resolve())
@@ -1811,6 +1823,41 @@ class LogicsFlowTest(unittest.TestCase):
             created = repo / payload["path"]
             self.assertTrue(created.is_file())
             self.assertIn(sentinel, created.read_text(encoding="utf-8"))
+
+    def test_cmd_new_request_uses_non_placeholder_defaults(self) -> None:
+        script = self._script()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True, exist_ok=True)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "new",
+                    "request",
+                    "--title",
+                    "Demo request",
+                    "--format",
+                    "json",
+                ],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            created = repo / payload["path"]
+            content = created.read_text(encoding="utf-8")
+            self.assertNotIn("> From version: X.X.X", content)
+            self.assertNotIn("> Understanding: ??%", content)
+            self.assertNotIn("> Confidence: ??%", content)
+            self.assertNotIn("Describe the need", content)
+            self.assertNotIn("Add context and constraints", content)
 
     def test_promotions_route_mermaid_generation_through_skill_entry_point(self) -> None:
         flow = self._flow_module()
@@ -1915,7 +1962,15 @@ class LogicsFlowTest(unittest.TestCase):
                 os.chdir(previous_cwd)
                 flow._create_backlog_from_request.__globals__["_generate_workflow_mermaid"] = original_generate
 
-            self.assertEqual(captured, [("backlog", "Demo request"), ("task", "Demo backlog")])
+            self.assertEqual(
+                captured,
+                [
+                    ("backlog", "Demo request"),
+                    ("backlog", "Demo request"),
+                    ("task", "Demo backlog"),
+                    ("task", "Demo backlog"),
+                ],
+            )
             self.assertIn("generated-via-skill", (repo / backlog_payload["created_path"]).read_text(encoding="utf-8"))
             self.assertIn("generated-via-skill", (repo / task_payload["created_path"]).read_text(encoding="utf-8"))
 
@@ -5255,6 +5310,261 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertEqual(payload["context_bundle"]["contract"]["backend_policy"]["auto_backend"], "openai")
             self.assertEqual(payload["result_status"], "ok")
 
+    def test_assist_run_next_step_ignores_extra_new_fields_from_remote_provider(self) -> None:
+        script = self._script()
+
+        class OpenAINextStepNewHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path != "/v1/models/gpt-4.1-mini":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps({"id": "gpt-4.1-mini"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/v1/chat/completions":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": json.dumps(
+                                        {
+                                            "action": "new",
+                                            "target_ref": None,
+                                            "proposed_args": {
+                                                "kind": "backlog",
+                                                "title": "Demo follow-up slice",
+                                                "description": "Extra helper text that should be ignored.",
+                                            },
+                                            "rationale": "The seeded request needs a bounded backlog follow-up.",
+                                            "confidence": 0.86,
+                                        }
+                                    ),
+                                }
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_hybrid_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_hybrid_seed - Hybrid seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Draft",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Break this draft into a bounded follow-up slice.",
+                    "",
+                    "# Context",
+                    "- The seeded request still needs implementation framing.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The next-step decision should stay bounded.",
+                ],
+            )
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OpenAINextStepNewHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                (repo / ".env").write_text("OPENAI_API_KEY=test-openai\n", encoding="utf-8")
+                (repo / "logics.yaml").write_text(
+                    "\n".join(
+                        [
+                            "version: 1",
+                            "hybrid_assist:",
+                            "  providers:",
+                            "    openai:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/v1",
+                            "      model: gpt-4.1-mini",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "next-step",
+                        "req_000_hybrid_seed",
+                        "--backend",
+                        "openai",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_used"], "openai")
+            self.assertEqual(payload["result"]["decision"]["action"], "new")
+            self.assertEqual(
+                payload["result"]["decision"]["proposed_args"],
+                {"kind": "backlog", "title": "Demo follow-up slice"},
+            )
+            self.assertNotIn("description", payload["result"]["decision"]["proposed_args"])
+
+    def test_assist_run_next_step_auto_falls_back_when_remote_new_decision_is_incomplete(self) -> None:
+        script = self._script()
+
+        class OpenAIIncompleteNewHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path != "/v1/models/gpt-4.1-mini":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps({"id": "gpt-4.1-mini"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/v1/chat/completions":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                encoded = json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": json.dumps(
+                                        {
+                                            "action": "new",
+                                            "target_ref": None,
+                                            "proposed_args": {"title": "Incomplete follow-up"},
+                                            "rationale": "The request still needs a bounded follow-up doc.",
+                                            "confidence": 0.81,
+                                        }
+                                    ),
+                                }
+                            }
+                        ]
+                    }
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, format: str, *args: object) -> None:  # noqa: A003
+                return
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            request = repo / "logics" / "request" / "req_000_hybrid_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_000_hybrid_seed - Hybrid seed",
+                    "> From version: 1.12.1",
+                    "> Schema version: 1.0",
+                    "> Status: Draft",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "# Needs",
+                    "- Clarify the scope and user value of the seeded request.",
+                    "",
+                    "# Context",
+                    "- Capture the relevant context and constraints for the seeded request.",
+                    "",
+                    "# Acceptance criteria",
+                    "- AC1: The next-step decision should stay bounded.",
+                ],
+            )
+
+            server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), OpenAIIncompleteNewHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                (repo / ".env").write_text("OPENAI_API_KEY=test-openai\n", encoding="utf-8")
+                (repo / "logics.yaml").write_text(
+                    "\n".join(
+                        [
+                            "version: 1",
+                            "hybrid_assist:",
+                            "  next_step_auto_backend: openai",
+                            "  providers:",
+                            "    openai:",
+                            "      enabled: true",
+                            f"      base_url: http://127.0.0.1:{server.server_port}/v1",
+                            "      model: gpt-4.1-mini",
+                            "",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(script),
+                        "assist",
+                        "next-step",
+                        "req_000_hybrid_seed",
+                        "--format",
+                        "json",
+                    ],
+                    cwd=repo,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["backend_requested"], "auto")
+            self.assertEqual(payload["backend_used"], "codex")
+            self.assertEqual(payload["backend_status"]["selection_reason"], "provider-validation-fallback")
+            self.assertIn("hybrid_invalid_next_step_decision", payload["degraded_reasons"])
+            self.assertEqual(payload["result"]["decision"]["action"], "promote")
+
     def test_assist_run_next_step_configured_auto_backend_falls_back_to_codex(self) -> None:
         script = self._script()
 
@@ -5753,6 +6063,9 @@ class LogicsFlowTest(unittest.TestCase):
             self.assertIn("# Needs", content)
             self.assertIn("# Context", content)
             self.assertIn("release recap workflow", content.lower())
+            self.assertNotIn("> From version: X.X.X", content)
+            self.assertNotIn("> Understanding: ??%", content)
+            self.assertNotIn("> Confidence: ??%", content)
 
     def test_assist_request_draft_openai_normalizes_multiline_string_lists(self) -> None:
         script = self._script()

@@ -192,6 +192,7 @@ class MermaidGeneratorTest(unittest.TestCase):
             )
 
         self.assertEqual(payload["result_status"], "degraded")
+        self.assertEqual(payload["backend_used"], "codex")
         self.assertIn("mermaid-non-ascii-label", payload["degraded_reasons"])
         self.assertEqual(payload["mermaid"], expected_fallback)
         audit_log = Path(payload["audit_log"])
@@ -355,6 +356,64 @@ class MermaidGeneratorTest(unittest.TestCase):
         self.assertEqual(payload["backend_used"], "openai")
         self.assertEqual(payload["result_status"], "ok")
         self.assertTrue(payload["mermaid"].startswith("```mermaid\n%% logics-kind: request\n%% logics-signature: "))
+        self.assertIn("flowchart TD", payload["mermaid"])
+
+    def test_fenced_remote_response_is_rewritten_with_canonical_signature(self) -> None:
+        module = _load_module("mermaid_generator_remote_signature_rewrite", self._script())
+        repo = Path(tempfile.mkdtemp(prefix="mermaid-hybrid-"))
+        self.addCleanup(lambda: shutil.rmtree(repo, ignore_errors=True))
+        (repo / "logics" / ".cache").mkdir(parents=True, exist_ok=True)
+
+        backend_status = mock.Mock(
+            selected_backend="openai",
+            requested_backend="auto",
+            host="https://api.openai.com/v1",
+            model_profile="openai",
+            model_family="openai",
+            configured_model="gpt-4.1-mini",
+            model="gpt-4.1-mini",
+            healthy=True,
+            reasons=[],
+            to_dict=mock.Mock(return_value={"requested_backend": "auto", "selected_backend": "openai", "healthy": True, "reasons": []}),
+        )
+        non_canonical_block = "\n".join(
+            [
+                "```mermaid",
+                "%% logics-kind: request",
+                "%% logics-signature: wrong-signature",
+                "flowchart LR",
+                "    Trigger[Remote request] --> Need[Provider output]",
+                "```",
+            ]
+        )
+
+        with mock.patch.object(module, "probe_ollama_backend", return_value=backend_status), \
+            mock.patch.object(module, "build_hybrid_provider_registry", return_value={"openai": mock.Mock()}), \
+            mock.patch.object(module, "probe_remote_provider", return_value=backend_status), \
+            mock.patch.object(
+                module,
+                "run_openai_hybrid",
+                return_value={
+                    "result_payload": {"mermaid": non_canonical_block, "confidence": 0.9, "rationale": "Remote fenced response."},
+                    "raw_content": non_canonical_block,
+                    "response_payload": {},
+                    "transport": "openai",
+                },
+            ):
+            payload = module.generate_mermaid(
+                repo_root=repo,
+                kind_name="request",
+                title="Remote request",
+                values={
+                    "NEEDS_PLACEHOLDER": "- Provider output",
+                    "CONTEXT_PLACEHOLDER": "- Canonical signature required",
+                    "ACCEPTANCE_PLACEHOLDER": "- AC1: Rewrite Mermaid metadata canonically",
+                },
+            )
+
+        self.assertEqual(payload["backend_used"], "openai")
+        self.assertEqual(payload["result_status"], "ok")
+        self.assertIn("%% logics-signature: request|remote-request|provider-output|ac1-rewrite-mermaid-metadata-canonical", payload["mermaid"])
         self.assertIn("flowchart TD", payload["mermaid"])
 
 

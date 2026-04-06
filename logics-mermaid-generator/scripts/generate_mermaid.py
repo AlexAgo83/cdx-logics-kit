@@ -316,12 +316,33 @@ def _normalize_candidate_mermaid(
     deterministic_mermaid: str,
 ) -> str:
     stripped = candidate_mermaid.strip()
-    if not stripped or stripped.startswith("```mermaid"):
-        return candidate_mermaid
-    if not stripped.startswith("flowchart "):
+    if not stripped:
         return candidate_mermaid
     signature = _extract_deterministic_signature(deterministic_mermaid)
+    direction = _expected_direction(kind_name)
+
+    if stripped.startswith("```mermaid"):
+        body_lines = [
+            line.rstrip()
+            for line in stripped.splitlines()
+            if line.strip()
+            and line.strip() not in {"```mermaid", "```"}
+            and not line.strip().startswith("%% logics-kind:")
+            and not line.strip().startswith("%% logics-signature:")
+            and not line.strip().startswith("flowchart ")
+        ]
+        return _render_mermaid_block(
+            kind_name,
+            signature,
+            [f"flowchart {direction}", *body_lines],
+        )
+
+    if not stripped.startswith("flowchart "):
+        return candidate_mermaid
+
     body_lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
+    if body_lines:
+        body_lines[0] = f"flowchart {direction}"
     return _render_mermaid_block(
         kind_name,
         signature,
@@ -427,6 +448,7 @@ def generate_mermaid(
     degraded_reasons: list[str] = []
     result_status = "ok"
     transport_ran = False
+    backend_used = "codex"
     validated = {
         "mermaid": deterministic_mermaid,
         "confidence": 0.72,
@@ -479,6 +501,7 @@ def generate_mermaid(
                 transport = {**transport, "safety_rejected": safety_issues}
             else:
                 validated = candidate
+                backend_used = backend_status.selected_backend
 
     if degraded_reasons:
         result_status = "degraded"
@@ -523,7 +546,7 @@ def generate_mermaid(
         "flow": HYBRID_FLOW_NAME,
         "kind": kind_name,
         "backend_requested": requested_backend,
-        "backend_used": backend_status.selected_backend,
+        "backend_used": backend_used,
         "result_status": result_status,
         "degraded_reasons": degraded_reasons,
         "mermaid": validated["mermaid"],
