@@ -24,6 +24,7 @@ DEFAULT_LOGICS_CONFIG: dict[str, Any] = {
     },
     "hybrid_assist": {
         "default_backend": "auto",
+        "next_step_auto_backend": None,
         "default_model_profile": "deepseek-coder",
         "default_model": "deepseek-coder-v2:16b",
         "env_file": ".env",
