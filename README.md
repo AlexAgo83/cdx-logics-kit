@@ -377,6 +377,12 @@ Run Python tests for the kit:
 python -m unittest discover -s logics/skills/tests -p "test_*.py" -v
 ```
 
+Run the same test suite with line and branch coverage:
+
+```bash
+python logics/skills/tests/run_test_coverage.py
+```
+
 Run CLI smoke checks against a temporary imported-project fixture:
 
 ```bash

@@ -28,8 +28,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Unit tests
-        run: python3 -m unittest discover -s tests -p "test_*.py" -v
+      - name: Install Python coverage tooling
+        run: python3 -m pip install --upgrade coverage
+
+      - name: Unit tests + coverage
+        run: python3 tests/run_test_coverage.py
 
       - name: CLI smoke checks
         run: python3 tests/run_cli_smoke_checks.py
