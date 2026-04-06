@@ -285,13 +285,71 @@ def normalize_string_list_impl(
     min_items: int,
     error_cls: type[Exception],
 ) -> list[str]:
-    if not isinstance(value, list):
+    def normalize_text(text: str) -> list[str]:
+        stripped = text.strip()
+        if not stripped:
+            return []
+        lines = [line.strip() for line in stripped.splitlines()]
+        if len(lines) > 1:
+            normalized_lines: list[str] = []
+            for line in lines:
+                candidate = line.lstrip("-*0123456789. \t").strip()
+                if candidate:
+                    normalized_lines.append(" ".join(candidate.split()))
+            return normalized_lines
+        return [" ".join(stripped.split())]
+
+    def normalize_mapping(mapping: dict[Any, Any]) -> list[str]:
+        title = mapping.get("title")
+        content = mapping.get("content")
+        if isinstance(title, str) or isinstance(content, str):
+            title_parts = normalize_text(str(title or "")) if isinstance(title, str) else []
+            content_parts = normalize_text(str(content or "")) if isinstance(content, str) else []
+            if title_parts and content_parts:
+                return [f"{title_parts[0]}: {content_parts[0]}"]
+            if title_parts:
+                return title_parts
+            if content_parts:
+                return content_parts
+
+        normalized_items: list[str] = []
+        for raw_mapping_key, raw_mapping_value in mapping.items():
+            mapping_key = " ".join(str(raw_mapping_key).replace("_", " ").split()).strip()
+            if not mapping_key:
+                continue
+            value_parts = normalize_item(raw_mapping_value)
+            if not value_parts:
+                continue
+            normalized_items.append(f"{mapping_key}: {'; '.join(value_parts)}")
+        return normalized_items
+
+    def normalize_item(item: Any) -> list[str]:
+        if isinstance(item, str):
+            return normalize_text(item)
+        if isinstance(item, dict):
+            return normalize_mapping(item)
+        if isinstance(item, list):
+            nested: list[str] = []
+            for nested_item in item:
+                nested.extend(normalize_item(nested_item))
+            return nested
+        return []
+
+    if isinstance(value, (str, dict)):
+        raw_items: list[Any] = [value]
+    elif isinstance(value, list):
+        raw_items = value
+    else:
         raise error_cls("hybrid_invalid_list", f"`{key}` must be an array of strings.")
+
     normalized = []
-    for item in value:
-        if not isinstance(item, str) or not item.strip():
+    for item in raw_items:
+        value_parts = normalize_item(item)
+        if not value_parts and not (isinstance(item, str) and not item.strip()):
             raise error_cls("hybrid_invalid_list", f"`{key}` must contain only non-empty strings.")
-        normalized.append(" ".join(item.split()))
+        if not value_parts:
+            continue
+        normalized.extend(value_parts)
     if len(normalized) < min_items:
         raise error_cls("hybrid_invalid_list", f"`{key}` must contain at least {min_items} item(s).")
     return normalized
