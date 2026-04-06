@@ -6,6 +6,7 @@ from copy import deepcopy
 import hashlib
 import io
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -1235,6 +1236,226 @@ def _build_hybrid_context(
     return bundle
 
 
+def _section_bullets(doc: WorkflowDocModel, heading: str) -> list[str]:
+    bullets: list[str] = []
+    for line in doc.sections.get(heading, []):
+        stripped = line.strip()
+        if stripped.startswith("- [ ] "):
+            candidate = stripped[6:].strip()
+        elif stripped.startswith("- [x] "):
+            candidate = stripped[6:].strip()
+        elif stripped.startswith("- "):
+            candidate = stripped[2:].strip()
+        else:
+            continue
+        if candidate:
+            bullets.append(candidate)
+    return bullets
+
+
+def _replace_top_level_section(text: str, heading: str, replacement_lines: list[str]) -> str:
+    lines = text.splitlines()
+    section_start = None
+    section_end = len(lines)
+    target = f"# {heading}".strip().lower()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == target:
+            section_start = index
+            break
+    if section_start is None:
+        return text
+    for index in range(section_start + 1, len(lines)):
+        if lines[index].startswith("# "):
+            section_end = index
+            break
+    updated_lines = lines[: section_start + 1] + replacement_lines + lines[section_end:]
+    return "\n".join(updated_lines).rstrip() + "\n"
+
+
+def _confirmation_prompt(prompt: str, *, dry_run: bool) -> bool:
+    if dry_run:
+        return True
+    sys.stderr.write(f"{prompt} [y/N] ")
+    sys.stderr.flush()
+    response = sys.stdin.readline()
+    return response.strip().lower() in {"y", "yes"}
+
+
+def _confidence_percentage(confidence: object, *, fallback: str = "85%") -> str:
+    if isinstance(confidence, (int, float)):
+        bounded = max(0.0, min(1.0, float(confidence)))
+        return f"{round(bounded * 100)}%"
+    return fallback
+
+
+def _title_from_request_intent(intent: str) -> str:
+    cleaned = " ".join(intent.split()).strip()
+    cleaned = re.sub(r"^(draft|create|add|write|prepare)\s+(a|an)?\s*request\s*(for|about)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip(" .:-")
+    if not cleaned:
+        return "Request draft"
+    return cleaned[:1].upper() + cleaned[1:120]
+
+
+def _build_authoring_args(
+    *,
+    kind: str,
+    confidence: object,
+    dry_run: bool,
+    complexity: str = "Medium",
+    status: str | None = None,
+    theme: str = "Hybrid assist",
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        from_version="X.X.X",
+        understanding="90%",
+        confidence=_confidence_percentage(confidence),
+        status=status or STATUS_BY_KIND_DEFAULT[kind],
+        progress="0%" if DOC_KINDS[kind].include_progress else "",
+        complexity=complexity if kind != "request" else "Medium",
+        theme=theme,
+        auto_create_product_brief=False,
+        auto_create_adr=False,
+        format="json",
+        dry_run=dry_run,
+    )
+
+
+def _format_acceptance_criteria(items: list[str]) -> list[str]:
+    formatted: list[str] = []
+    for index, item in enumerate(items, start=1):
+        normalized = " ".join(item.split()).strip().rstrip(".")
+        if not normalized:
+            continue
+        if re.match(r"^AC\d+:", normalized, flags=re.IGNORECASE):
+            formatted.append(f"- {normalized}")
+        else:
+            formatted.append(f"- AC{index}: {normalized}.")
+    return formatted or ["- AC1: Confirm the bounded proposal is acceptable before promotion."]
+
+
+def _execute_request_draft(
+    *,
+    repo_root: Path,
+    intent: str,
+    validated: dict[str, object],
+    dry_run: bool,
+) -> dict[str, object]:
+    title = _title_from_request_intent(intent)
+    if not _confirmation_prompt(f"Create request doc `{title}` in logics/request?", dry_run=dry_run):
+        return {"written": False, "confirmed": False, "reason": "operator-declined"}
+
+    planned = _reserve_doc(repo_root / DOC_KINDS["request"].directory, DOC_KINDS["request"].prefix, title, dry_run)
+    args = _build_authoring_args(kind="request", confidence=validated.get("confidence"), dry_run=dry_run)
+    template_text = _template_path(Path(__file__), DOC_KINDS["request"].template_name).read_text(encoding="utf-8")
+    values = _build_template_values(args, planned.ref, title, include_progress=False, doc_kind="request")
+    needs = [str(item) for item in validated.get("needs", []) if str(item).strip()]
+    context = [str(item) for item in validated.get("context", []) if str(item).strip()]
+    values["NEEDS_PLACEHOLDER"] = "\n- ".join(needs or ["Describe the need"])
+    values["CONTEXT_PLACEHOLDER"] = "\n".join(f"- {item}" for item in (context or ["Add context and constraints"]))
+    values["ACCEPTANCE_PLACEHOLDER"] = "\n- ".join(line[2:] for line in _format_acceptance_criteria(needs))
+    values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(title, intent))
+    values["MERMAID_BLOCK"] = _generate_workflow_mermaid(repo_root, "request", title, values, dry_run=dry_run)
+    content = _render_template(template_text, values).rstrip() + "\n"
+    content, _changed = refresh_ai_context_text(content, "request")
+    _write(planned.path, content, dry_run)
+    return {
+        "written": not dry_run,
+        "confirmed": True,
+        "kind": "request",
+        "created_ref": planned.ref,
+        "created_path": _rel(repo_root, planned.path),
+        "title": title,
+        "dry_run": dry_run,
+    }
+
+
+def _execute_spec_first_pass(
+    *,
+    repo_root: Path,
+    source_doc: WorkflowDocModel,
+    validated: dict[str, object],
+    dry_run: bool,
+) -> dict[str, object]:
+    title = f"{source_doc.title} first-pass spec"
+    if not _confirmation_prompt(f"Create spec doc `{title}` in logics/specs?", dry_run=dry_run):
+        return {"written": False, "confirmed": False, "reason": "operator-declined"}
+
+    planned = _reserve_doc(repo_root / "logics" / "specs", "spec", title, dry_run)
+    template_path = Path(__file__).resolve().parents[2] / "logics-spec-writer" / "assets" / "templates" / "spec.md"
+    template_text = template_path.read_text(encoding="utf-8")
+    sections = [str(item) for item in validated.get("sections", []) if str(item).strip()]
+    open_questions = [str(item) for item in validated.get("open_questions", []) if str(item).strip()]
+    constraints = [str(item) for item in validated.get("constraints", []) if str(item).strip()]
+    acceptance = _section_bullets(source_doc, "Acceptance criteria")
+    values = {
+        "DOC_REF": planned.ref,
+        "TITLE": title,
+        "FROM_VERSION": source_doc.indicators.get("From version", "X.X.X"),
+        "UNDERSTANDING": "90%",
+        "CONFIDENCE": _confidence_percentage(validated.get("confidence")),
+        "OVERVIEW": f"Derived from `{source_doc.ref}`. {str(validated.get('rationale', '')).strip()}".strip(),
+        "GOAL_1": "\n- ".join(sections or ["Capture the first-pass spec structure for the backlog item."]),
+        "NON_GOAL_1": "Expand implementation scope beyond the linked backlog slice without review.",
+        "USE_CASE_1": f"Operators need a bounded spec draft derived from `{source_doc.ref}` before implementation starts.",
+        "REQ_1": "\n- ".join(sections or ["Document the required sections for the first-pass spec."]),
+        "AC_1": "\n- ".join(acceptance or ["Preserve the bounded acceptance scope from the source backlog item."]),
+        "TEST_1": "\n- ".join(constraints or ["Validate the outline against the source backlog item before implementation."]),
+        "QUESTION_1": "\n- ".join(open_questions or ["Which acceptance criterion needs deeper specification?"]),
+    }
+    content = _render_template(template_text, values).rstrip() + "\n"
+    _write(planned.path, content, dry_run)
+    return {
+        "written": not dry_run,
+        "confirmed": True,
+        "kind": "spec",
+        "created_ref": planned.ref,
+        "created_path": _rel(repo_root, planned.path),
+        "title": title,
+        "dry_run": dry_run,
+    }
+
+
+def _execute_backlog_groom(
+    *,
+    repo_root: Path,
+    source_doc: WorkflowDocModel,
+    validated: dict[str, object],
+    dry_run: bool,
+) -> dict[str, object]:
+    title = str(validated.get("title", "")).strip() or source_doc.title or source_doc.ref
+    if not _confirmation_prompt(f"Create backlog doc `{title}` in logics/backlog?", dry_run=dry_run):
+        return {"written": False, "confirmed": False, "reason": "operator-declined"}
+
+    source_path = (repo_root / source_doc.path).resolve()
+    args = _build_authoring_args(
+        kind="backlog",
+        confidence=validated.get("confidence"),
+        dry_run=dry_run,
+        complexity=str(validated.get("complexity", "Medium")),
+    )
+    planned = _create_backlog_from_request(repo_root, source_path, title, args)
+    acceptance_lines = _format_acceptance_criteria(
+        [str(item) for item in validated.get("acceptance_criteria", []) if str(item).strip()]
+    )
+    notes_lines = [f"- Hybrid rationale: {str(validated.get('rationale', '')).strip()}".rstrip()]
+    updated = planned.path.read_text(encoding="utf-8") if planned.path.exists() else ""
+    if updated:
+        updated = _replace_top_level_section(updated, "Acceptance criteria", acceptance_lines)
+        updated = _replace_top_level_section(updated, "Notes", notes_lines)
+        updated, _changed = refresh_ai_context_text(updated, "backlog")
+        _write(planned.path, updated, dry_run)
+    return {
+        "written": not dry_run,
+        "confirmed": True,
+        "kind": "backlog",
+        "created_ref": planned.ref,
+        "created_path": _rel(repo_root, planned.path),
+        "title": title,
+        "dry_run": dry_run,
+    }
+
+
 def _hybrid_validation_payload(repo_root: Path) -> dict[str, object]:
     commands = [
         [sys.executable, str(Path(__file__).resolve().parents[2] / "logics.py"), "lint", "--format", "json"],
@@ -1513,6 +1734,35 @@ def _run_hybrid_assist(
             execution_result = _run_mapped_command(repo_root, mapped_command["argv"])
             executed = True
         validated = {"decision": decision.to_dict(), "mapped_command": mapped_command}
+    elif flow_name == "request-draft":
+        if execution_mode == "execute":
+            execution_result = _execute_request_draft(
+                repo_root=repo_root,
+                intent=normalized_intent or "Request draft",
+                validated=validated,
+                dry_run=dry_run,
+            )
+            executed = bool(execution_result.get("written"))
+    elif flow_name == "spec-first-pass":
+        if execution_mode == "execute":
+            source_doc = docs_by_ref[str(ref)]
+            execution_result = _execute_spec_first_pass(
+                repo_root=repo_root,
+                source_doc=source_doc,
+                validated=validated,
+                dry_run=dry_run,
+            )
+            executed = bool(execution_result.get("written"))
+    elif flow_name == "backlog-groom":
+        if execution_mode == "execute":
+            source_doc = docs_by_ref[str(ref)]
+            execution_result = _execute_backlog_groom(
+                repo_root=repo_root,
+                source_doc=source_doc,
+                validated=validated,
+                dry_run=dry_run,
+            )
+            executed = bool(execution_result.get("written"))
     elif flow_name == "commit-all":
         raise SystemExit("Internal error: commit-all should route through cmd_assist_commit_all.")
     elif flow_name == "prepare-release":
