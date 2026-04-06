@@ -27,6 +27,7 @@ If your environment only exposes `python3` or `py -3`, substitute that launcher.
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
+python tests/run_test_coverage.py
 python tests/run_cli_smoke_checks.py
 python logics-version-changelog-manager/scripts/generate_version_changelog.py --out changelogs/CHANGELOGS_PREVIEW.md --overwrite
 python logics-version-release-manager/scripts/publish_version_release.py --dry-run

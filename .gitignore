@@ -1,6 +1,11 @@
 # Python bytecode caches
 __pycache__/
 *.pyc
+.coverage
+.coverage.*
+coverage/
+coverage.xml
+htmlcov/
 
 # Generated Logics runtime artifacts
 logics/.cache/
