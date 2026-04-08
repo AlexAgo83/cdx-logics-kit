@@ -2,6 +2,29 @@
 from __future__ import annotations
 
 from logics_flow_doc_commands import *  # noqa: F401,F403
+import logics_flow_doc_commands as _doc_commands
+import logics_flow_support_workflow_core as _workflow_core
+import logics_flow_support_workflow_extra as _workflow_extra
+from logics_flow_support_workflow_core import _generate_workflow_mermaid  # noqa: F401
+
+
+def _sync_workflow_mermaid_helpers() -> None:
+    _workflow_core._generate_workflow_mermaid = _generate_workflow_mermaid
+    _workflow_extra._generate_workflow_mermaid = _generate_workflow_mermaid
+
+
+def _create_backlog_from_request(*args, **kwargs):  # type: ignore[override]
+    _sync_workflow_mermaid_helpers()
+    return _workflow_extra._create_backlog_from_request(*args, **kwargs)
+
+
+def _create_task_from_backlog(*args, **kwargs):  # type: ignore[override]
+    _sync_workflow_mermaid_helpers()
+    return _workflow_extra._create_task_from_backlog(*args, **kwargs)
+
+
+_doc_commands._create_backlog_from_request = _create_backlog_from_request
+_doc_commands._create_task_from_backlog = _create_task_from_backlog
 
 def cmd_finish_task(args: argparse.Namespace) -> None:
     repo_root = _find_repo_root(Path.cwd())
@@ -546,4 +569,9 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    name
+    for name in globals()
+    if not name.startswith("__")
+    or name in {"_generate_workflow_mermaid", "_create_backlog_from_request", "_create_task_from_backlog"}
+]
