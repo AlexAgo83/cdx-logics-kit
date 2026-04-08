@@ -29,7 +29,7 @@ def _enforce_split_policy(titles: list[str], args: argparse.Namespace, config: d
 
 def _run_mapped_command(repo_root: Path, argv: list[str]) -> dict[str, object]:
     result = subprocess.run(
-        [sys.executable, str(Path(__file__).resolve()), *argv, "--format", "json"],
+        [sys.executable, str(Path(__file__).resolve().with_name("logics_flow.py")), *argv, "--format", "json"],
         cwd=repo_root,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
