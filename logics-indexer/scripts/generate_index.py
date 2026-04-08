@@ -22,6 +22,7 @@ class Entry:
     path: Path
     doc_ref: str
     title: str
+    status: str | None
     progress: str | None
 
 
@@ -37,6 +38,7 @@ def _parse_doc(path: Path) -> Entry:
     lines = path.read_text(encoding="utf-8").splitlines()
     doc_ref = path.stem
     title = ""
+    status: str | None = None
     progress: str | None = None
 
     for line in lines:
@@ -48,11 +50,14 @@ def _parse_doc(path: Path) -> Entry:
             else:
                 title = line.removeprefix("## ").strip()
             continue
+        if line.startswith("> Status:"):
+            status = line.split(":", 1)[1].strip()
+            continue
         if line.startswith("> Progress:"):
             progress = line.split(":", 1)[1].strip()
     if not title:
         title = "(missing title)"
-    return Entry(path=path, doc_ref=doc_ref, title=title, progress=progress)
+    return Entry(path=path, doc_ref=doc_ref, title=title, status=status, progress=progress)
 
 
 def _collect_from_paths(paths: list[Path]) -> list[Entry]:
@@ -81,20 +86,14 @@ def _render_section(title: str, entries: list[Entry], show_progress: bool, out_d
         lines.append("")
         return "\n".join(lines)
 
-    header = "| Doc | Title |"
-    sep = "|---|---|"
-    if show_progress:
-        header = "| Doc | Title | Progress |"
-        sep = "|---|---|---|"
-    lines.extend([header, sep])
+    lines.extend(["| Doc | Title | Status | Progress | Path |", "|---|---|---|---|---|"])
 
     for entry in entries:
         rel = os.path.relpath(entry.path, start=out_dir).replace(os.sep, "/")
         doc_link = f"[{entry.doc_ref}]({rel})"
-        if show_progress:
-            lines.append(f"| {doc_link} | {entry.title} | {entry.progress or ''} |")
-        else:
-            lines.append(f"| {doc_link} | {entry.title} |")
+        lines.append(
+            f"| {doc_link} | {entry.title} | {entry.status or ''} | {entry.progress or ''} | {rel} |"
+        )
     lines.append("")
     return "\n".join(lines)
 
