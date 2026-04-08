@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
-  <img src="https://img.shields.io/badge/version-v1.10.0-4C8BF5" alt="Version" />
+  <img src="https://img.shields.io/badge/version-v1.10.1-4C8BF5" alt="Version" />
   <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/workflow-request--backlog--task--spec-2EA44F" alt="Workflow" />
   <img src="https://img.shields.io/badge/AI-context%20memory-FFB000" alt="AI Context Memory" />
