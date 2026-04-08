@@ -1,9 +1,9 @@
-# Changelog (`1.10.0 -> 1.10.1`)
+# Changelog (`1.10.0 -> 1.11.0`)
 
 ## Major Highlights
 
-- Generated from 7 commit(s) between `v1.10.0` and `HEAD` on 2026-04-08.
-- Touched areas: Workflow and Skills, Validation and CI.
+- Generated from 8 commit(s) between `v1.10.0` and `HEAD` on 2026-04-08.
+- Touched areas: Workflow and Skills, Validation and CI, Release and Changelog Automation.
 - test(ci): add kit coverage reporting
 - test(kit): add 112 unit tests for highest-risk flow-manager modules (wave 2)
 - test(kit): add 9 sandbox lifecycle tests for bootstrap, doctor, and schema migration (wave 4)
@@ -23,8 +23,11 @@
 - fix: prevent coverage/ output dir from shadowing Python coverage package
 - Complete flow-manager modularization wave
 
+## Release and Changelog Automation
+
+- chore(release): prepare 1.10.1 release
+
 ## Validation and Regression Evidence
 
 - `python3 logics.py flow assist release-changelog-status --format json`
-- `python3 logics.py flow assist validation-checklist --format json`
-- `python3 logics.py flow assist diff-risk --format json`
+- `python3 logics.py flow assist prepare-release --format json`

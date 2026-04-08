@@ -2,7 +2,7 @@
 
 Versioned release notes live under [`changelogs/`](changelogs/).
 
-- [`1.10.1`](changelogs/CHANGELOGS_1_10_1.md)
+- [`1.11.0`](changelogs/CHANGELOGS_1_11_0.md)
 - [`1.10.0`](changelogs/CHANGELOGS_1_10_0.md)
 - [`1.9.1`](changelogs/CHANGELOGS_1_9_1.md)
 - [`1.9.0`](changelogs/CHANGELOGS_1_9_0.md)
