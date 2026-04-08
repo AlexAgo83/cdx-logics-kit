@@ -121,5 +121,68 @@ class IndexerLinksTest(unittest.TestCase):
             self.assertGreaterEqual(second_payload["index_stats"]["cache_hits"], 1)
 
 
+class RelationshipLinkerTest(unittest.TestCase):
+    def test_relationship_report_includes_guardrails_for_orphans_and_missing_refs(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-relationship-linker" / "scripts" / "link_relations.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / "request").mkdir(parents=True)
+            (repo / "logics" / "backlog").mkdir(parents=True)
+            (repo / "logics" / "tasks").mkdir(parents=True)
+
+            (repo / "logics" / "request" / "req_000_root.md").write_text(
+                "\n".join(
+                    [
+                        "## req_000_root - Root request",
+                        "> Status: Draft",
+                        "Related backlog: `item_001_known`",
+                        "Related task: `task_999_missing`",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (repo / "logics" / "backlog" / "item_001_known.md").write_text(
+                "\n".join(
+                    [
+                        "## item_001_known - Known backlog",
+                        "> Status: Ready",
+                        "> Progress: 10%",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (repo / "logics" / "tasks" / "task_001_orphan.md").write_text(
+                "\n".join(
+                    [
+                        "## task_001_orphan - Orphan task",
+                        "> Status: Ready",
+                        "> Progress: 0%",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--out", "logics/RELATIONSHIPS.md"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+
+            report = (repo / "logics" / "RELATIONSHIPS.md").read_text(encoding="utf-8")
+            self.assertIn("Orphan docs: task_001_orphan", report)
+            self.assertIn("Unresolved refs:", report)
+            self.assertIn("req_000_root: task_999_missing", report)
+            self.assertIn("Missing refs: task_999_missing", report)
+            self.assertIn("Outgoing: item_001_known", report)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -73,15 +73,35 @@ def main(argv: list[str]) -> int:
     by_ref = {d.ref: d for d in docs}
 
     incoming: dict[str, set[str]] = {d.ref: set() for d in docs}
+    unresolved: dict[str, set[str]] = {}
     for d in docs:
         for ref in d.outgoing:
             if ref in incoming:
                 incoming[ref].add(d.ref)
+            else:
+                unresolved.setdefault(d.ref, set()).add(ref)
+
+    orphan_docs = sorted(
+        d.ref
+        for d in docs
+        if not incoming.get(d.ref) and not d.outgoing
+    )
 
     lines: list[str] = ["# Logics Relationships", ""]
     lines.append("## Summary")
     lines.append("")
     lines.append(f"- Docs scanned: {len(docs)}")
+    lines.append(f"- Docs represented: {len(by_ref)}")
+    lines.append(
+        f"- Orphan docs: {', '.join(orphan_docs) if orphan_docs else '_none_'}"
+    )
+    if unresolved:
+        lines.append("- Unresolved refs:")
+        for source_ref in sorted(unresolved):
+            refs = ", ".join(sorted(unresolved[source_ref]))
+            lines.append(f"  - {source_ref}: {refs}")
+    else:
+        lines.append("- Unresolved refs: _none_")
     lines.append("")
 
     lines.append("## By document")
@@ -91,8 +111,10 @@ def main(argv: list[str]) -> int:
         lines.append(f"### [{d.ref}]({rel}) - {d.title}")
         lines.append("")
         out_list = sorted(r for r in d.outgoing if r in by_ref)
+        missing_list = sorted(unresolved.get(d.ref, set()))
         in_list = sorted(incoming.get(d.ref, set()))
         lines.append(f"- Outgoing: {', '.join(out_list) if out_list else '_none_'}")
+        lines.append(f"- Missing refs: {', '.join(missing_list) if missing_list else '_none_'}")
         lines.append(f"- Incoming: {', '.join(in_list) if in_list else '_none_'}")
         lines.append("")
 
