@@ -87,3 +87,17 @@ class LogicsFlowTestBase(unittest.TestCase):
             if line.startswith("> Progress:"):
                 return line.split(":", 1)[1].strip()
         return None
+
+    def _prepare_release_repo(self, repo: Path, version: str) -> None:
+        """Set up a minimal clean git repo for prepare-release tests."""
+        (repo / "logics").mkdir(parents=True, exist_ok=True)
+        (repo / "logics" / ".gitkeep").write_text("", encoding="utf-8")
+        subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        (repo / "package.json").write_text(json.dumps({"name": "test-pkg", "version": version}), encoding="utf-8")
+        changelogs_dir = repo / "changelogs"
+        changelogs_dir.mkdir(parents=True, exist_ok=True)
+        (changelogs_dir / f"CHANGELOGS_{version.replace('.', '_')}.md").write_text("# Changelog\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)

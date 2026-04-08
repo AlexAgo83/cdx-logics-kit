@@ -552,5 +552,448 @@ def _extract_title(lines: list[str]) -> str:
     return ""
 
 
+def expected_workflow_mermaid_signature(kind_name: str, lines: list[str]) -> str:
+    text = "\n".join(lines)
+    title = _extract_title(lines)
+    if kind_name == "request":
+        need_items = _rendered_list_items("\n".join(_section_lines(text, "Needs")))
+        context_items = _rendered_list_items("\n".join(_section_lines(text, "Context")))
+        acceptance_items = _rendered_list_items("\n".join(_section_lines(text, "Acceptance criteria")))
+        need_label = _pick_mermaid_summary([*need_items, *context_items, title], "Need scope")
+        outcome_label = _pick_mermaid_summary([*acceptance_items, *context_items], "Acceptance target")
+        return _compose_mermaid_signature("request", title, need_label, outcome_label)
 
-from logics_flow_support_workflow import *  # noqa: F401,F403
+    if kind_name == "backlog":
+        request_refs = sorted(_extract_refs(text, REF_PREFIXES["request"]))
+        problem_items = _rendered_list_items("\n".join(_section_lines(text, "Problem")))
+        acceptance_items = _rendered_list_items("\n".join(_section_lines(text, "Acceptance criteria")))
+        source_label = _pick_mermaid_summary([*request_refs, title], "Request source")
+        problem_label = _pick_mermaid_summary([*problem_items, title], "Problem scope")
+        acceptance_label = _pick_mermaid_summary(acceptance_items, "Acceptance check")
+        return _compose_mermaid_signature("backlog", title, source_label, problem_label, acceptance_label)
+
+    if kind_name == "task":
+        backlog_refs = sorted(_extract_refs(text, REF_PREFIXES["backlog"]))
+        plan_items = [
+            item
+            for item in _rendered_list_items("\n".join(_section_lines(text, "Plan")))
+            if not item.lower().startswith("final:")
+        ]
+        validation_items = _rendered_list_items("\n".join(_section_lines(text, "Validation")))
+        source_label = _pick_mermaid_summary([*backlog_refs, title], "Backlog source")
+        step_one = _pick_mermaid_summary(plan_items[:1], "Confirm scope")
+        validation_label = _pick_mermaid_summary(validation_items, "Validation")
+        return _compose_mermaid_signature("task", title, source_label, step_one, validation_label)
+
+    return ""
+
+
+def _section_block(text: str, heading: str, fallback: str = "") -> str:
+    cleaned = _clean_section_lines(_section_lines(text, heading))
+    if cleaned:
+        return "\n".join(cleaned)
+    return fallback
+
+
+def _ref_placeholder(text: str, prefix: str, fallback: str = "(none yet)") -> str:
+    refs = sorted(_extract_refs(text, prefix))
+    if refs:
+        return ", ".join(f"`{ref}`" for ref in refs)
+    return fallback
+
+
+def _workflow_mermaid_values_from_doc(text: str, kind_name: str) -> dict[str, str]:
+    ref_text = _strip_mermaid_blocks(text)
+    if kind_name == "request":
+        return {
+            "NEEDS_PLACEHOLDER": _section_block(text, "Needs", "- Describe the need"),
+            "CONTEXT_PLACEHOLDER": _section_block(text, "Context", "- Add the relevant context"),
+            "ACCEPTANCE_PLACEHOLDER": _section_block(text, "Acceptance criteria", "- AC1: Define a measurable outcome"),
+        }
+
+    if kind_name == "backlog":
+        return {
+            "PROBLEM_PLACEHOLDER": _section_block(text, "Problem", "- Describe the problem and user impact"),
+            "ACCEPTANCE_BLOCK": _section_block(text, "Acceptance criteria", "- AC1: Define an objective acceptance check"),
+            "REQUEST_LINK_PLACEHOLDER": _ref_placeholder(ref_text, REF_PREFIXES["request"]),
+            "TASK_LINK_PLACEHOLDER": _ref_placeholder(ref_text, REF_PREFIXES["task"]),
+        }
+
+    if kind_name == "task":
+        return {
+            "PLAN_BLOCK": _section_block(
+                text,
+                "Plan",
+                "- [ ] 1. Confirm scope\n- [ ] 2. Implement scope\n- [ ] 3. Validate result",
+            ),
+            "VALIDATION_BLOCK": _section_block(
+                text,
+                "Validation",
+                "- Run the relevant automated tests before closing the current wave or step.",
+            ),
+            "BACKLOG_LINK_PLACEHOLDER": _ref_placeholder(ref_text, REF_PREFIXES["backlog"]),
+        }
+
+    raise ValueError(f"Unsupported Mermaid workflow kind: {kind_name}")
+
+
+def _generate_workflow_mermaid(
+    repo_root: Path,
+    kind_name: str,
+    title: str,
+    values: dict[str, str],
+    *,
+    dry_run: bool,
+) -> str:
+    payload = generate_mermaid(
+        repo_root=repo_root,
+        kind_name=kind_name,
+        title=title,
+        values=values,
+        dry_run=dry_run,
+    )
+    return str(payload["mermaid"]).strip()
+
+
+def refresh_workflow_mermaid_signature_text(
+    text: str,
+    kind_name: str,
+    *,
+    repo_root: Path | None = None,
+    dry_run: bool = False,
+) -> tuple[str, bool]:
+    match = MERMAID_BLOCK_PATTERN.search(text)
+    if match is None:
+        return text, False
+
+    lines = text.splitlines()
+    title = _extract_title(lines)
+    if not title:
+        return text, False
+
+    resolved_repo_root = repo_root.resolve() if repo_root is not None else Path.cwd().resolve()
+    values = _workflow_mermaid_values_from_doc(text, kind_name)
+    refreshed_block = _generate_workflow_mermaid(
+        resolved_repo_root,
+        kind_name,
+        title,
+        values,
+        dry_run=dry_run,
+    )
+    if match.group(0).strip() == refreshed_block:
+        return text, False
+
+    refreshed_text = text[: match.start()] + refreshed_block + text[match.end() :]
+    return refreshed_text, True
+
+
+def refresh_workflow_mermaid_signature_file(
+    path: Path,
+    kind_name: str,
+    dry_run: bool,
+    *,
+    repo_root: Path | None = None,
+) -> bool:
+    original = path.read_text(encoding="utf-8")
+    resolved_repo_root = repo_root.resolve() if repo_root is not None else _find_repo_root(path.parent)
+    refreshed, changed = refresh_workflow_mermaid_signature_text(
+        original,
+        kind_name,
+        repo_root=resolved_repo_root,
+        dry_run=dry_run,
+    )
+    if not changed:
+        return False
+    _write(path, refreshed.rstrip() + "\n", dry_run)
+    return True
+
+
+def _render_ac_traceability_block(ac_entries: Iterable[tuple[str, str]], fallback: str) -> str:
+    rendered = [
+        f"- {ac_id} -> Scope: {summary}. Proof: capture validation evidence in this doc."
+        for ac_id, summary in ac_entries
+    ]
+    if not rendered:
+        rendered = [f"- AC1 -> {fallback}. Proof: capture validation evidence in this doc."]
+    return "\n".join(rendered)
+
+
+def _copy_indicator_defaults(values: dict[str, str], source_text: str) -> None:
+    indicators = _indicator_map(source_text.splitlines())
+    if indicators.get("From version"):
+        values["FROM_VERSION"] = indicators["From version"]
+    if indicators.get("Schema version"):
+        values["SCHEMA_VERSION"] = indicators["Schema version"]
+    if indicators.get("Understanding"):
+        values["UNDERSTANDING"] = indicators["Understanding"]
+    if indicators.get("Confidence"):
+        values["CONFIDENCE"] = indicators["Confidence"]
+    if indicators.get("Complexity"):
+        values["COMPLEXITY"] = indicators["Complexity"]
+    if indicators.get("Theme"):
+        values["THEME"] = indicators["Theme"]
+
+
+def _seed_backlog_from_request(
+    values: dict[str, str],
+    title: str,
+    source_text: str,
+    request_ref: str | None,
+    source_rel: Path,
+) -> None:
+    needs = _list_items_from_section(source_text, "Needs")
+    context_lines = _clean_section_lines(_section_lines(source_text, "Context"))
+    acceptance_items = _acceptance_items(source_text)
+    ac_entries = _parse_acceptance_entries(acceptance_items)
+
+    problem_items = list(needs)
+    if context_lines:
+        problem_items.extend(context_lines[:2])
+
+    values["PROBLEM_PLACEHOLDER"] = _render_bullet_block(problem_items, "Describe the problem and user impact")
+    values["ACCEPTANCE_BLOCK"] = _render_bullet_block(
+        acceptance_items,
+        "AC1: Define an objective acceptance check",
+    )
+    values["AC_TRACEABILITY_PLACEHOLDER"] = _render_ac_traceability_block(
+        ac_entries,
+        "Backlog scope and delivery path are defined",
+    )
+
+    notes = []
+    if request_ref is not None:
+        notes.append(f"- Derived from request `{request_ref}`.")
+    notes.append(f"- Source file: `{source_rel}`.")
+    notes.append("- Keep this backlog item as one bounded delivery slice; create sibling backlog items for the remaining request coverage instead of widening this doc.")
+    if context_lines:
+        notes.append(f"- Request context seeded into this backlog item from `{source_rel}`.")
+    values["NOTES_PLACEHOLDER"] = "\n".join(notes)
+    _apply_ai_context_values(
+        values,
+        doc_kind="backlog",
+        title=title,
+        source_text=source_text,
+        primary_items=[*needs, *acceptance_items],
+        secondary_items=context_lines,
+    )
+
+
+def _seed_task_from_backlog(
+    values: dict[str, str],
+    title: str,
+    source_text: str,
+    source_ref: str | None,
+    source_rel: Path,
+    request_refs: list[str],
+) -> None:
+    problem_lines = _clean_section_lines(_section_lines(source_text, "Problem"))
+    acceptance_items = _acceptance_items(source_text)
+    backlog_ac_entries = _parse_acceptance_entries(acceptance_items)
+
+    context_lines = [
+        f"- Derived from backlog item `{source_ref or source_rel}`.",
+        f"- Source file: `{source_rel}`.",
+    ]
+    if request_refs:
+        context_lines.append("- Related request(s): " + ", ".join(f"`{ref}`" for ref in request_refs) + ".")
+    if problem_lines:
+        context_lines.extend(problem_lines[:3])
+
+    values["CONTEXT_PLACEHOLDER"] = "\n".join(context_lines)
+    values["PLAN_BLOCK"] = _render_plan_block(
+        [
+            "Confirm scope, dependencies, and linked acceptance criteria.",
+            "Implement the next coherent delivery wave from the backlog item.",
+            "Checkpoint the wave in a commit-ready state, validate it, and update the linked Logics docs.",
+        ]
+    )
+    values["AC_TRACEABILITY_PLACEHOLDER"] = _render_ac_traceability_block(
+        backlog_ac_entries,
+        "Implemented in the steps above",
+    )
+    values["VALIDATION_BLOCK"] = _render_validation_block(
+        [
+            "Run the relevant automated tests for the changed surface before closing the current wave or step.",
+            "Run the relevant lint or quality checks before closing the current wave or step.",
+            "Confirm the completed wave leaves the repository in a commit-ready state.",
+        ]
+    )
+    _apply_ai_context_values(
+        values,
+        doc_kind="task",
+        title=title,
+        source_text=source_text,
+        primary_items=[*problem_lines, *acceptance_items],
+        secondary_items=context_lines,
+    )
+
+
+def _split_titles(raw_titles: list[str]) -> list[str]:
+    titles = [title.strip() for title in raw_titles if title and title.strip()]
+    if not titles:
+        raise SystemExit("Provide at least one non-empty --title value.")
+    return titles
+
+
+def _parse_title_from_source(source_path: Path) -> str | None:
+    for line in source_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            match = re.match(r"^##\s+\S+\s*-\s*(.+?)\s*$", line)
+            if match:
+                return match.group(1).strip()
+            return line.removeprefix("## ").strip()
+    return None
+
+
+def _write(path: Path, content: str, dry_run: bool) -> None:
+    if dry_run:
+        preview = content if len(content) <= 2000 else content[:2000] + "\n...\n"
+        print(f"[dry-run] would write: {path}")
+        print(preview)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    print(f"Wrote {path}")
+
+
+def _read_lines(path: Path) -> list[str]:
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _parse_indicator(lines: list[str], key: str) -> tuple[int | None, str | None]:
+    pattern = re.compile(rf"^\s*>\s*{re.escape(key)}\s*:\s*(.+)\s*$")
+    for idx, line in enumerate(lines):
+        match = pattern.match(line)
+        if match:
+            return idx, match.group(1).strip()
+    return None, None
+
+
+def _upsert_indicators(path: Path, updates: dict[str, str], dry_run: bool) -> None:
+    lines = _read_lines(path)
+    heading_idx = next((idx for idx, line in enumerate(lines) if line.startswith("## ")), None)
+    if heading_idx is None:
+        raise SystemExit(f"Cannot update indicators (missing heading): {path}")
+
+    insert_at = heading_idx + 1
+    while insert_at < len(lines) and lines[insert_at].lstrip().startswith(">"):
+        insert_at += 1
+
+    for key, value in updates.items():
+        indicator_idx, _ = _parse_indicator(lines, key)
+        rendered = f"> {key}: {value}"
+        if indicator_idx is None:
+            lines.insert(insert_at, rendered)
+            insert_at += 1
+        else:
+            lines[indicator_idx] = rendered
+
+    _write(path, "\n".join(lines).rstrip() + "\n", dry_run)
+
+
+def _mark_section_checkboxes_done(path: Path, heading: str, dry_run: bool) -> None:
+    lines = _read_lines(path)
+    start_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == f"# {heading}".lower():
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return
+
+    modified = False
+    for idx in range(start_idx, len(lines)):
+        line = lines[idx]
+        if line.startswith("# "):
+            break
+        if line.lstrip().startswith("- [ ]"):
+            prefix, suffix = line.split("- [ ]", 1)
+            lines[idx] = f"{prefix}- [x]{suffix}"
+            modified = True
+    if modified:
+        _write(path, "\n".join(lines).rstrip() + "\n", dry_run)
+
+
+def _section_body_bounds(lines: list[str], heading: str) -> tuple[int | None, int | None]:
+    start_idx = None
+    target = f"# {heading}".lower()
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == target:
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return None, None
+    end_idx = len(lines)
+    for idx in range(start_idx, len(lines)):
+        if lines[idx].startswith("# "):
+            end_idx = idx
+            break
+    return start_idx, end_idx
+
+
+def _append_section_bullets(path: Path, heading: str, bullets: list[str], dry_run: bool) -> None:
+    if not bullets:
+        return
+    lines = _read_lines(path)
+    start_idx, end_idx = _section_body_bounds(lines, heading)
+    if start_idx is None or end_idx is None:
+        return
+
+    existing = {line.strip() for line in lines[start_idx:end_idx] if line.strip()}
+    new_lines = [bullet for bullet in bullets if bullet.strip() and bullet.strip() not in existing]
+    if not new_lines:
+        return
+
+    insert_at = end_idx
+    while insert_at > start_idx and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    updated_lines = lines[:insert_at] + new_lines + lines[insert_at:]
+    _write(path, "\n".join(updated_lines).rstrip() + "\n", dry_run)
+
+
+def _normalize_status(value: str) -> str:
+    normalized = " ".join(value.strip().split()).lower()
+    for allowed in ALLOWED_STATUSES:
+        if normalized == allowed.lower():
+            return allowed
+    allowed_display = ", ".join(ALLOWED_STATUSES)
+    raise SystemExit(f"Invalid status '{value}'. Allowed values: {allowed_display}")
+
+
+def _resolve_doc_path(repo_root: Path, kind: DocKind, doc_ref: str) -> Path | None:
+    candidate = repo_root / kind.directory / f"{doc_ref}.md"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _extract_refs(text: str, prefix: str) -> set[str]:
+    pattern = re.compile(rf"\b{re.escape(prefix)}_\d{{3}}_[a-z0-9_]+\b")
+    return {match.group(0) for match in pattern.finditer(text)}
+
+
+def _strip_mermaid_blocks(text: str) -> str:
+    return re.sub(r"```mermaid\s*\n.*?\n```", "", text, flags=re.DOTALL)
+
+
+def _doc_ref_from_path(path: Path, kind: DocKind) -> str | None:
+    stem = path.stem
+    if stem.startswith(f"{kind.prefix}_"):
+        return stem
+    return None
+
+
+def _progress_value_to_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    match = re.search(r"(\d{1,3})", value)
+    if match is None:
+        return None
+    try:
+        parsed = int(match.group(1))
+    except ValueError:
+        return None
+    return max(0, min(100, parsed))
+
+
+__all__ = [name for name in globals() if not name.startswith("__")]
