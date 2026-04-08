@@ -555,37 +555,12 @@ def _extract_title(lines: list[str]) -> str:
 def expected_workflow_mermaid_signature(kind_name: str, lines: list[str]) -> str:
     text = "\n".join(lines)
     title = _extract_title(lines)
-    if kind_name == "request":
-        need_items = _rendered_list_items("\n".join(_section_lines(text, "Needs")))
-        context_items = _rendered_list_items("\n".join(_section_lines(text, "Context")))
-        acceptance_items = _rendered_list_items("\n".join(_section_lines(text, "Acceptance criteria")))
-        need_label = _pick_mermaid_summary([*need_items, *context_items, title], "Need scope")
-        outcome_label = _pick_mermaid_summary([*acceptance_items, *context_items], "Acceptance target")
-        return _compose_mermaid_signature("request", title, need_label, outcome_label)
-
-    if kind_name == "backlog":
-        request_refs = sorted(_extract_refs(text, REF_PREFIXES["request"]))
-        problem_items = _rendered_list_items("\n".join(_section_lines(text, "Problem")))
-        acceptance_items = _rendered_list_items("\n".join(_section_lines(text, "Acceptance criteria")))
-        source_label = _pick_mermaid_summary([*request_refs, title], "Request source")
-        problem_label = _pick_mermaid_summary([*problem_items, title], "Problem scope")
-        acceptance_label = _pick_mermaid_summary(acceptance_items, "Acceptance check")
-        return _compose_mermaid_signature("backlog", title, source_label, problem_label, acceptance_label)
-
-    if kind_name == "task":
-        backlog_refs = sorted(_extract_refs(text, REF_PREFIXES["backlog"]))
-        plan_items = [
-            item
-            for item in _rendered_list_items("\n".join(_section_lines(text, "Plan")))
-            if not item.lower().startswith("final:")
-        ]
-        validation_items = _rendered_list_items("\n".join(_section_lines(text, "Validation")))
-        source_label = _pick_mermaid_summary([*backlog_refs, title], "Backlog source")
-        step_one = _pick_mermaid_summary(plan_items[:1], "Confirm scope")
-        validation_label = _pick_mermaid_summary(validation_items, "Validation")
-        return _compose_mermaid_signature("task", title, source_label, step_one, validation_label)
-
-    return ""
+    if not title:
+        return ""
+    values = _workflow_mermaid_values_from_doc(text, kind_name)
+    rendered = _render_workflow_mermaid(kind_name, title, values)
+    match = MERMAID_SIGNATURE_PATTERN.search(rendered)
+    return match.group(1) if match is not None else ""
 
 
 def _section_block(text: str, heading: str, fallback: str = "") -> str:

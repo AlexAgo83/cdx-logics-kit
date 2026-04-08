@@ -58,9 +58,9 @@ MERMAID_NODE_PATTERN = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)\[(.*?)\]")
 def _plain_text(value: str) -> str:
     text = unicodedata.normalize("NFKD", value)
     text = text.encode("ascii", "ignore").decode("ascii")
-    text = re.sub(r"`([^`]+)`", r"\1", text)
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-    text = re.sub(r"[*_#>]+", " ", text)
+    text = re.sub(r"`+", "", text)
+    text = text.replace("&", " and ")
+    text = re.sub(r"[/{}[\]()+*#]", " ", text)
     text = re.sub(r"[^A-Za-z0-9:._ -]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip(" .:-")
     return text
