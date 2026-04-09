@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
-  <img src="https://img.shields.io/badge/version-v1.11.0-4C8BF5" alt="Version" />
+  <img src="https://img.shields.io/badge/version-v1.12.0-4C8BF5" alt="Version" />
   <img src="https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/workflow-request--backlog--task--spec-2EA44F" alt="Workflow" />
   <img src="https://img.shields.io/badge/AI-context%20memory-FFB000" alt="AI Context Memory" />
@@ -25,6 +25,14 @@ Companion framing docs can be added when needed:
 It also ships scripts and skills to create, promote, lint, audit, review, and enrich those docs so project context stays durable, inspectable, and reusable across AI sessions.
 
 In practice, the kit gives teams a structured delivery memory they can keep in git, automate with scripts, and hand off to assistants without restating the whole project every time.
+
+## Latest Product Features
+
+- Generated Logics index and relationship views make the corpus easier to browse and audit at repository scale.
+- Relationship guardrails surface unresolved references and orphan docs earlier, which keeps the corpus healthier as it grows.
+- Mermaid generation now stays closer to the workflow docs and produces more contextual diagrams by default.
+- Cached context packs and normalized cache keys reduce repeated work in recurring Logics flows.
+- Doc-specific reminders are now clearer, so request, backlog, and task edits stay aligned with the kit conventions.
 
 ## Why This Matters For AI Projects
 
@@ -395,6 +403,7 @@ The canonical kit version lives in [`VERSION`](VERSION).
 
 Versioned release notes live in [`changelogs/`](changelogs/):
 
+- [`changelogs/CHANGELOGS_1_12_0.md`](changelogs/CHANGELOGS_1_12_0.md)
 - [`changelogs/CHANGELOGS_1_9_1.md`](changelogs/CHANGELOGS_1_9_1.md)
 - [`changelogs/CHANGELOGS_1_9_0.md`](changelogs/CHANGELOGS_1_9_0.md)
 - [`changelogs/CHANGELOGS_1_8_0.md`](changelogs/CHANGELOGS_1_8_0.md)
