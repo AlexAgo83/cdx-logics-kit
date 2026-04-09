@@ -11,6 +11,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -562,3 +563,90 @@ class LogicsFlowTest(LogicsFlowTestBase):
             )
 
         self.assertEqual(context.exception.code, "hybrid_backend_policy_violation")
+
+    def test_build_hybrid_result_cache_key_ignores_noisy_lockfile_paths(self) -> None:
+        core = self._core_module()
+
+        model_selection = {
+            "name": "deepseek-coder",
+            "resolved_model": "deepseek-coder-v2:16b",
+        }
+        clean_context_bundle = {
+            "seed_ref": "req_001_seed",
+            "context_profile": {"mode": "diff-first", "profile": "tiny"},
+            "git_snapshot": {
+                "changed_paths": ["src/feature.ts"],
+                "unstaged_diff_stat": [" src/feature.ts | 1 +"],
+                "staged_diff_stat": [],
+            },
+            "context_pack": {"mode": "diff-first", "profile": "tiny"},
+        }
+        noisy_context_bundle = {
+            "seed_ref": "req_001_seed",
+            "context_profile": {"mode": "diff-first", "profile": "tiny"},
+            "git_snapshot": {
+                "changed_paths": ["src/feature.ts", "package-lock.json"],
+                "unstaged_diff_stat": [" src/feature.ts | 1 +", " package-lock.json | 3 ++-"],
+                "staged_diff_stat": [" package-lock.json | Bin 0 -> 0 bytes"],
+            },
+            "context_pack": {"mode": "diff-first", "profile": "tiny"},
+        }
+
+        clean_key, clean_fingerprint = core._build_hybrid_result_cache_key(
+            flow_name="commit-message",
+            requested_backend="auto",
+            model_selection=model_selection,
+            context_bundle=clean_context_bundle,
+        )
+        noisy_key, noisy_fingerprint = core._build_hybrid_result_cache_key(
+            flow_name="commit-message",
+            requested_backend="auto",
+            model_selection=model_selection,
+            context_bundle=noisy_context_bundle,
+        )
+
+        self.assertEqual(noisy_key, clean_key)
+        self.assertEqual(noisy_fingerprint, clean_fingerprint)
+
+    def test_build_context_pack_reuses_cached_pack_between_calls(self) -> None:
+        core = self._core_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True)
+            (repo / "logics.yaml").write_text("version: 1\n", encoding="utf-8")
+            request = repo / "logics" / "request" / "req_001_seed.md"
+            self._write_doc(
+                request,
+                [
+                    "## req_001_seed - Seed request",
+                    "> From version: 1.0.0",
+                    "> Schema version: 1.0.0",
+                    "> Status: Ready",
+                    "> Understanding: 100%",
+                    "> Confidence: 100%",
+                    "",
+                    "### Needs",
+                    "- Keep the pack stable",
+                ],
+            )
+
+            core._CONTEXT_PACK_CACHE.clear()
+            with mock.patch.object(core, "_context_pack_doc_entry", wraps=core._context_pack_doc_entry) as wrapped_entry:
+                first = core._build_context_pack(
+                    repo,
+                    "req_001_seed",
+                    mode="summary-only",
+                    profile="tiny",
+                    config={"version": 1},
+                )
+                second = core._build_context_pack(
+                    repo,
+                    "req_001_seed",
+                    mode="summary-only",
+                    profile="tiny",
+                    config={"version": 1},
+                )
+
+            self.assertEqual(first, second)
+            self.assertEqual(wrapped_entry.call_count, 1)

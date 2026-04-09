@@ -55,28 +55,52 @@ def _is_binary_diff_stub(value: Any) -> bool:
     return bool(compact) and (" | Bin " in compact or compact.startswith("Binary files "))
 
 
-def _sanitize_hybrid_context_bundle_for_prompt(context_bundle: dict[str, Any]) -> dict[str, Any]:
-    sanitized = deepcopy(context_bundle)
-    git_snapshot = sanitized.get("git_snapshot")
+def _normalize_hybrid_diff_signals(context_bundle: dict[str, Any]) -> dict[str, list[str]]:
+    git_snapshot = context_bundle.get("git_snapshot")
+    context_pack = context_bundle.get("context_pack")
+    normalized_changed_paths: list[str] = []
+    normalized_unstaged_diff_stat: list[str] = []
+    normalized_staged_diff_stat: list[str] = []
+    normalized_context_pack_changed_paths: list[str] = []
+
     if isinstance(git_snapshot, dict):
-        git_snapshot["changed_paths"] = [
+        normalized_changed_paths = [
             path for path in git_snapshot.get("changed_paths", []) if not _is_noisy_diff_path(path)
         ]
-        git_snapshot["unstaged_diff_stat"] = [
+        normalized_unstaged_diff_stat = [
             line
             for line in git_snapshot.get("unstaged_diff_stat", [])
             if not _is_noisy_diff_path(line) and not _is_binary_diff_stub(line)
         ]
-        git_snapshot["staged_diff_stat"] = [
+        normalized_staged_diff_stat = [
             line
             for line in git_snapshot.get("staged_diff_stat", [])
             if not _is_noisy_diff_path(line) and not _is_binary_diff_stub(line)
         ]
-    context_pack = sanitized.get("context_pack")
     if isinstance(context_pack, dict):
-        context_pack["changed_paths"] = [
+        normalized_context_pack_changed_paths = [
             path for path in context_pack.get("changed_paths", []) if not _is_noisy_diff_path(path)
         ]
+
+    return {
+        "changed_paths": normalized_changed_paths,
+        "unstaged_diff_stat": normalized_unstaged_diff_stat,
+        "staged_diff_stat": normalized_staged_diff_stat,
+        "context_pack_changed_paths": normalized_context_pack_changed_paths,
+    }
+
+
+def _sanitize_hybrid_context_bundle_for_prompt(context_bundle: dict[str, Any]) -> dict[str, Any]:
+    sanitized = deepcopy(context_bundle)
+    normalized_signals = _normalize_hybrid_diff_signals(sanitized)
+    git_snapshot = sanitized.get("git_snapshot")
+    if isinstance(git_snapshot, dict):
+        git_snapshot["changed_paths"] = normalized_signals["changed_paths"]
+        git_snapshot["unstaged_diff_stat"] = normalized_signals["unstaged_diff_stat"]
+        git_snapshot["staged_diff_stat"] = normalized_signals["staged_diff_stat"]
+    context_pack = sanitized.get("context_pack")
+    if isinstance(context_pack, dict):
+        context_pack["changed_paths"] = normalized_signals["context_pack_changed_paths"]
     return sanitized
 
 
@@ -954,5 +978,4 @@ def run_openai_hybrid_impl(
         "raw_content": content,
         "result_payload": result_payload,
     }
-
 

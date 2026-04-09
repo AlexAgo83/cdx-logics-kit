@@ -84,6 +84,7 @@ def build_runtime_index(
     force: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
+    repo_root = repo_root.resolve()
     cache_rel = str(get_config_value(config, "index", "path", default="logics/.cache/runtime_index.json"))
     cache_path = (repo_root / cache_rel).resolve()
     cache_enabled = bool(get_config_value(config, "index", "enabled", default=True))
@@ -178,4 +179,3 @@ def indexed_skill_packages(repo_root: Path, *, config: dict[str, Any], force: bo
     payload = load_runtime_index(repo_root, config=config, force=force)
     packages = [_restore_skill_package(entry["data"]) for entry in payload["skill_packages"].values()]
     return packages, dict(payload["stats"])
-
