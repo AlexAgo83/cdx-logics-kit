@@ -53,6 +53,8 @@ REF_PREFIXES = {
     "task": "task",
 }
 MERMAID_NODE_PATTERN = re.compile(r"\b([A-Za-z][A-Za-z0-9_]*)\[(.*?)\]")
+MERMAID_STATE_DECL_PATTERN = re.compile(r'^\s*state\s+"([^"]+)"\s+as\s+([A-Za-z][A-Za-z0-9_]*)\s*$', re.MULTILINE)
+MERMAID_STATE_TRANSITION_PATTERN = re.compile(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s*-->\s*([A-Za-z][A-Za-z0-9_]*)\s*$", re.MULTILINE)
 
 
 def _plain_text(value: str) -> str:
@@ -167,7 +169,7 @@ def _render_backlog_mermaid(title: str, values: dict[str, str]) -> str:
         "backlog",
         signature,
         [
-            "flowchart LR",
+            "flowchart TD",
             f"    Request[{source_label}] --> Problem[{problem_label}]",
             f"    Problem --> Scope[{scope_label}]",
             f"    Scope --> Acceptance[{acceptance_label}]",
@@ -186,7 +188,7 @@ def _render_task_mermaid(title: str, values: dict[str, str]) -> str:
     validation_items = _rendered_list_items(values.get("VALIDATION_BLOCK", ""))
     source_label = _pick_mermaid_summary([*backlog_refs, title], "Backlog source")
     step_one = _pick_mermaid_summary(plan_items[:1], "Confirm scope")
-    step_two = _pick_mermaid_summary(plan_items[1:2], "Implement scope")
+    step_two = _pick_mermaid_summary(plan_items[1:2], "Implement change")
     step_three = _pick_mermaid_summary(plan_items[2:3], "Validate result")
     validation_label = _pick_mermaid_summary(validation_items, "Validation")
     report_label = _safe_mermaid_label(MERMAID_FALLBACKS["task_report"], MERMAID_FALLBACKS["task_report"])
@@ -195,12 +197,20 @@ def _render_task_mermaid(title: str, values: dict[str, str]) -> str:
         "task",
         signature,
         [
-            "flowchart LR",
-            f"    Backlog[{source_label}] --> Step1[{step_one}]",
-            f"    Step1 --> Step2[{step_two}]",
-            f"    Step2 --> Step3[{step_three}]",
-            f"    Step3 --> Validation[{validation_label}]",
-            f"    Validation --> Report[{report_label}]",
+            "stateDiagram-v2",
+            f'    state "{source_label}" as Backlog',
+            f'    state "{step_one}" as Scope',
+            f'    state "{step_two}" as Build',
+            f'    state "{step_three}" as Verify',
+            f'    state "{validation_label}" as Validation',
+            f'    state "{report_label}" as Report',
+            "    [*] --> Backlog",
+            "    Backlog --> Scope",
+            "    Scope --> Build",
+            "    Build --> Verify",
+            "    Verify --> Validation",
+            "    Validation --> Report",
+            "    Report --> [*]",
         ],
     )
 
@@ -239,8 +249,10 @@ def _mermaid_key_sections(kind_name: str, values: dict[str, str]) -> dict[str, l
     }
 
 
-def _expected_direction(kind_name: str) -> str:
-    return "TD" if kind_name == "request" else "LR"
+def _expected_diagram_spec(kind_name: str) -> tuple[str, str | None]:
+    if kind_name == "task":
+        return "stateDiagram-v2", None
+    return "flowchart", "TD"
 
 
 def _validate_mermaid_safety(kind_name: str, mermaid_block: str) -> list[str]:
@@ -257,30 +269,52 @@ def _validate_mermaid_safety(kind_name: str, mermaid_block: str) -> list[str]:
         issues.append("mermaid-kind-mismatch")
     if not signature_line:
         issues.append("mermaid-signature-missing")
-    flowchart_line = next((line.strip() for line in lines if line.strip().startswith("flowchart ")), "")
-    if flowchart_line != f"flowchart {_expected_direction(kind_name)}":
-        issues.append("mermaid-direction-mismatch")
-    node_ids: set[str] = set()
-    for node_id, label in MERMAID_NODE_PATTERN.findall(mermaid_block):
-        node_ids.add(node_id)
-        if any(ord(char) > 127 for char in label):
-            issues.append("mermaid-non-ascii-label")
-        if re.search(r"[*_`#]", label):
-            issues.append("mermaid-markdown-label")
-        if "-->" in label or "---" in label or "{" in label or "}" in label:
-            issues.append("mermaid-unsafe-route-label")
-    if len(node_ids) > MERMAID_MAX_NODES:
-        issues.append("mermaid-node-count-exceeded")
+    diagram_kind, diagram_direction = _expected_diagram_spec(kind_name)
+    if diagram_kind == "flowchart":
+        flowchart_line = next((line.strip() for line in lines if line.strip().startswith("flowchart ")), "")
+        if flowchart_line != f"flowchart {diagram_direction}":
+            issues.append("mermaid-direction-mismatch")
+        node_ids: set[str] = set()
+        for node_id, label in MERMAID_NODE_PATTERN.findall(mermaid_block):
+            node_ids.add(node_id)
+            if any(ord(char) > 127 for char in label):
+                issues.append("mermaid-non-ascii-label")
+            if re.search(r"[*_`#]", label):
+                issues.append("mermaid-markdown-label")
+            if "-->" in label or "---" in label or "{" in label or "}" in label:
+                issues.append("mermaid-unsafe-route-label")
+        if len(node_ids) > MERMAID_MAX_NODES:
+            issues.append("mermaid-node-count-exceeded")
+    else:
+        state_line = next((line.strip() for line in lines if line.strip() == diagram_kind), "")
+        if state_line != diagram_kind:
+            issues.append("mermaid-direction-mismatch")
+        state_ids: set[str] = set()
+        for label, alias in MERMAID_STATE_DECL_PATTERN.findall(mermaid_block):
+            state_ids.add(alias)
+            if any(ord(char) > 127 for char in label):
+                issues.append("mermaid-non-ascii-label")
+            if re.search(r"[*_`#]", label):
+                issues.append("mermaid-markdown-label")
+        for src, dst in MERMAID_STATE_TRANSITION_PATTERN.findall(mermaid_block):
+            if src != "[*]":
+                state_ids.add(src)
+            if dst != "[*]":
+                state_ids.add(dst)
+        if len(state_ids) > MERMAID_MAX_NODES:
+            issues.append("mermaid-node-count-exceeded")
     return sorted(set(issues))
 
 
 def _build_mermaid_context_bundle(kind_name: str, title: str, values: dict[str, str]) -> dict[str, Any]:
+    diagram_kind, diagram_direction = _expected_diagram_spec(kind_name)
     return {
         "contract": build_flow_contract(HYBRID_FLOW_NAME),
         "context_pack": {
             "doc_kind": kind_name,
             "title": title,
-            "direction": _expected_direction(kind_name),
+            "diagram": diagram_kind,
+            "direction": diagram_direction or diagram_kind,
             "key_sections": _mermaid_key_sections(kind_name, values),
         },
         "operator_input": {
@@ -319,7 +353,7 @@ def _normalize_candidate_mermaid(
     if not stripped:
         return candidate_mermaid
     signature = _extract_deterministic_signature(deterministic_mermaid)
-    direction = _expected_direction(kind_name)
+    diagram_kind, diagram_direction = _expected_diagram_spec(kind_name)
 
     if stripped.startswith("```mermaid"):
         body_lines = [
@@ -329,20 +363,40 @@ def _normalize_candidate_mermaid(
             and line.strip() not in {"```mermaid", "```"}
             and not line.strip().startswith("%% logics-kind:")
             and not line.strip().startswith("%% logics-signature:")
-            and not line.strip().startswith("flowchart ")
         ]
+        if diagram_kind == "flowchart":
+            body_lines = [line for line in body_lines if not line.strip().startswith("flowchart ")]
+            return _render_mermaid_block(
+                kind_name,
+                signature,
+                [f"flowchart {diagram_direction}", *body_lines],
+            )
+        body_lines = [line for line in body_lines if not line.strip().startswith("stateDiagram-v2")]
         return _render_mermaid_block(
             kind_name,
             signature,
-            [f"flowchart {direction}", *body_lines],
+            ["stateDiagram-v2", *body_lines],
         )
 
-    if not stripped.startswith("flowchart "):
+    if diagram_kind == "flowchart":
+        if not stripped.startswith("flowchart "):
+            return candidate_mermaid
+
+        body_lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
+        if body_lines:
+            body_lines[0] = f"flowchart {diagram_direction}"
+        return _render_mermaid_block(
+            kind_name,
+            signature,
+            body_lines,
+        )
+
+    if not stripped.startswith("stateDiagram-v2"):
         return candidate_mermaid
 
     body_lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
     if body_lines:
-        body_lines[0] = f"flowchart {direction}"
+        body_lines[0] = "stateDiagram-v2"
     return _render_mermaid_block(
         kind_name,
         signature,

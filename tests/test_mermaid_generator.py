@@ -72,6 +72,25 @@ class MermaidGeneratorTest(unittest.TestCase):
         actual = flow_support_module._render_workflow_mermaid("backlog", "Demo backlog", values)
         self.assertEqual(actual, expected)
 
+    def test_task_workflow_mermaid_uses_state_diagram_with_contextual_stages(self) -> None:
+        module = _load_module("mermaid_generator_task_state", self._script())
+
+        block = module._render_workflow_mermaid(
+            "task",
+            "Demo task",
+            {
+                "BACKLOG_LINK_PLACEHOLDER": "`item_123_demo_backlog`",
+                "PLAN_BLOCK": "- Confirm scope\n- Implement change\n- Validate result",
+                "VALIDATION_BLOCK": "- AC1: Validate the done state",
+            },
+        )
+
+        self.assertIn("stateDiagram-v2", block)
+        self.assertIn('state "Confirm scope" as Scope', block)
+        self.assertIn('state "Implement change" as Build', block)
+        self.assertIn('state "Validate result" as Verify', block)
+        self.assertIn("Validation --> Report", block)
+
     def test_hybrid_generation_records_measurement_when_provider_payload_is_valid(self) -> None:
         module = _load_module("mermaid_generator_hybrid_ok", self._script())
         repo = Path(tempfile.mkdtemp(prefix="mermaid-hybrid-"))
