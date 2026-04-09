@@ -63,6 +63,7 @@ from logics_flow_hybrid import (
     select_hybrid_backend,
     run_validation_commands,
 )
+from logics_flow_hybrid_transport_core import _normalize_hybrid_diff_signals
 from logics_flow_index import indexed_skill_packages, indexed_workflow_docs, load_runtime_index
 from logics_flow_support import (
     ALLOWED_COMPLEXITIES,
@@ -108,6 +109,9 @@ from logics_flow_registry import (
     build_release_metadata,
 )
 from logics_flow_transactions import TransactionWrite, apply_transaction
+
+
+_CONTEXT_PACK_CACHE: dict[str, dict[str, object]] = {}
 
 CLAUDE_BRIDGE_VARIANTS: tuple[dict[str, str], ...] = (
     {
@@ -368,6 +372,38 @@ def _context_pack_doc_entry(doc: WorkflowDocModel, mode: str) -> dict[str, objec
     return entry
 
 
+def _context_pack_cache_key(
+    repo_root: Path,
+    seed_ref: str,
+    *,
+    mode: str,
+    profile: str,
+    config: dict[str, object] | None,
+    changed_paths: list[str],
+    ordered_docs: list[WorkflowDocModel],
+) -> str:
+    payload = {
+        "repo_root": str(repo_root.resolve()),
+        "seed_ref": seed_ref,
+        "mode": mode,
+        "profile": profile,
+        "config": config or {},
+        "changed_paths": changed_paths,
+        "docs": [
+            {
+                "ref": doc.ref,
+                "kind": doc.kind,
+                "path": doc.path,
+                "schema_version": doc.schema_version,
+                "status": doc.indicators.get("Status", ""),
+                "linked_refs": {prefix: refs for prefix, refs in doc.refs.items() if refs},
+            }
+            for doc in ordered_docs
+        ],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
 def _build_context_pack(
     repo_root: Path,
     seed_ref: str,
@@ -381,9 +417,21 @@ def _build_context_pack(
     if seed is None:
         raise SystemExit(f"Unknown workflow ref `{seed_ref}`.")
     ordered = _workflow_neighborhood(seed, docs)[: _context_profile_limit(profile)]
-    pack_docs = [_context_pack_doc_entry(doc, mode) for doc in ordered]
     changed_paths = _git_changed_paths(repo_root) if mode == "diff-first" else []
-    return {
+    cache_key = _context_pack_cache_key(
+        repo_root,
+        seed_ref,
+        mode=mode,
+        profile=profile,
+        config=config,
+        changed_paths=changed_paths,
+        ordered_docs=ordered,
+    )
+    cached_pack = _CONTEXT_PACK_CACHE.get(cache_key)
+    if isinstance(cached_pack, dict):
+        return deepcopy(cached_pack)
+    pack_docs = [_context_pack_doc_entry(doc, mode) for doc in ordered]
+    payload = {
         "ref": seed_ref,
         "mode": mode,
         "profile": profile,
@@ -397,6 +445,8 @@ def _build_context_pack(
             "char_count": sum(len(json.dumps(entry, sort_keys=True)) for entry in pack_docs),
         },
     }
+    _CONTEXT_PACK_CACHE[cache_key] = deepcopy(payload)
+    return payload
 
 
 def _schema_status(repo_root: Path, targets: list[str]) -> dict[str, object]:
@@ -889,7 +939,7 @@ def _build_hybrid_result_cache_key(
     model_selection: dict[str, object],
     context_bundle: dict[str, object],
 ) -> tuple[str, str]:
-    git_snapshot = context_bundle.get("git_snapshot", {})
+    normalized_signals = _normalize_hybrid_diff_signals(context_bundle)
     context_pack = context_bundle.get("context_pack", {})
     fingerprint_payload = {
         "seed_ref": context_bundle.get("seed_ref"),
@@ -899,9 +949,9 @@ def _build_hybrid_result_cache_key(
         "requested_backend": requested_backend,
         "model_profile": model_selection.get("name"),
         "resolved_model": model_selection.get("resolved_model"),
-        "changed_paths": list(git_snapshot.get("changed_paths", [])) if isinstance(git_snapshot, dict) else [],
-        "unstaged_diff_stat": list(git_snapshot.get("unstaged_diff_stat", [])) if isinstance(git_snapshot, dict) else [],
-        "staged_diff_stat": list(git_snapshot.get("staged_diff_stat", [])) if isinstance(git_snapshot, dict) else [],
+        "changed_paths": normalized_signals["changed_paths"],
+        "unstaged_diff_stat": normalized_signals["unstaged_diff_stat"],
+        "staged_diff_stat": normalized_signals["staged_diff_stat"],
     }
     diff_fingerprint = hashlib.sha256(
         json.dumps(fingerprint_payload, sort_keys=True).encode("utf-8")

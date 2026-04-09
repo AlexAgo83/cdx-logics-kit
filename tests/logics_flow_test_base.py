@@ -53,6 +53,21 @@ class LogicsFlowTestBase(unittest.TestCase):
             sys.path.pop(0)
         return module
 
+    def _core_module(self):
+        module_path = self._flow_manager_root() / "scripts" / "logics_flow_core.py"
+        spec = importlib.util.spec_from_file_location("logics_flow_core_test", module_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(module_path.parent))
+        try:
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+        finally:
+            sys.modules.pop(spec.name, None)
+            sys.path.pop(0)
+        return module
+
     def _fixtures_root(self) -> Path:
         return Path(__file__).resolve().parent / "fixtures"
 
