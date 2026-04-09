@@ -7,7 +7,7 @@
 > Progress: {{PROGRESS}}
 > Complexity: {{COMPLEXITY}}
 > Theme: {{THEME}}
-> Reminder: Update status/understanding/confidence/progress and linked task references when you edit this doc.
+> Reminder: Update status/understanding/confidence/progress and linked request/task references when you edit this doc.
 
 # Problem
 {{PROBLEM_PLACEHOLDER}}

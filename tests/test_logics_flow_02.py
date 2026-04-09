@@ -17,6 +17,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from logics_flow_test_base import LogicsFlowTestBase
 
 class LogicsFlowTest(LogicsFlowTestBase):
+    def test_flow_templates_use_doc_specific_reminders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self._install_flow_templates(repo)
+
+            template_root = repo / "logics" / "skills" / "logics-flow-manager" / "assets" / "templates"
+            request_template = (template_root / "request.md").read_text(encoding="utf-8")
+            backlog_template = (template_root / "backlog.md").read_text(encoding="utf-8")
+            task_template = (template_root / "task.md").read_text(encoding="utf-8")
+
+            self.assertIn(
+                "> Reminder: Update status/understanding/confidence and linked backlog/task references when you edit this doc.",
+                request_template,
+            )
+            self.assertIn(
+                "> Reminder: Update status/understanding/confidence/progress and linked request/task references when you edit this doc.",
+                backlog_template,
+            )
+            self.assertIn(
+                "> Reminder: Update status/understanding/confidence/progress and linked request/backlog references when you edit this doc.",
+                task_template,
+            )
+
     def test_promotions_generate_context_aware_mermaid_signatures(self) -> None:
         script = self._script()
 

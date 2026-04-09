@@ -6,7 +6,7 @@
 > Confidence: {{CONFIDENCE}}
 > Complexity: {{COMPLEXITY}}
 > Theme: {{THEME}}
-> Reminder: Update status/understanding/confidence and references when you edit this doc.
+> Reminder: Update status/understanding/confidence and linked backlog/task references when you edit this doc.
 
 # Needs
 - {{NEEDS_PLACEHOLDER}}
