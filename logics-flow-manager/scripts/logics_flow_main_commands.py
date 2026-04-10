@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from logics_flow_doc_commands import *  # noqa: F401,F403
 import logics_flow_doc_commands as _doc_commands
+from logics_flow_hybrid_runtime_core import HybridAssistError
 import logics_flow_support_workflow_core as _workflow_core
 import logics_flow_support_workflow_extra as _workflow_extra
 from logics_flow_support_workflow_core import _generate_workflow_mermaid  # noqa: F401
