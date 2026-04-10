@@ -28,6 +28,7 @@ Use the following indicators in request/backlog/task items:
 * `Progress: ??%` : Your progress toward completing the backlog item or task.
 * `Complexity: Low | Medium | High` : Effort/complexity classification.
 * `Theme: Combat | Items | Economy | UI | ...` : High-level theme/epic tag.
+* `Status: Draft | Ready | In progress | Blocked | Done | Obsolete | Archived` : Workflow maturity for requests, backlog items, and tasks.
 
 Use the following indicators in product briefs:
 
