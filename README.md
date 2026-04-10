@@ -461,7 +461,7 @@ If a local `release` branch exists, `publish-release` also warns when that branc
 Requests, backlog items, and tasks include these top-level indicators:
 
 - `From version:`
-- `Status:` (`Draft | Ready | In progress | Blocked | Done | Archived`)
+- `Status:` (`Draft | Ready | In progress | Blocked | Done | Obsolete | Archived`)
 - `Understanding:`
 - `Confidence:`
 - `Progress:` (mainly tasks, optionally backlog)

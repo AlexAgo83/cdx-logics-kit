@@ -20,7 +20,7 @@ description: >-
 - When mentioning files in generated docs, use repo-relative paths such as `logics/...` or `src/...`, never absolute filesystem paths such as `/Users/...`.
 - Keep indicators at the top:
   - `From version: X.X.X`
-  - `Status: Draft | Ready | In progress | Blocked | Done | Archived`
+  - `Status: Draft | Ready | In progress | Blocked | Done | Obsolete | Archived`
   - `Understanding: ??%`
   - `Confidence: ??%`
   - `Progress: ??%` (mainly tasks; optionally backlog)
@@ -84,7 +84,7 @@ Optional flags:
 
 - `--from-version 0.14.3`
 - `--understanding 60% --confidence 40%`
-- `--status Draft|Ready|In progress|Blocked|Done|Archived`
+- `--status Draft|Ready|In progress|Blocked|Done|Obsolete|Archived`
 - `--complexity Low|Medium|High --theme UI`
 - `--progress 0%` (task/backlog)
 - `--auto-create-product-brief` (backlog/task only; create `logics/product/prod_###_*.md` when product framing is required)
