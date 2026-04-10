@@ -13,7 +13,7 @@ Create missing Logics folders (and `.gitkeep` files for empty dirs):
 python logics/skills/logics-bootstrapper/scripts/logics_bootstrap.py
 ```
 
-This also creates a default `logics/instructions.md` if it does not exist.
+This also creates `logics/instructions.md`, a minimal `LOGICS.md`, and a local `AGENTS.md`/`LOGICS.md` pairing when those files are missing.
 
 Dry-run (print actions, no writes):
 
