@@ -19,9 +19,12 @@ DEFAULT_DIRS = (
     "logics/external",
 )
 
+AGENTS_REFERENCE = "@LOGICS.md"
 GITIGNORE_COMMENT = "# Generated Logics runtime artifacts"
 GITIGNORE_ENTRIES = (
+    "AGENTS.md",
     ".env.local",
+    "LOGICS.md",
     "logics/.cache/",
     "logics/.cache/hybrid_assist_audit.jsonl",
     "logics/.cache/hybrid_assist_measurements.jsonl",
@@ -44,6 +47,10 @@ class Action:
 
 def _template_instructions_path() -> Path:
     return Path(__file__).resolve().parents[1] / "assets" / "instructions.md"
+
+
+def _template_logics_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / "logics.md"
 
 
 def _template_config_path() -> Path:
@@ -84,6 +91,16 @@ def _missing_gitignore_entries(gitignore_path: Path) -> list[str]:
     else:
         existing_lines = set()
     return [entry for entry in GITIGNORE_ENTRIES if entry not in existing_lines]
+
+
+def _agents_needs_reference(agents_path: Path) -> bool:
+    if not agents_path.exists():
+        return True
+    try:
+        content = agents_path.read_text(encoding="utf-8")
+    except OSError:
+        return True
+    return AGENTS_REFERENCE not in content
 
 
 def _parse_env_keys(env_path: Path) -> set[str]:
@@ -168,12 +185,31 @@ def _render_gitignore(gitignore_path: Path) -> str:
     return "\n".join(rendered_lines) + "\n"
 
 
+def _render_agents(agents_path: Path) -> str:
+    if agents_path.exists():
+        existing_text = agents_path.read_text(encoding="utf-8")
+        if AGENTS_REFERENCE in existing_text:
+            return existing_text if existing_text.endswith("\n") or not existing_text else existing_text + "\n"
+        if existing_text and not existing_text.endswith("\n"):
+            existing_text += "\n"
+        return existing_text + AGENTS_REFERENCE + "\n"
+    return AGENTS_REFERENCE + "\n"
+
+
 def _plan_actions(repo_root: Path) -> list[Action]:
     actions: list[Action] = []
     for rel in DEFAULT_DIRS:
         path = repo_root / rel
         if not path.exists():
             actions.append(Action("mkdir", path))
+
+    agents_path = repo_root / "AGENTS.md"
+    if _agents_needs_reference(agents_path):
+        actions.append(Action("agents", agents_path))
+
+    logics_path = repo_root / "LOGICS.md"
+    if not logics_path.exists():
+        actions.append(Action("logics", logics_path))
 
     instructions_path = repo_root / "logics" / "instructions.md"
     if not instructions_path.exists():
@@ -218,6 +254,19 @@ def _apply(actions: list[Action], dry_run: bool) -> None:
                 action.path.write_text("", encoding="utf-8")
         elif action.kind == "instructions":
             template_path = _template_instructions_path()
+            if dry_run:
+                print(f"[dry-run] write {action.path} (from {template_path})")
+            else:
+                action.path.parent.mkdir(parents=True, exist_ok=True)
+                action.path.write_text(template_path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+        elif action.kind == "agents":
+            if dry_run:
+                print(f"[dry-run] update {action.path} (ensure {AGENTS_REFERENCE} reference)")
+            else:
+                action.path.parent.mkdir(parents=True, exist_ok=True)
+                action.path.write_text(_render_agents(action.path), encoding="utf-8")
+        elif action.kind == "logics":
+            template_path = _template_logics_path()
             if dry_run:
                 print(f"[dry-run] write {action.path} (from {template_path})")
             else:
