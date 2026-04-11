@@ -434,7 +434,8 @@ def _build_context_pack(
     cached_pack = _CONTEXT_PACK_CACHE.get(cache_key)
     if isinstance(cached_pack, dict):
         return deepcopy(cached_pack)
-    pack_docs = [_context_pack_doc_entry(doc, mode) for doc in ordered]
+    context_pack_doc_entry = getattr(sys.modules.get(__name__), "_context_pack_doc_entry", _context_pack_doc_entry)
+    pack_docs = [context_pack_doc_entry(doc, mode) for doc in ordered]
     payload = {
         "ref": seed_ref,
         "mode": mode,

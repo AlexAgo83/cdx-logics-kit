@@ -1,5 +1,7 @@
 from __future__ import annotations
 
-from _compat_export import export_module
+from pathlib import Path
 
-export_module("workflow.logics_flow_index", globals())
+_source_path = Path(__file__).resolve().parent / 'workflow/logics_flow_index.py'
+__file__ = str(_source_path)
+exec(compile(_source_path.read_text(encoding="utf-8"), str(_source_path), "exec"), globals())

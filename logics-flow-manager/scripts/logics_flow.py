@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-from _compat_export import export_module
-
-export_module("workflow.logics_flow", globals())
+_source_path = Path(__file__).resolve().parent / 'workflow/logics_flow.py'
+__file__ = str(_source_path)
+exec(compile(_source_path.read_text(encoding="utf-8"), str(_source_path), "exec"), globals())
 
 if __name__ == "__main__":
     raise SystemExit(globals()["main"](sys.argv[1:]))
