@@ -43,6 +43,26 @@ class DocKind:
     include_progress: bool
 
 
+def _fixture_request_sections(title: str) -> tuple[str, str, str]:
+    normalized_title = " ".join(title.split()).strip() or "this workflow doc"
+    needs = f"Create a compact smoke-test request for {normalized_title}."
+    context = "\n".join(
+        [
+            f"- Synthetic fixture for {normalized_title}.",
+            "- Keep the request small, opinionated, and easy to audit.",
+            "- Exercise request, backlog, and task generation plus Mermaid signature refresh.",
+        ]
+    )
+    acceptance = "\n".join(
+        [
+            f"AC1: {normalized_title} stays compact and avoids generic placeholders.",
+            f"AC2: The backlog item and task promoted from {normalized_title} preserve AC traceability with proof.",
+            "AC3: Mermaid signatures refresh automatically after content edits.",
+        ]
+    )
+    return needs, context, acceptance
+
+
 DOC_KINDS: dict[str, DocKind] = {
     "request": DocKind("request", "logics/request", "req", "request.md", False),
     "backlog": DocKind("backlog", "logics/backlog", "item", "backlog.md", True),
@@ -296,6 +316,8 @@ def _build_template_values(
     title: str,
     include_progress: bool,
     doc_kind: str,
+    *,
+    fixture_mode: bool = False,
 ) -> dict[str, str]:
     values: dict[str, str] = {
         "DOC_REF": doc_ref,
@@ -354,7 +376,17 @@ def _build_template_values(
         "REFERENCES_SECTION": "",
         "MERMAID_BLOCK": "",
     }
-    _apply_ai_context_values(values, doc_kind=doc_kind, title=title, primary_items=[title])
+    if doc_kind == "request" and fixture_mode:
+        needs, context, acceptance = _fixture_request_sections(title)
+        _apply_ai_context_values(
+            values,
+            doc_kind=doc_kind,
+            title=title,
+            primary_items=[needs],
+            secondary_items=[context, acceptance],
+        )
+    else:
+        _apply_ai_context_values(values, doc_kind=doc_kind, title=title, primary_items=[title])
 
     if not include_progress:
         values["PROGRESS"] = ""
@@ -374,6 +406,7 @@ def build_workflow_doc_values(
     progress: str = "0%",
     complexity: str = "Medium",
     theme: str = "General",
+    fixture_mode: bool = False,
 ) -> dict[str, str]:
     kind = DOC_KINDS[kind_name]
     args = argparse.Namespace(
@@ -388,7 +421,48 @@ def build_workflow_doc_values(
         auto_create_adr=False,
         dry_run=False,
     )
-    return _build_template_values(args, doc_ref, title, kind.include_progress, kind_name)
+    return _build_template_values(args, doc_ref, title, kind.include_progress, kind_name, fixture_mode=fixture_mode)
+
+
+def validate_generated_workflow_doc_text(
+    text: str,
+    kind_name: str,
+    *,
+    strict_traceability: bool = False,
+) -> None:
+    lines = text.splitlines()
+    signature_match = MERMAID_SIGNATURE_PATTERN.search(text)
+    expected_signature = expected_workflow_mermaid_signature(kind_name, lines)
+    if expected_signature:
+        actual_signature = signature_match.group(1).strip() if signature_match is not None else ""
+        if actual_signature != expected_signature:
+            raise SystemExit(
+                "Generated "
+                + f"{kind_name} doc failed prevalidation: Mermaid signature is stale. "
+                + f"Expected `{expected_signature}` but found `{actual_signature or '(missing)'}`. "
+                + "Re-run the generation or refresh the Mermaid signature before continuing."
+            )
+
+    if kind_name == "request":
+        request_hits = [snippet for snippet in REQUEST_PLACEHOLDER_SNIPPETS if snippet in text]
+        if request_hits:
+            raise SystemExit(
+                "Generated request doc failed prevalidation: generic placeholder text remained. "
+                + "Refresh the request template or pass `--fixture`/`--smoke-test` for a synthetic scenario. "
+                + "Remaining placeholders: "
+                + ", ".join(request_hits)
+            )
+
+    if strict_traceability:
+        traceability_hits = [snippet for snippet in TRACEABILITY_PLACEHOLDER_SNIPPETS if snippet in text]
+        if traceability_hits:
+            raise SystemExit(
+                "Generated "
+                + f"{kind_name} doc failed prevalidation: AC traceability still contains placeholders. "
+                + "Re-run the source promotion or use `python logics/skills/logics.py audit --autofix-ac-traceability`. "
+                + "Remaining placeholders: "
+                + ", ".join(traceability_hits)
+            )
 
 
 def plan_workflow_doc(repo_root: Path, kind_name: str, title: str, dry_run: bool = False) -> PlannedDoc:
@@ -585,6 +659,7 @@ def _create_backlog_from_request(
     content = _render_template(template_text, values).rstrip() + "\n"
     content, _changed = refresh_ai_context_text(content, "backlog")
     content, _changed = refresh_workflow_mermaid_signature_text(content, "backlog", repo_root=repo_root, dry_run=args.dry_run)
+    validate_generated_workflow_doc_text(content, "backlog", strict_traceability=True)
     _write(planned.path, content, args.dry_run)
     _update_request_backlog_links(source_path, planned.ref, args.dry_run)
     for ref in product_refs:
@@ -642,6 +717,7 @@ def _create_task_from_backlog(
     content = _render_template(template_text, values).rstrip() + "\n"
     content, _changed = refresh_ai_context_text(content, "task")
     content, _changed = refresh_workflow_mermaid_signature_text(content, "task", repo_root=repo_root, dry_run=args.dry_run)
+    validate_generated_workflow_doc_text(content, "task", strict_traceability=True)
     _write(planned.path, content, args.dry_run)
     if source_ref is not None:
         existing_task_refs = sorted(_extract_refs(source_text, REF_PREFIXES["task"]) | {planned.ref})

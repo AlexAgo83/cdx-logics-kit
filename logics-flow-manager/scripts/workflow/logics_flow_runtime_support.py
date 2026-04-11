@@ -343,9 +343,35 @@ def _resolved_from_version(repo_root: Path, value: object) -> str:
     return _default_from_version(repo_root)
 
 
-def _seed_new_doc_values(doc_kind: str, title: str, values: dict[str, str]) -> None:
+def _fixture_request_sections(title: str) -> tuple[str, str, str]:
+    normalized_title = " ".join(title.split()).strip() or "this workflow doc"
+    needs = f"Create a compact smoke-test request for {normalized_title}."
+    context = "\n".join(
+        [
+            f"- Synthetic fixture for {normalized_title}.",
+            "- Keep the request small, opinionated, and easy to audit.",
+            "- Exercise request, backlog, and task generation plus Mermaid signature refresh.",
+        ]
+    )
+    acceptance = "\n".join(
+        [
+            f"AC1: {normalized_title} stays compact and avoids generic placeholders.",
+            f"AC2: The backlog item and task promoted from {normalized_title} preserve AC traceability with proof.",
+            "AC3: Mermaid signatures refresh automatically after content edits.",
+        ]
+    )
+    return needs, context, acceptance
+
+
+def _seed_new_doc_values(doc_kind: str, title: str, values: dict[str, str], *, fixture_mode: bool = False) -> None:
     normalized_title = " ".join(title.split()).strip() or "this workflow doc"
     if doc_kind == "request":
+        if fixture_mode:
+            needs, context, acceptance = _fixture_request_sections(title)
+            values["NEEDS_PLACEHOLDER"] = needs
+            values["CONTEXT_PLACEHOLDER"] = context
+            values["ACCEPTANCE_PLACEHOLDER"] = acceptance
+            return
         values["NEEDS_PLACEHOLDER"] = f"Clarify the scope and user value of {normalized_title}."
         values["CONTEXT_PLACEHOLDER"] = f"- Capture the relevant context, constraints, and stakeholders for {normalized_title}."
         values["ACCEPTANCE_PLACEHOLDER"] = f"AC1: Confirm {normalized_title} is framed clearly enough for backlog grooming."

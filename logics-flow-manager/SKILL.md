@@ -50,6 +50,7 @@ Use the generator script (picks the next available ID, creates a file from templ
 
 ```bash
 python logics/skills/logics.py flow new request --title "Offline recap UI"
+python logics/skills/logics.py flow new request --title "Offline recap UI" --fixture
 python logics/skills/logics.py flow new backlog --title "Offline recap UI"
 python logics/skills/logics.py flow new task --title "Implement offline recap UI"
 ```
@@ -87,6 +88,7 @@ Optional flags:
 - `--status Draft|Ready|In progress|Blocked|Done|Obsolete|Archived`
 - `--complexity Low|Medium|High --theme UI`
 - `--progress 0%` (task/backlog)
+- `--fixture` or `--smoke-test` (request only; generate a compact synthetic request shape)
 - `--auto-create-product-brief` (backlog/task only; create `logics/product/prod_###_*.md` when product framing is required)
 - `--auto-create-adr` (backlog/task only; create `logics/architecture/adr_###_*.md` when architecture framing is required)
 - `--dry-run` (show path + content preview, no writes)
@@ -113,6 +115,7 @@ The promotion flow seeds more of the next-stage document automatically:
 - backlog acceptance criteria into task AC traceability;
 - source context/problem statements into the generated problem/context sections;
 - actionable `Decision framing` follow-up text inside the generated doc itself.
+- generated docs are prevalidated during generation/promotion so stale Mermaid signatures and incomplete AC traceability are caught before audit time.
 
 Split a broad request/backlog item into several executable children:
 

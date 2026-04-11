@@ -78,6 +78,15 @@ FRONTEND_SIGNAL_PATTERN = re.compile(
     r"\b(front[\s-]?end|ui|interface|webview|react|vue|svelte|html|css|component|screen|layout)\b",
     re.IGNORECASE,
 )
+REQUEST_PLACEHOLDER_SNIPPETS = (
+    "Describe the need",
+    "Add context and constraints",
+    "AC1: Define an objective acceptance check",
+)
+TRACEABILITY_PLACEHOLDER_SNIPPETS = (
+    "TODO: map this acceptance criterion to scope",
+    "Proof: TODO.",
+)
 MERMAID_LABEL_MAX_WORDS = 6
 MERMAID_LABEL_MAX_CHARS = 42
 MERMAID_FALLBACKS = {

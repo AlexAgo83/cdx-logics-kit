@@ -161,13 +161,30 @@ def cmd_sync_dispatch(args: argparse.Namespace) -> dict[str, object]:
 def cmd_new(args: argparse.Namespace) -> None:
     doc_kind = DOC_KINDS[args.kind]
     repo_root = _find_repo_root(Path.cwd())
+    fixture_mode = bool(getattr(args, "fixture", False))
     planned = _reserve_doc(repo_root / doc_kind.directory, doc_kind.prefix, args.slug or args.title, args.dry_run)
 
     template_text = _template_path(Path(__file__), doc_kind.template_name).read_text(encoding="utf-8")
     args.from_version = _resolved_from_version(repo_root, getattr(args, "from_version", None))
-    values = _build_template_values(args, planned.ref, args.title, doc_kind.include_progress, doc_kind.kind)
-    _seed_new_doc_values(doc_kind.kind, args.title, values)
-    values["REFERENCES_SECTION"] = _render_references_section(_collect_reference_items(args.title))
+    values = _build_template_values(
+        args,
+        planned.ref,
+        args.title,
+        doc_kind.include_progress,
+        doc_kind.kind,
+        fixture_mode=fixture_mode,
+    )
+    _seed_new_doc_values(doc_kind.kind, args.title, values, fixture_mode=fixture_mode)
+    reference_items = _collect_reference_items(args.title)
+    if fixture_mode and doc_kind.kind == "request":
+        reference_items.extend(
+            [
+                "logics/skills/logics-flow-manager/scripts/logics_flow.py",
+                "logics/skills/logics-flow-manager/scripts/workflow_audit.py",
+                "logics/skills/tests/run_cli_smoke_checks.py",
+            ]
+        )
+    values["REFERENCES_SECTION"] = _render_references_section(reference_items)
     assessment = _assess_decision_framing(args.title, "")
     product_refs: list[str] = []
     architecture_refs: list[str] = []
@@ -204,6 +221,7 @@ def cmd_new(args: argparse.Namespace) -> None:
         repo_root=repo_root,
         dry_run=args.dry_run,
     )
+    validate_generated_workflow_doc_text(content, doc_kind.kind)
     _write(planned.path, content, args.dry_run)
     if doc_kind.kind in {"backlog", "task"}:
         _print_decision_summary(planned.ref, assessment, product_refs, architecture_refs)
