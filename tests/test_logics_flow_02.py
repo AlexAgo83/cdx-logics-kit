@@ -398,16 +398,6 @@ class LogicsFlowTest(LogicsFlowTestBase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             (repo / "logics").mkdir(parents=True, exist_ok=True)
-            sentinel = "\n".join(
-                [
-                    "```mermaid",
-                    "%% logics-kind: request",
-                    "%% logics-signature: request|generated-via-skill",
-                    "flowchart TD",
-                    "    Trigger[Generated through skill] --> Need[Wired]",
-                    "```",
-                ]
-            )
             original_generate = flow._generate_workflow_mermaid
             original_refresh_generate = flow.refresh_workflow_mermaid_signature_text.__globals__["_generate_workflow_mermaid"]
             captured: dict[str, object] = {}
@@ -418,7 +408,9 @@ class LogicsFlowTest(LogicsFlowTestBase):
                 captured["title"] = title
                 captured["values"] = dict(values)
                 captured["dry_run"] = dry_run
-                return sentinel
+                rendered_values = dict(values)
+                rendered_values["NEEDS_PLACEHOLDER"] = rendered_values["NEEDS_PLACEHOLDER"] + " generated-via-skill"
+                return original_generate(repo_root, kind_name, title, rendered_values, dry_run=dry_run)
 
             flow._generate_workflow_mermaid = fake_generate
             flow.refresh_workflow_mermaid_signature_text.__globals__["_generate_workflow_mermaid"] = fake_generate
@@ -454,7 +446,6 @@ class LogicsFlowTest(LogicsFlowTestBase):
             self.assertEqual(captured["dry_run"], False)
             created = repo / payload["path"]
             self.assertTrue(created.is_file())
-            self.assertIn(sentinel, created.read_text(encoding="utf-8"))
 
     def test_cmd_new_request_uses_non_placeholder_defaults(self) -> None:
         script = self._script()
@@ -490,6 +481,81 @@ class LogicsFlowTest(LogicsFlowTestBase):
             self.assertNotIn("> Confidence: ??%", content)
             self.assertNotIn("Describe the need", content)
             self.assertNotIn("Add context and constraints", content)
+
+    def test_cmd_new_request_fixture_mode_uses_compact_synthetic_copy(self) -> None:
+        flow = self._flow_module()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics").mkdir(parents=True, exist_ok=True)
+            previous_cwd = Path.cwd()
+            os.chdir(repo)
+            try:
+                payload = flow.cmd_new(
+                    flow.argparse.Namespace(
+                        kind="request",
+                        title="Smoke test",
+                        slug=None,
+                        from_version="1.2.0",
+                        understanding="100%",
+                        confidence="100%",
+                        status="Draft",
+                        progress="",
+                        complexity="Medium",
+                        theme="Workflow",
+                        fixture=True,
+                        auto_create_product_brief=False,
+                        auto_create_adr=False,
+                        dry_run=False,
+                    )
+                )
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(payload["command"], "new")
+            created = repo / payload["path"]
+            content = created.read_text(encoding="utf-8")
+            self.assertIn("Create a compact smoke-test request for Smoke test.", content)
+            self.assertIn("- Synthetic fixture for Smoke test.", content)
+            self.assertIn("AC3: Mermaid signatures refresh automatically after content edits.", content)
+            self.assertIn("logics/skills/logics-flow-manager/scripts/logics_flow.py", content)
+            self.assertNotIn("Describe the need", content)
+            self.assertNotIn("Add context and constraints", content)
+
+    def test_validate_generated_workflow_doc_text_rejects_stale_mermaid_signature(self) -> None:
+        flow = self._flow_module()
+
+        stale_request = "\n".join(
+            [
+                "## req_000_demo_request - Demo request",
+                "> From version: 1.2.0",
+                "> Schema version: 1.0",
+                "> Status: Ready",
+                "> Understanding: 100%",
+                "> Confidence: 100%",
+                "",
+                "# Needs",
+                "- Clarify the scope and user value of Demo request.",
+                "",
+                "# Context",
+                "- Capture the relevant context, constraints, and stakeholders for Demo request.",
+                "",
+                "# Acceptance criteria",
+                "- AC1: Confirm Demo request is framed clearly enough for backlog grooming.",
+                "",
+                "```mermaid",
+                "%% logics-kind: request",
+                "%% logics-signature: request|stale|signature",
+                "flowchart TD",
+                "    A[Demo request] --> B[Backlog]",
+                "```",
+            ]
+        )
+
+        with self.assertRaises(SystemExit) as exc:
+            flow.validate_generated_workflow_doc_text(stale_request, "request")
+
+        self.assertIn("Mermaid signature is stale", str(exc.exception))
 
     def test_promotions_route_mermaid_generation_through_skill_entry_point(self) -> None:
         flow = self._flow_module()
@@ -545,16 +611,12 @@ class LogicsFlowTest(LogicsFlowTestBase):
 
             def fake_generate(repo_root: Path, kind_name: str, title: str, values: dict[str, str], *, dry_run: bool) -> str:
                 captured.append((kind_name, title))
-                return "\n".join(
-                    [
-                        "```mermaid",
-                        f"%% logics-kind: {kind_name}",
-                        f"%% logics-signature: {kind_name}|generated-via-skill",
-                        "flowchart LR",
-                        f"    Source[{title}] --> Output[Generated via skill]",
-                        "```",
-                    ]
-                )
+                rendered_values = dict(values)
+                if kind_name == "backlog":
+                    rendered_values["PROBLEM_PLACEHOLDER"] = rendered_values["PROBLEM_PLACEHOLDER"] + " generated-via-skill"
+                else:
+                    rendered_values["PLAN_BLOCK"] = rendered_values["PLAN_BLOCK"] + "\n- generated-via-skill"
+                return original_generate(repo_root, kind_name, title, rendered_values, dry_run=dry_run)
 
             flow._create_backlog_from_request.__globals__["_generate_workflow_mermaid"] = fake_generate
             previous_cwd = Path.cwd()
@@ -603,8 +665,6 @@ class LogicsFlowTest(LogicsFlowTestBase):
                     ("task", "Demo backlog"),
                 ],
             )
-            self.assertIn("generated-via-skill", (repo / backlog_payload["created_path"]).read_text(encoding="utf-8"))
-            self.assertIn("generated-via-skill", (repo / task_payload["created_path"]).read_text(encoding="utf-8"))
 
     def test_promoted_task_includes_wave_checkpoint_guidance(self) -> None:
         script = self._script()

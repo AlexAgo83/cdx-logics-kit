@@ -112,9 +112,12 @@ Create a request, backlog item, or task with auto-incremented IDs:
 
 ```bash
 python logics/skills/logics.py flow new request --title "My first need"
+python logics/skills/logics.py flow new request --title "Smoke test" --fixture
 python logics/skills/logics.py flow new backlog --title "My first need"
 python logics/skills/logics.py flow new task --title "Implement my first need"
 ```
+
+Use `--fixture` or `--smoke-test` when you want a compact synthetic request that stays opinionated and audit-friendly instead of using the full generic request shape.
 
 For backlog/task docs, `logics_flow.py` now evaluates product and architecture signals and writes a `# Decision framing` section. The detection is advisory by default and can auto-create companion docs when the signal is strong:
 
@@ -184,6 +187,7 @@ Promotion now carries forward more of the source doc instead of leaving mostly e
 - seeded AC traceability now carries forward the acceptance-criterion summary instead of only a generic TODO line.
 - request/backlog source context is copied into the next-stage problem/context blocks.
 - `Decision framing` now includes suggested product/architecture follow-up directly in the generated doc, not only in CLI output.
+- the generator prevalidates Mermaid signatures and AC traceability earlier so stale or incomplete workflow docs fail before the audit stage.
 
 ### Split a broad request or backlog item
 

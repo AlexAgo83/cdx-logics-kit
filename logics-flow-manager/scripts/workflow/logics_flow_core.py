@@ -100,6 +100,7 @@ from logics_flow_support import (
     _resolve_doc_path,
     _split_titles,
     _strip_mermaid_blocks,
+    validate_generated_workflow_doc_text,
     _template_path,
     _write,
     refresh_ai_context_text,

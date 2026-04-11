@@ -89,6 +89,9 @@ def build_parser() -> argparse.ArgumentParser:
         kind_parser = new_sub.add_parser(kind, help=f"Create a new {kind} doc.")
         kind_parser.add_argument("--title", required=True)
         kind_parser.add_argument("--slug", help="Override slug derived from the title.")
+        if kind == "request":
+            kind_parser.add_argument("--fixture", action="store_true", help="Generate a compact fixture-friendly request.")
+            kind_parser.add_argument("--smoke-test", action="store_true", dest="fixture", help="Alias for --fixture.")
         _add_common_doc_args(kind_parser, kind)
         kind_parser.set_defaults(func=cmd_new)
 
