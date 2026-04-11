@@ -36,6 +36,7 @@ from workflow_audit import (
     _print_text_report,
     _section_content_line_count,
     _sorted_issues,
+    _scan_hybrid_cache_for_credentials,
     build_parser,
 )
 
@@ -485,6 +486,7 @@ def main(argv: list[str]) -> int:
                 ]
             )
 
+    issues.extend(_scan_hybrid_cache_for_credentials(repo_root))
     sorted_issues = _sorted_issues(issues, repo_root)
 
     if args.format == "json":

@@ -701,6 +701,32 @@ class TestExtractRefs(unittest.TestCase):
         self.assertEqual(refs["req"].count("req_001_x"), 1)
 
 
+class TestHybridProviderDefinition(unittest.TestCase):
+    def setUp(self) -> None:
+        self.mod = _load_module("logics_flow_hybrid_transport_core")
+
+    def test_to_dict_omits_credential_value(self) -> None:
+        provider = self.mod.HybridProviderDefinition(
+            name="openai",
+            execution_kind="http",
+            endpoint="https://example.com",
+            model_profile="demo",
+            model_family="openai",
+            configured_model="gpt-5",
+            model="gpt-5",
+            credential_env="OPENAI_API_KEY",
+            credential_value="super-secret",
+            credential_present=True,
+            enabled=True,
+        )
+
+        data = provider.to_dict()
+
+        self.assertNotIn("credential_value", data)
+        self.assertEqual(data["credential_env"], "OPENAI_API_KEY")
+        self.assertTrue(data["credential_present"])
+
+
 class TestParseFrontmatter(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = _load_module("logics_flow_models")
