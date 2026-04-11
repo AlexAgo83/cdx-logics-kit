@@ -182,7 +182,7 @@ class MermaidGeneratorTest(unittest.TestCase):
                 "%% logics-kind: request",
                 "%% logics-signature: request|unsafe",
                 "flowchart TD",
-                "    Trigger[Expanded trigger] --> Need[Unsafe label]",
+                "    Trigger[Demande \u00e9largie] --> Need[Unsafe label]",
                 "```",
             ]
         )
