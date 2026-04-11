@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import sys
 
-from logics_flow_cli_commands import *  # noqa: F401,F403
+from _compat_export import export_module
+
+export_module("workflow.logics_flow", globals())
 
 if __name__ == "__main__":
-    from logics_flow_cli_commands import main as cli_main
-
-    raise SystemExit(cli_main(sys.argv[1:]))
+    raise SystemExit(globals()["main"](sys.argv[1:]))
