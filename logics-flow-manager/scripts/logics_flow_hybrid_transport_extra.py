@@ -1,5 +1,7 @@
 from __future__ import annotations
 
-from _compat_export import export_module
+from pathlib import Path
 
-export_module("transport.logics_flow_hybrid_transport_extra", globals())
+_source_path = Path(__file__).resolve().parent / 'transport/logics_flow_hybrid_transport_extra.py'
+__file__ = str(_source_path)
+exec(compile(_source_path.read_text(encoding="utf-8"), str(_source_path), "exec"), globals())
