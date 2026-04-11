@@ -61,6 +61,11 @@ TOKEN_HYGIENE_SECTION_LIMITS: dict[str, dict[str, int]] = {
     "task": {"Context": 16, "Report": 16},
 }
 
+HYBRID_CACHE_JSONL_FILES = (
+    Path("logics/.cache/hybrid_assist_audit.jsonl"),
+    Path("logics/.cache/hybrid_assist_measurements.jsonl"),
+)
+
 
 @dataclass
 class DocMeta:
@@ -224,6 +229,34 @@ def _is_done(doc: DocMeta) -> bool:
     if doc.kind.has_progress and doc.progress == 100:
         return True
     return False
+
+
+def _scan_hybrid_cache_for_credentials(repo_root: Path) -> list[AuditIssue]:
+    issues: list[AuditIssue] = []
+    for rel_path in HYBRID_CACHE_JSONL_FILES:
+        cache_path = repo_root / rel_path
+        if not cache_path.exists():
+            continue
+        try:
+            content = cache_path.read_text(encoding="utf-8")
+        except OSError as error:
+            issues.append(
+                AuditIssue(
+                    code="hybrid_cache_unreadable",
+                    path=cache_path,
+                    message=f"could not read cache file: {error}",
+                )
+            )
+            continue
+        if "credential_value" in content:
+            issues.append(
+                AuditIssue(
+                    code="hybrid_cache_contains_credential_value",
+                    path=cache_path,
+                    message="cache file contains credential_value and must not store secrets",
+                )
+            )
+    return issues
 
 
 def _collect_docs(repo_root: Path) -> dict[str, DocMeta]:

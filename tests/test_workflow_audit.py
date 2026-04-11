@@ -370,6 +370,30 @@ class WorkflowAuditTest(unittest.TestCase):
             self.assertIn("# AI Context", task_text)
             self.assertIn("# Definition of Done (DoD)", task_text)
 
+    def test_cache_secret_scan_rejects_credential_values(self) -> None:
+        script = Path(__file__).resolve().parents[1] / "logics-flow-manager" / "scripts" / "workflow_audit.py"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "logics" / ".cache").mkdir(parents=True)
+            (repo / "logics" / ".cache" / "hybrid_assist_audit.jsonl").write_text(
+                '{"credential_value":"super-secret"}\n',
+                encoding="utf-8",
+            )
+
+            completed = subprocess.run(
+                [sys.executable, str(script), "--format", "json", "--skip-ac-traceability", "--skip-gates"],
+                cwd=repo,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 1, completed.stderr)
+            payload = json.loads(completed.stdout)
+            self.assertIn("hybrid_cache_contains_credential_value", payload["counts"]["by_code"])
+
 
 if __name__ == "__main__":
     unittest.main()

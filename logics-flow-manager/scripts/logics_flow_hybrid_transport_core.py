@@ -35,6 +35,20 @@ class HybridProviderDefinition:
     credential_present: bool = False
     enabled: bool = True
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "execution_kind": self.execution_kind,
+            "endpoint": self.endpoint,
+            "model_profile": self.model_profile,
+            "model_family": self.model_family,
+            "configured_model": self.configured_model,
+            "model": self.model,
+            "credential_env": self.credential_env,
+            "credential_present": self.credential_present,
+            "enabled": self.enabled,
+        }
+
 
 def _is_noisy_diff_path(path_value: Any) -> bool:
     if not isinstance(path_value, str):
@@ -978,4 +992,3 @@ def run_openai_hybrid_impl(
         "raw_content": content,
         "result_payload": result_payload,
     }
-
