@@ -71,7 +71,7 @@ class WorkflowAuditTest(unittest.TestCase):
                     "- [ ] 1. demo",
                     "",
                     "# Links",
-                    "- Backlog item: `item_000_demo_item`",
+                    "- Derived from `item_000_demo_item`",
                     "",
                     "# Definition of Done (DoD)",
                     "- [ ] Scope implemented and acceptance criteria covered.",

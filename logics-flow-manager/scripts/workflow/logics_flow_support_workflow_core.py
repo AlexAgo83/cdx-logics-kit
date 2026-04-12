@@ -615,7 +615,11 @@ def _workflow_mermaid_values_from_doc(text: str, kind_name: str) -> dict[str, st
                 "Validation",
                 "- Run the relevant automated tests before closing the current wave or step.",
             ),
-            "BACKLOG_LINK_PLACEHOLDER": _ref_placeholder(ref_text, REF_PREFIXES["backlog"]),
+            "BACKLOG_LINK_PLACEHOLDER": _ref_placeholder(
+                ref_text,
+                REF_PREFIXES["backlog"],
+                "(add: Derived from `logics/backlog/item_XXX_...`)",
+            ),
         }
 
     raise ValueError(f"Unsupported Mermaid workflow kind: {kind_name}")

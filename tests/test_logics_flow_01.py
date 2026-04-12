@@ -78,7 +78,7 @@ class LogicsFlowTest(LogicsFlowTestBase):
                     "> Progress: 80%",
                     "",
                     "# Links",
-                    "- Backlog item: `item_000_harden_windows_support_for_extension_workflow_actions_and_runtime_detection`",
+                    "- Derived from `item_000_harden_windows_support_for_extension_workflow_actions_and_runtime_detection`",
                     "",
                     "```mermaid",
                     "%% logics-kind: task",

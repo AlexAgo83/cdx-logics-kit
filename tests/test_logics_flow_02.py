@@ -289,7 +289,7 @@ class LogicsFlowTest(LogicsFlowTestBase):
                     "> Progress: 80%",
                     "",
                     "# Links",
-                    "- Backlog item: `item_000_demo_item`",
+                    "- Derived from `item_000_demo_item`",
                     "",
                     "# Validation",
                     "- Existing validation",

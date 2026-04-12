@@ -232,7 +232,7 @@ class LogicsFlowTest(LogicsFlowTestBase):
                     "- Skip when: Skip when another task is active.",
                     "",
                     "# Links",
-                    "- Backlog item: `item_000_context_seed`",
+                    "- Derived from `item_000_context_seed`",
                 ],
             )
 
@@ -472,7 +472,7 @@ class LogicsFlowTest(LogicsFlowTestBase):
                     "- Provide a deterministic runner for local dispatch.",
                     "",
                     "# Links",
-                    "- Backlog item: `item_000_dispatch_seed`",
+                    "- Derived from `item_000_dispatch_seed`",
                 ],
             )
 

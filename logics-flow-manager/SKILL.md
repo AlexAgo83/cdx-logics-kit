@@ -151,6 +151,12 @@ Generated tasks now include explicit wave checkpoints:
 - if the shared AI runtime is active and healthy, use `python logics/skills/logics.py flow assist commit-all` for the commit checkpoint of each meaningful step, item, or wave.
 - do not mark a wave or step complete until the relevant automated tests and quality checks have been run successfully.
 
+When one orchestration task covers multiple backlog items:
+
+- put one `- Derived from \`...\`` line per linked backlog item in the task `# Links` section;
+- keep the lines explicit even when the task is a parent wave that spans several backlog slices;
+- prefer the repo-relative backlog path so the generated task stays traceable without extra lookup.
+
 Run workflow coherence audit:
 
 ```bash

@@ -38,7 +38,7 @@
 # Links
 - Product brief(s): {{PRODUCT_LINK_PLACEHOLDER}}
 - Architecture decision(s): {{ARCHITECTURE_LINK_PLACEHOLDER}}
-- Backlog item: {{BACKLOG_LINK_PLACEHOLDER}}
+- Derived from {{BACKLOG_LINK_PLACEHOLDER}}
 - Request(s): {{REQUEST_LINK_PLACEHOLDER}}
 
 # AI Context
