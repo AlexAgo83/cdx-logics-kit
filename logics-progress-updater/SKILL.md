@@ -20,4 +20,5 @@ python logics/skills/logics-progress-updater/scripts/update_indicators.py logics
 - Update `Progress` as checkpoints are completed, not as time passes.
 - Set `Complexity` when scope changes (Low/Medium/High).
 - Set `Theme` when the epic/theme classification changes.
+- If the edit is explicitly non-semantic, you can keep the indicators stable and add a `> Maintenance edit:` or `> Non-semantic edit:` note so the linter does not force a false bump.
 - For `product` and `architecture` docs, update `Status`, linked refs, `Drivers`, and `Reminder` when the framing changes.

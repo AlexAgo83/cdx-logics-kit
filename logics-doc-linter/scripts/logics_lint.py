@@ -81,6 +81,10 @@ TEMPLATE_PLACEHOLDER_SNIPPETS = (
     "Second implementation step",
     "Third implementation step",
 )
+NON_SEMANTIC_EDIT_MARKERS = (
+    "> Maintenance edit:",
+    "> Non-semantic edit:",
+)
 BLOCKING_TRACEABILITY_PLACEHOLDER_SNIPPETS = (
     "Proof: TODO",
     "TODO: map this acceptance criterion",
@@ -392,6 +396,11 @@ def _diff_is_mermaid_signature_only(repo_root: Path, rel_path: Path) -> bool:
     return saw_change
 
 
+def _has_non_semantic_edit_marker(lines: list[str]) -> bool:
+    text = "\n".join(lines)
+    return any(marker in text for marker in NON_SEMANTIC_EDIT_MARKERS)
+
+
 def _workflow_status_is_active(lines: list[str]) -> bool:
     status_value = _indicator_value(lines, "Status")
     if status_value is None:
@@ -511,6 +520,7 @@ def main(argv: list[str]) -> int:
                     not _diff_has_indicator_changes(repo_root, rel_path, required)
                     and not _diff_is_status_only_normalization(repo_root, rel_path)
                     and not _diff_is_mermaid_signature_only(repo_root, rel_path)
+                    and not _has_non_semantic_edit_marker(_read_lines(path))
                 ):
                     issues.append(
                         "modified without updating indicators: "
