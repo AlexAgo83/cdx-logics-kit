@@ -37,6 +37,7 @@
 - Architecture decision(s): {{ARCHITECTURE_LINK_PLACEHOLDER}}
 - Request: {{REQUEST_LINK_PLACEHOLDER}}
 - Primary task(s): {{TASK_LINK_PLACEHOLDER}}
+<!-- When creating a task from this item, add: Derived from `this file path` in the task # Links section -->
 
 # AI Context
 - Summary: {{AI_SUMMARY_PLACEHOLDER}}
