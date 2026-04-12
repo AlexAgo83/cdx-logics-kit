@@ -27,3 +27,4 @@ python logics/skills/logics-doc-linter/scripts/logics_lint.py --require-status
   - blocking errors for critical indicator placeholders such as `X.X.X` and `??%`
   - warning-level reporting for leftover template filler text such as `Describe the need` or `Add context and constraints`
   - warning-level reporting for generic Mermaid scaffolds or missing/stale `%% logics-signature` comments in workflow Mermaid blocks
+  - if a doc edit is explicitly non-semantic, add a marker such as `> Maintenance edit:` or `> Non-semantic edit:` in the doc so the linter can keep indicators stable without guessing intent
