@@ -1,5 +1,10 @@
 # cdx-logics-kit
 
+> Deprecated: this repository is superseded by [`AlexAgo83/logics-manager`](https://github.com/AlexAgo83/logics-manager).
+>
+> Logics v2 now lives in the monorepo and replaces the standalone kit/plugin split.
+> If you are starting fresh, use `logics-manager` instead of importing this repository as a submodule.
+
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
@@ -371,7 +376,7 @@ python logics/skills/logics-flow-manager/scripts/logics_flow.py sync context-pac
 
 This keeps the Markdown corpus reviewable while giving downstream tools a lighter artifact to inject into Codex or other agents.
 
-Note: request → backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
+Note: request -> backlog promotion should keep cross‑references in sync (backlog item notes reference the request, and the request lists generated backlog items in a `# Backlog` section).
 
 ### Lint Logics docs
 
@@ -488,7 +493,7 @@ Normalization note:
 
 ## Connectors
 
-### Linear connector (issues → Logics backlog)
+### Linear connector (issues -> Logics backlog)
 
 Prereqs: `LINEAR_API_KEY` (and optionally `LINEAR_API_URL`, `LINEAR_API_TEAM_ID`). For Linear API keys, use `Authorization: $LINEAR_API_KEY` (no `Bearer` prefix).
 
@@ -504,7 +509,7 @@ Import an issue as a backlog item:
 python logics/skills/logics-connector-linear/scripts/linear_to_backlog.py --issue "CIR-42"
 ```
 
-### Figma connector (nodes → export / Logics backlog)
+### Figma connector (nodes -> export / Logics backlog)
 
 Prereqs: `FIGMA_TOKEN_PAT` (header `X-Figma-Token`) and a `FIGMA_FILE_KEY`.
 
@@ -529,7 +534,7 @@ python logics/skills/logics-connector-figma/scripts/figma_to_backlog.py \
   --file-key "$FIGMA_FILE_KEY" --node-id "1744:4185" --export
 ```
 
-### Confluence connector (pages → Logics requests)
+### Confluence connector (pages -> Logics requests)
 
 Prereqs: `CONFLUENCE_DOMAIN` (preferred, `CONFLUENCE_DOMAINE` legacy alias is also supported), `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`.
 
@@ -537,7 +542,7 @@ Search pages (CQL):
 
 ```bash
 python logics/skills/logics-connector-confluence/scripts/confluence_search_pages.py \
-  --cql "space=dt AND text~\\\"flotauto\\\"" --limit 10
+  --cql "space=dt AND text~\"flotauto\"" --limit 10
 ```
 
 Import a page as a request (stores Confluence HTML as context):
@@ -546,7 +551,7 @@ Import a page as a request (stores Confluence HTML as context):
 python logics/skills/logics-connector-confluence/scripts/confluence_to_request.py --page-id 234913873
 ```
 
-### Jira connector (issues → Logics backlog)
+### Jira connector (issues -> Logics backlog)
 
 Prereqs: `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`.
 
@@ -563,7 +568,7 @@ Import an issue as a backlog item:
 python logics/skills/logics-connector-jira/scripts/jira_to_backlog.py --issue "CIR-123"
 ```
 
-### Render connector (services/deploys/plans → Logics backlog)
+### Render connector (services/deploys/plans -> Logics backlog)
 
 Prereqs: `RENDER_API_KEY` (Bearer API key). Optional: `RENDER_API_BASE_URL`, `RENDER_OPENAPI_URL`.
 
