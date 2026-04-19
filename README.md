@@ -1,10 +1,5 @@
 # cdx-logics-kit
 
-> Deprecated: this repository is superseded by [`AlexAgo83/logics-manager`](https://github.com/AlexAgo83/logics-manager).
->
-> Logics v2 now lives in the monorepo and replaces the standalone kit/plugin split.
-> If you are starting fresh, use `logics-manager` instead of importing this repository as a submodule.
-
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
