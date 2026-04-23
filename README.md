@@ -1,5 +1,10 @@
 # cdx-logics-kit
 
+> [!WARNING]
+> This repository is obsolete and deprecated.
+> Please migrate to Logics 2.0 on `https://github.com/AlexAgo83/logics-manager`.
+> New setup, maintenance, and releases now happen in `logics-manager`, not in `cdx-logics-kit`.
+
 <p align="center">
   <a href="https://github.com/AlexAgo83/cdx-logics-kit"><img src="https://img.shields.io/badge/repo-AlexAgo83%2Fcdx--logics--kit-24292F?logo=github&logoColor=white" alt="Repository" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/github/license/AlexAgo83/cdx-logics-kit" alt="License" /></a>
@@ -10,6 +15,12 @@
 </p>
 
 A reusable Logics kit to import into your projects under `logics/skills/`.
+
+For new installs and migrations, use `logics-manager` 2.0 instead:
+
+- New canonical repository: `https://github.com/AlexAgo83/logics-manager`
+- Migration target: `logics-manager` 2.0
+- This repository is kept only for older setups that have not migrated yet
 
 The goal is simple: turn project context into a maintained asset instead of leaving it trapped in issue trackers, AI chats, and tribal memory.
 
@@ -56,9 +67,19 @@ flowchart LR
     Audit --> Memory[Reusable project memory]
 ```
 
+## Migration Notice
+
+`cdx-logics-kit` is no longer the recommended entrypoint.
+
+If you are starting fresh, or updating an older Logics installation, move to:
+
+- `https://github.com/AlexAgo83/logics-manager`
+
+The 2.0 line consolidates the VS Code extension, runtime, packaging, and CLI under a single maintained product surface.
+
 ## VS Code extension
 
-Related project (VS Code extension for Logics): `https://github.com/AlexAgo83/cdx-logics-vscode`.
+Legacy related project (now also deprecated): `https://github.com/AlexAgo83/cdx-logics-vscode`.
 
 ## Prerequisites
 
